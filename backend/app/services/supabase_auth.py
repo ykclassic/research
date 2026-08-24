@@ -15,6 +15,18 @@ class AuthConfigurationError(AuthServiceError):
     """Raised when Supabase Auth configuration is missing."""
 
 
+class AuthInvalidCredentialsError(AuthServiceError):
+    """Raised when Supabase rejects the supplied credentials."""
+
+
+class AuthEmailNotConfirmedError(AuthServiceError):
+    """Raised when Supabase requires email confirmation before sign-in."""
+
+
+class AuthUnavailableError(AuthServiceError):
+    """Raised when the Supabase Auth service cannot be reached or is unavailable."""
+
+
 def _require_config() -> tuple[str, str]:
     if not settings.supabase_url or not settings.supabase_publishable_key:
         raise AuthConfigurationError("Supabase Auth is not configured.")
@@ -26,18 +38,49 @@ def _headers() -> dict[str, str]:
     return {"apikey": key, "Content-Type": "application/json"}
 
 
-def _raise_auth_error(response: httpx.Response) -> None:
+def _response_message(response: httpx.Response) -> str:
     try:
         payload: Any = response.json()
-        message = payload.get("msg") or payload.get("message") or payload.get("error_description")
+        if isinstance(payload, dict):
+            message = (
+                payload.get("msg")
+                or payload.get("message")
+                or payload.get("error_description")
+                or payload.get("error")
+            )
+            if message:
+                return str(message)
     except ValueError:
-        message = None
-    raise AuthServiceError(message or "Authentication request failed.")
+        pass
+    return "Authentication request failed."
+
+
+def _raise_auth_error(response: httpx.Response) -> None:
+    message = _response_message(response)
+    normalized = message.lower()
+
+    if response.status_code in {400, 401}:
+        if "email not confirmed" in normalized or "email_not_confirmed" in normalized:
+            raise AuthEmailNotConfirmedError(message)
+        raise AuthInvalidCredentialsError(message)
+
+    if response.status_code == 429 or response.status_code >= 500:
+        raise AuthUnavailableError(message)
+
+    raise AuthServiceError(message)
 
 
 def sign_up(email: str, password: str) -> dict[str, Any]:
     base_url, _ = _require_config()
-    response = httpx.post(f"{base_url}/auth/v1/signup", headers=_headers(), json={"email": email, "password": password}, timeout=settings.http_timeout_seconds)
+    try:
+        response = httpx.post(
+            f"{base_url}/auth/v1/signup",
+            headers=_headers(),
+            json={"email": email, "password": password},
+            timeout=settings.http_timeout_seconds,
+        )
+    except httpx.RequestError as exc:
+        raise AuthUnavailableError("Authentication service is unavailable.") from exc
     if response.status_code >= 400:
         _raise_auth_error(response)
     return response.json()
@@ -45,7 +88,15 @@ def sign_up(email: str, password: str) -> dict[str, Any]:
 
 def sign_in(email: str, password: str) -> dict[str, Any]:
     base_url, _ = _require_config()
-    response = httpx.post(f"{base_url}/auth/v1/token?grant_type=password", headers=_headers(), json={"email": email, "password": password}, timeout=settings.http_timeout_seconds)
+    try:
+        response = httpx.post(
+            f"{base_url}/auth/v1/token?grant_type=password",
+            headers=_headers(),
+            json={"email": email, "password": password},
+            timeout=settings.http_timeout_seconds,
+        )
+    except httpx.RequestError as exc:
+        raise AuthUnavailableError("Authentication service is unavailable.") from exc
     if response.status_code >= 400:
         _raise_auth_error(response)
     return response.json()
@@ -53,7 +104,14 @@ def sign_in(email: str, password: str) -> dict[str, Any]:
 
 def get_user(access_token: str) -> dict[str, Any]:
     base_url, _ = _require_config()
-    response = httpx.get(f"{base_url}/auth/v1/user", headers={**_headers(), "Authorization": f"Bearer {access_token}"}, timeout=settings.http_timeout_seconds)
+    try:
+        response = httpx.get(
+            f"{base_url}/auth/v1/user",
+            headers={**_headers(), "Authorization": f"Bearer {access_token}"},
+            timeout=settings.http_timeout_seconds,
+        )
+    except httpx.RequestError as exc:
+        raise AuthUnavailableError("Authentication service is unavailable.") from exc
     if response.status_code >= 400:
         _raise_auth_error(response)
     return response.json()
@@ -61,6 +119,13 @@ def get_user(access_token: str) -> dict[str, Any]:
 
 def sign_out(access_token: str) -> None:
     base_url, _ = _require_config()
-    response = httpx.post(f"{base_url}/auth/v1/logout", headers={**_headers(), "Authorization": f"Bearer {access_token}"}, timeout=settings.http_timeout_seconds)
+    try:
+        response = httpx.post(
+            f"{base_url}/auth/v1/logout",
+            headers={**_headers(), "Authorization": f"Bearer {access_token}"},
+            timeout=settings.http_timeout_seconds,
+        )
+    except httpx.RequestError as exc:
+        raise AuthUnavailableError("Authentication service is unavailable.") from exc
     if response.status_code >= 400:
         _raise_auth_error(response)
