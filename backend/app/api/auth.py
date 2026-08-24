@@ -9,7 +9,10 @@ from pydantic import BaseModel, EmailStr, Field
 from app.config import settings
 from app.services.supabase_auth import (
     AuthConfigurationError,
+    AuthEmailNotConfirmedError,
+    AuthInvalidCredentialsError,
     AuthServiceError,
+    AuthUnavailableError,
     get_user,
     sign_in,
     sign_out,
@@ -81,10 +84,16 @@ def _map_user(payload: dict[str, Any]) -> UserResponse:
     )
 
 
-def _auth_error(exc: Exception) -> HTTPException:
+def _auth_error(exc: AuthServiceError) -> HTTPException:
     if isinstance(exc, AuthConfigurationError):
         return HTTPException(status_code=503, detail="Authentication service is not configured.")
-    return HTTPException(status_code=401, detail="Invalid email or password.")
+    if isinstance(exc, AuthUnavailableError):
+        return HTTPException(status_code=503, detail="Authentication service is temporarily unavailable.")
+    if isinstance(exc, AuthEmailNotConfirmedError):
+        return HTTPException(status_code=403, detail="Email address has not been confirmed.")
+    if isinstance(exc, AuthInvalidCredentialsError):
+        return HTTPException(status_code=401, detail="Invalid email or password.")
+    return HTTPException(status_code=401, detail="Authentication failed.")
 
 
 def get_current_user(
@@ -109,7 +118,7 @@ async def register(credentials: Credentials) -> UserResponse:
         payload = sign_up(credentials.email.strip().lower(), credentials.password)
     except AuthServiceError as exc:
         detail = str(exc)
-        code = 503 if isinstance(exc, AuthConfigurationError) else 400
+        code = 503 if isinstance(exc, (AuthConfigurationError, AuthUnavailableError)) else 400
         if "already" in detail.lower() or "registered" in detail.lower():
             code = 409
         raise HTTPException(status_code=code, detail=detail) from exc
