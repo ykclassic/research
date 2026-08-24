@@ -1,40 +1,10 @@
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import {
-  Activity,
-  AlertTriangle,
-  Check,
-  Clock3,
-  LogOut,
-  Plus,
-  RefreshCw,
-  ShieldCheck,
-  Star,
-  Trash2,
-  Pencil,
-  X,
-} from "lucide-react";
-import {
-  ApiError,
-  addWatchlistSymbol,
-  confirmPasswordReset,
-  createWatchlist,
-  deleteWatchlist,
-  getCurrentUser,
-  getQuotes,
-  getWatchlists,
-  login,
-  logout,
-  Quote,
-  register,
-  removeWatchlistSymbol,
-  renameWatchlist,
-  requestPasswordReset,
-  User,
-  Watchlist,
-} from "./api";
+import { Activity, AlertTriangle, Check, Clock3, LogOut, Plus, RefreshCw, ShieldCheck, Star, Trash2, Pencil, X } from "lucide-react";
+import { ApiError, addWatchlistSymbol, confirmPasswordReset, createWatchlist, deleteWatchlist, getCurrentUser, getQuotes, getWatchlists, login, logout, Quote, register, removeWatchlistSymbol, renameWatchlist, requestPasswordReset, User, Watchlist } from "./api";
 
 const SYMBOLS = ["BTC/USD", "ETH/USD", "SOL/USD", "EUR/USD", "GBP/USD", "USD/JPY", "NVDA", "AAPL", "MSFT", "SPY"];
 type AuthMode = "login" | "register" | "forgot" | "reset";
+type AppPage = "market" | "watchlists";
 
 function formatPrice(price: number | null): string {
   if (price === null) return "—";
@@ -42,14 +12,11 @@ function formatPrice(price: number | null): string {
   if (price >= 1) return price.toLocaleString(undefined, { maximumFractionDigits: 5 });
   return price.toLocaleString(undefined, { maximumFractionDigits: 8 });
 }
-
 function formatTime(timestamp: string | null): string {
   if (!timestamp) return "No timestamp";
   const date = new Date(timestamp);
-  if (Number.isNaN(date.getTime())) return "Invalid timestamp";
-  return date.toLocaleTimeString();
+  return Number.isNaN(date.getTime()) ? "Invalid timestamp" : date.toLocaleTimeString();
 }
-
 function statusClass(status: Quote["status"]): string {
   if (status === "LIVE") return "live";
   if (status === "MARKET_CLOSED") return "closed";
@@ -72,344 +39,74 @@ function AuthScreen({ onAuthenticated }: { onAuthenticated: (user: User) => void
     const hash = new URLSearchParams(window.location.hash.replace(/^#/, ""));
     const token = hash.get("access_token");
     const recovery = hash.get("type") === "recovery" || params.get("reset") === "1";
-    if (token && recovery) {
-      setResetToken(token);
-      setMode("reset");
-      setError(null);
-      setSuccess(null);
-    } else if (params.get("reset") === "1") {
-      setMode("forgot");
-    }
+    if (token && recovery) { setResetToken(token); setMode("reset"); }
+    else if (params.get("reset") === "1") setMode("forgot");
   }, []);
-
   const clearRecoveryUrl = () => window.history.replaceState({}, document.title, window.location.pathname);
-
-  const switchMode = (nextMode: AuthMode) => {
-    setMode(nextMode);
-    setError(null);
-    setSuccess(null);
-    setPassword("");
-    setConfirmPassword("");
-    if (nextMode !== "reset") setResetToken(null);
-  };
-
+  const switchMode = (next: AuthMode) => { setMode(next); setError(null); setSuccess(null); setPassword(""); setConfirmPassword(""); if (next !== "reset") setResetToken(null); };
   const submit = async (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    setError(null);
-    setSuccess(null);
-    if ((mode === "register" || mode === "reset") && password !== confirmPassword) {
-      setError("Passwords do not match.");
-      return;
-    }
+    event.preventDefault(); setError(null); setSuccess(null);
+    if ((mode === "register" || mode === "reset") && password !== confirmPassword) { setError("Passwords do not match."); return; }
     setBusy(true);
     try {
-      if (mode === "login") {
-        const user = await login(email.trim(), password);
-        onAuthenticated(user);
-        return;
-      }
-      if (mode === "register") {
-        await register(email.trim(), password);
-        setMode("login");
-        setPassword("");
-        setConfirmPassword("");
-        setSuccess("Registration successful. Please sign in with your new account.");
-        return;
-      }
-      if (mode === "forgot") {
-        const message = await requestPasswordReset(email.trim());
-        setSuccess(message);
-        return;
-      }
-      if (!resetToken) {
-        setError("Password reset link is missing or invalid.");
-        return;
-      }
-      const message = await confirmPasswordReset(resetToken, password);
-      clearRecoveryUrl();
-      setResetToken(null);
-      setMode("login");
-      setPassword("");
-      setConfirmPassword("");
-      setSuccess(message);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Authentication failed.");
-    } finally {
-      setBusy(false);
-    }
+      if (mode === "login") { onAuthenticated(await login(email.trim(), password)); return; }
+      if (mode === "register") { await register(email.trim(), password); setMode("login"); setPassword(""); setConfirmPassword(""); setSuccess("Registration successful. Please sign in with your new account."); return; }
+      if (mode === "forgot") { setSuccess(await requestPasswordReset(email.trim())); return; }
+      if (!resetToken) { setError("Password reset link is missing or invalid."); return; }
+      setSuccess(await confirmPasswordReset(resetToken, password)); clearRecoveryUrl(); setResetToken(null); setMode("login"); setPassword(""); setConfirmPassword("");
+    } catch (err) { setError(err instanceof Error ? err.message : "Authentication failed."); }
+    finally { setBusy(false); }
   };
-
   const title = mode === "login" ? "Welcome back" : mode === "register" ? "Create your account" : mode === "forgot" ? "Reset your password" : "Choose a new password";
-  const subtitle = mode === "login"
-    ? "Sign in to access validated market research."
-    : mode === "register"
-      ? "Create an account to access the research dashboard."
-      : mode === "forgot"
-        ? "Enter your account email and we will send a secure reset link."
-        : "Enter a new password for your account.";
-
-  return (
-    <div className="auth-page">
-      <div className="auth-card">
-        <div className="eyebrow">Adaptive Intelligence</div>
-        <h1>{title}</h1>
-        <p className="auth-subtitle">{subtitle}</p>
-        {success && <div className="auth-success" role="status">{success}</div>}
-        {error && <div className="error auth-error" role="alert"><AlertTriangle size={17} />{error}</div>}
-        <form onSubmit={submit} className="auth-form">
-          {(mode === "login" || mode === "register" || mode === "forgot") && (
-            <label>Email<input type="email" autoComplete="email" value={email} onChange={(event) => setEmail(event.target.value)} required /></label>
-          )}
-          {(mode === "login" || mode === "register" || mode === "reset") && (
-            <label>Password<input type="password" autoComplete={mode === "login" ? "current-password" : "new-password"} value={password} onChange={(event) => setPassword(event.target.value)} minLength={8} required /></label>
-          )}
-          {(mode === "register" || mode === "reset") && (
-            <label>Confirm password<input type="password" autoComplete="new-password" value={confirmPassword} onChange={(event) => setConfirmPassword(event.target.value)} minLength={8} required /></label>
-          )}
-          <button className="auth-submit" type="submit" disabled={busy}>{busy ? "Please wait…" : mode === "login" ? "Sign in" : mode === "register" ? "Register" : mode === "forgot" ? "Send reset link" : "Update password"}</button>
-        </form>
-        {mode === "login" && <button className="auth-switch" type="button" onClick={() => switchMode("forgot")}>Forgot your password?</button>}
-        {mode === "login" && <button className="auth-switch" type="button" onClick={() => switchMode("register")}>Need an account? Register</button>}
-        {mode === "register" && <button className="auth-switch" type="button" onClick={() => switchMode("login")}>Already registered? Sign in</button>}
-        {mode === "forgot" && <button className="auth-switch" type="button" onClick={() => switchMode("login")}>Back to Sign in</button>}
-        {mode === "reset" && <button className="auth-switch" type="button" onClick={() => { clearRecoveryUrl(); switchMode("login"); }}>Back to Sign in</button>}
-      </div>
-    </div>
-  );
+  const subtitle = mode === "login" ? "Sign in to access validated market research." : mode === "register" ? "Create an account to access the research dashboard." : mode === "forgot" ? "Enter your account email and we will send a secure reset link." : "Enter a new password for your account.";
+  return <div className="auth-page"><div className="auth-card"><div className="eyebrow">Adaptive Intelligence</div><h1>{title}</h1><p className="auth-subtitle">{subtitle}</p>{success && <div className="auth-success" role="status">{success}</div>}{error && <div className="error auth-error" role="alert"><AlertTriangle size={17}/>{error}</div>}<form onSubmit={submit} className="auth-form">
+    {(mode === "login" || mode === "register" || mode === "forgot") && <label>Email<input type="email" autoComplete="email" value={email} onChange={e => setEmail(e.target.value)} required /></label>}
+    {(mode === "login" || mode === "register" || mode === "reset") && <label>Password<input type="password" autoComplete={mode === "login" ? "current-password" : "new-password"} value={password} onChange={e => setPassword(e.target.value)} minLength={8} required /></label>}
+    {(mode === "register" || mode === "reset") && <label>Confirm password<input type="password" autoComplete="new-password" value={confirmPassword} onChange={e => setConfirmPassword(e.target.value)} minLength={8} required /></label>}
+    <button className="auth-submit" type="submit" disabled={busy}>{busy ? "Please wait…" : mode === "login" ? "Sign in" : mode === "register" ? "Register" : mode === "forgot" ? "Send reset link" : "Update password"}</button></form>
+    {mode === "login" && <><button className="auth-switch" type="button" onClick={() => switchMode("forgot")}>Forgot your password?</button><button className="auth-switch" type="button" onClick={() => switchMode("register")}>Need an account? Register</button></>}
+    {mode === "register" && <button className="auth-switch" type="button" onClick={() => switchMode("login")}>Already registered? Sign in</button>}
+    {mode === "forgot" && <button className="auth-switch" type="button" onClick={() => switchMode("login")}>Back to Sign in</button>}
+    {mode === "reset" && <button className="auth-switch" type="button" onClick={() => { clearRecoveryUrl(); switchMode("login"); }}>Back to Sign in</button>}
+  </div></div>;
 }
 
-function Dashboard({ user, onLogout }: { user: User; onLogout: () => void }) {
-  const [watchlists, setWatchlists] = useState<Watchlist[]>([]);
-  const [activeWatchlistId, setActiveWatchlistId] = useState<string | null>(null);
-  const [quotes, setQuotes] = useState<Quote[]>([]);
-  const [selected, setSelected] = useState<string | null>(null);
-  const [loadingWorkspace, setLoadingWorkspace] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
-  const [action, setAction] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [notice, setNotice] = useState<string | null>(null);
-  const [showCreate, setShowCreate] = useState(false);
-  const [newWatchlistName, setNewWatchlistName] = useState("");
-  const [editingId, setEditingId] = useState<string | null>(null);
-  const [editingName, setEditingName] = useState("");
-  const [symbolToAdd, setSymbolToAdd] = useState(SYMBOLS[0]);
-  const [search, setSearch] = useState("");
-  const requestInFlight = useRef(false);
-  const refreshSecondsRaw = Number(import.meta.env.VITE_QUOTE_REFRESH_SECONDS ?? 60);
-  const refreshSeconds = Number.isFinite(refreshSecondsRaw) && refreshSecondsRaw >= 10 ? refreshSecondsRaw : 60;
+function Header({ user, page, setPage, onLogout, onRefresh, refreshing, disabled }: { user: User; page: AppPage; setPage: (p: AppPage) => void; onLogout: () => void; onRefresh?: () => void; refreshing?: boolean; disabled?: boolean }) {
+  const signOut = async () => { try { await logout(); } finally { onLogout(); } };
+  return <header className="topbar"><div><div className="eyebrow">Adaptive Intelligence</div><h1>Market Research</h1></div><nav className="main-nav" aria-label="Research sections"><button className={`nav-button ${page === "market" ? "active" : ""}`} onClick={() => setPage("market")}>Market Data</button><button className={`nav-button ${page === "watchlists" ? "active" : ""}`} onClick={() => setPage("watchlists")}>Watchlists</button></nav><div className="topbar-actions"><span className="user-email">{user.email}</span>{onRefresh && <button className="refresh" onClick={onRefresh} disabled={Boolean(refreshing || disabled)}><RefreshCw size={16} className={refreshing ? "spin" : ""}/>{refreshing ? "Refreshing" : "Refresh prices"}</button>}<button className="logout" onClick={() => void signOut()}><LogOut size={16}/>Sign out</button></div></header>;
+}
 
-  const activeWatchlist = useMemo(() => watchlists.find((item) => item.id === activeWatchlistId) ?? watchlists[0] ?? null, [activeWatchlistId, watchlists]);
-  const activeSymbols = activeWatchlist?.watchlist_items.map((item) => item.symbol) ?? [];
-  const selectedQuote = useMemo(() => quotes.find((quote) => quote.symbol === selected), [quotes, selected]);
-  const availableSymbols = useMemo(() => {
-    const query = search.trim().toUpperCase();
-    return SYMBOLS.filter((symbol) => !query || symbol.includes(query));
-  }, [search]);
+function MarketDataPage({ user, onLogout, setPage }: { user: User; onLogout: () => void; setPage: (p: AppPage) => void }) {
+  const [quotes, setQuotes] = useState<Quote[]>([]); const [loading, setLoading] = useState(true); const [refreshing, setRefreshing] = useState(false); const [error, setError] = useState<string | null>(null); const [selected, setSelected] = useState("BTC/USD"); const inFlight = useRef(false);
+  const raw = Number(import.meta.env.VITE_QUOTE_REFRESH_SECONDS ?? 60); const refreshSeconds = Number.isFinite(raw) && raw >= 10 ? raw : 60;
+  const loadQuotes = useCallback(async (force = false) => { if (inFlight.current) return; inFlight.current = true; try { setError(null); if (force) setRefreshing(true); const next = await getQuotes(SYMBOLS, force); setQuotes(next); setSelected(cur => next.some(q => q.symbol === cur) ? cur : next[0]?.symbol ?? cur); } catch (err) { if (err instanceof ApiError && err.status === 401) { onLogout(); return; } setError(err instanceof Error ? err.message : "Unable to retrieve market data."); } finally { inFlight.current = false; setLoading(false); setRefreshing(false); } }, [onLogout]);
+  useEffect(() => { void loadQuotes(); const timer = window.setInterval(() => void loadQuotes(), refreshSeconds * 1000); return () => window.clearInterval(timer); }, [loadQuotes, refreshSeconds]);
+  const selectedQuote = useMemo(() => quotes.find(q => q.symbol === selected), [quotes, selected]);
+  return <div className="app"><Header user={user} page="market" setPage={setPage} onLogout={onLogout} onRefresh={() => void loadQuotes(true)} refreshing={refreshing}/><main><section className="hero"><div><div className="eyebrow">Phase 1 · Live market data</div><h2>Research only what has passed data validation.</h2><p>Prices are retrieved server-side from the configured market-data provider. The interface never substitutes hardcoded demo values for unavailable live data.</p></div><div className="hero-stat"><Activity size={20}/><strong>{quotes.filter(q => q.status === "LIVE").length}/{SYMBOLS.length}</strong><span>live quotes</span></div></section>{error && <div className="error"><AlertTriangle size={17}/>{error}</div>}<section className="grid"><div className="panel"><div className="panel-head"><div><h3>Market scanner</h3><span>Automatic refresh every {refreshSeconds}s</span></div></div>{loading ? <div className="empty">Loading live quotes…</div> : <div className="quotes">{quotes.map(q => <button key={q.symbol} className={`quote-row phase1-quote ${selected === q.symbol ? "selected" : ""}`} onClick={() => setSelected(q.symbol)}><div className="symbol">{q.symbol}</div><div className="price">{formatPrice(q.price)}</div><div className={`status ${statusClass(q.status)}`}><span className="dot"/>{q.status}</div><div className="timestamp">{q.timestamp ? formatTime(q.timestamp) : "Unavailable"}</div></button>)}</div>}</div><div className="panel detail"><div className="panel-head"><div><h3>{selected}</h3><span>Canonical market snapshot</span></div><ShieldCheck size={20}/></div>{selectedQuote ? <><div className="big-price">{formatPrice(selectedQuote.price)}</div><div className={`large-status ${statusClass(selectedQuote.status)}`}><span className="dot"/>{selectedQuote.status}</div><div className="metadata"><div><span>Provider</span><strong>{selectedQuote.source ?? "—"}</strong></div><div><span>Provider symbol</span><strong>{selectedQuote.provider_symbol}</strong></div><div><span>Updated</span><strong>{formatTime(selectedQuote.timestamp)}</strong></div><div><span>Latency</span><strong>{selectedQuote.latency_ms != null ? `${selectedQuote.latency_ms} ms` : "—"}</strong></div></div>{selectedQuote.error && <div className="warning"><AlertTriangle size={16}/>{selectedQuote.error}</div>}<div className="eligibility"><Clock3 size={16}/><div><strong>{selectedQuote.status === "LIVE" ? "Research eligible" : "Research disabled"}</strong><span>{selectedQuote.status === "LIVE" ? "This quote passed the basic live-data validation gate." : "The system will not score or present this as a current market price."}</span></div></div></> : <div className="empty">Select an asset.</div>}</div></section><footer>This tool provides market research and analysis assistance only. It is not financial advice, a recommendation to buy or sell, or a substitute for professional advice.</footer></main></div>;
+}
 
-  const loadWorkspace = useCallback(async () => {
-    setLoadingWorkspace(true);
-    try {
-      const next = await getWatchlists();
-      setWatchlists(next);
-      setActiveWatchlistId((current) => next.some((item) => item.id === current) ? current : next[0]?.id ?? null);
-    } catch (err) {
-      if (err instanceof ApiError && err.status === 401) {
-        onLogout();
-        return;
-      }
-      setError(err instanceof Error ? err.message : "Unable to load your watchlists.");
-    } finally {
-      setLoadingWorkspace(false);
-    }
-  }, [onLogout]);
-
-  const loadQuotes = useCallback(async (symbols: string[], force = false) => {
-    if (requestInFlight.current) return;
-    requestInFlight.current = true;
-    try {
-      if (force) setRefreshing(true);
-      const nextQuotes = symbols.length ? await getQuotes(symbols, force) : [];
-      setQuotes(nextQuotes);
-      setSelected((current) => current && nextQuotes.some((quote) => quote.symbol === current) ? current : nextQuotes[0]?.symbol ?? null);
-    } catch (err) {
-      if (err instanceof ApiError && err.status === 401) {
-        onLogout();
-        return;
-      }
-      setError(err instanceof Error ? err.message : "Unable to retrieve market data.");
-    } finally {
-      requestInFlight.current = false;
-      setRefreshing(false);
-    }
-  }, [onLogout]);
-
-  useEffect(() => { void loadWorkspace(); }, [loadWorkspace]);
-
-  useEffect(() => {
-    void loadQuotes(activeSymbols, false);
-    const timer = window.setInterval(() => {
-      if (activeSymbols.length) void loadQuotes(activeSymbols, false);
-    }, refreshSeconds * 1000);
-    return () => window.clearInterval(timer);
-  }, [activeSymbols.join(","), refreshSeconds, loadQuotes]);
-
-  const runAction = async (key: string, operation: () => Promise<void>) => {
-    setAction(key);
-    setError(null);
-    setNotice(null);
-    try {
-      await operation();
-      await loadWorkspace();
-    } catch (err) {
-      if (err instanceof ApiError && err.status === 401) {
-        onLogout();
-        return;
-      }
-      setError(err instanceof Error ? err.message : "The requested action failed.");
-    } finally {
-      setAction(null);
-    }
-  };
-
-  const handleCreate = async (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    const name = newWatchlistName.trim();
-    if (!name) return;
-    await runAction("create", async () => {
-      const created = await createWatchlist(name);
-      setNewWatchlistName("");
-      setShowCreate(false);
-      setActiveWatchlistId(created.id);
-      setNotice(`Created ${created.name}.`);
-    });
-  };
-
-  const handleRename = async (id: string) => {
-    const name = editingName.trim();
-    if (!name) return;
-    await runAction(`rename:${id}`, async () => {
-      await renameWatchlist(id, name);
-      setEditingId(null);
-      setEditingName("");
-      setNotice("Watchlist renamed.");
-    });
-  };
-
-  const handleDelete = async (watchlist: Watchlist) => {
-    if (watchlists.length === 1) {
-      setError("Keep at least one watchlist in your workspace.");
-      return;
-    }
-    if (!window.confirm(`Delete ${watchlist.name}? Its symbols will also be removed.`)) return;
-    await runAction(`delete:${watchlist.id}`, async () => {
-      await deleteWatchlist(watchlist.id);
-      setNotice(`${watchlist.name} deleted.`);
-    });
-  };
-
-  const handleAddSymbol = async () => {
-    if (!activeWatchlist) return;
-    if (activeSymbols.includes(symbolToAdd)) {
-      setError(`${symbolToAdd} is already in ${activeWatchlist.name}.`);
-      return;
-    }
-    await runAction(`add:${symbolToAdd}`, async () => {
-      await addWatchlistSymbol(activeWatchlist.id, symbolToAdd);
-      setSelected(symbolToAdd);
-      setNotice(`${symbolToAdd} added to ${activeWatchlist.name}.`);
-    });
-  };
-
-  const handleRemoveSymbol = async (symbol: string) => {
-    if (!activeWatchlist) return;
-    await runAction(`remove:${symbol}`, async () => {
-      await removeWatchlistSymbol(activeWatchlist.id, symbol);
-      setNotice(`${symbol} removed.`);
-    });
-  };
-
-  const handleLogout = async () => {
-    try {
-      await logout();
-    } finally {
-      onLogout();
-    }
-  };
-
-  return (
-    <div className="app">
-      <header className="topbar">
-        <div><div className="eyebrow">Adaptive Intelligence</div><h1>Market Research</h1></div>
-        <div className="topbar-actions">
-          <span className="user-email">{user.email}</span>
-          <button className="logout" onClick={() => void handleLogout()}><LogOut size={16} />Sign out</button>
-          <button className="refresh" onClick={() => void loadQuotes(activeSymbols, true)} disabled={refreshing || activeSymbols.length === 0}><RefreshCw size={16} className={refreshing ? "spin" : ""} />{refreshing ? "Refreshing" : "Refresh prices"}</button>
-        </div>
-      </header>
-
-      <main>
-        <section className="hero">
-          <div><div className="eyebrow">Market workspace</div><h2>Your research universe, persisted to your account.</h2><p>Watchlists belong to the authenticated user. Quotes continue to come from the existing validated server-side market-data service.</p></div>
-          <div className="hero-stat"><Activity size={20} /><strong>{quotes.filter((q) => q.status === "LIVE").length}/{activeSymbols.length}</strong><span>live quotes</span></div>
-        </section>
-
-        {error && <div className="error"><AlertTriangle size={17} />{error}</div>}
-        {notice && <div className="notice"><Check size={17} />{notice}</div>}
-
-        <section className="workspace-grid">
-          <aside className="panel watchlist-sidebar">
-            <div className="panel-head"><div><h3>Watchlists</h3><span>Saved to your account</span></div><button className="icon-button" aria-label="Create watchlist" onClick={() => setShowCreate(true)}><Plus size={17} /></button></div>
-            {showCreate && <form className="inline-form" onSubmit={(event) => void handleCreate(event)}><input autoFocus value={newWatchlistName} onChange={(event) => setNewWatchlistName(event.target.value)} placeholder="Watchlist name" maxLength={80} /><button type="submit" disabled={action === "create"}>{action === "create" ? "…" : "Create"}</button><button type="button" className="icon-button" onClick={() => setShowCreate(false)}><X size={15} /></button></form>}
-            {loadingWorkspace ? <div className="empty">Loading workspace…</div> : <div className="watchlist-list">
-              {watchlists.map((watchlist) => <div key={watchlist.id} className={`watchlist-entry ${activeWatchlist?.id === watchlist.id ? "active" : ""}`}>
-                {editingId === watchlist.id ? <div className="rename-form"><input autoFocus value={editingName} onChange={(event) => setEditingName(event.target.value)} maxLength={80} onKeyDown={(event) => { if (event.key === "Enter") void handleRename(watchlist.id); if (event.key === "Escape") setEditingId(null); }} /><button className="icon-button" onClick={() => void handleRename(watchlist.id)} disabled={action === `rename:${watchlist.id}`}><Check size={14} /></button></div> : <>
-                  <button className="watchlist-select" onClick={() => setActiveWatchlistId(watchlist.id)}><Star size={15} fill={activeWatchlist?.id === watchlist.id ? "currentColor" : "none"} /><span>{watchlist.name}</span><small>{watchlist.watchlist_items.length}</small></button>
-                  <div className="watchlist-actions"><button className="icon-button" aria-label={`Rename ${watchlist.name}`} onClick={() => { setEditingId(watchlist.id); setEditingName(watchlist.name); }}><Pencil size={13} /></button><button className="icon-button danger" aria-label={`Delete ${watchlist.name}`} onClick={() => void handleDelete(watchlist)} disabled={action === `delete:${watchlist.id}`}><Trash2 size={13} /></button></div>
-                </>}
-              </div>)}
-            </div>}
-          </aside>
-
-          <section className="panel market-panel">
-            <div className="panel-head workspace-head"><div><h3>{activeWatchlist?.name ?? "Watchlist"}</h3><span>{activeSymbols.length} symbols · automatic refresh every {refreshSeconds}s</span></div>{activeWatchlist && <div className="add-symbol"><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Filter symbols" aria-label="Filter symbols" /><select value={symbolToAdd} onChange={(event) => setSymbolToAdd(event.target.value)} aria-label="Symbol to add">{availableSymbols.map((symbol) => <option key={symbol}>{symbol}</option>)}</select><button onClick={() => void handleAddSymbol()} disabled={Boolean(action) || activeSymbols.includes(symbolToAdd)}><Plus size={15} />Add</button></div>}</div>
-            {!activeWatchlist ? <div className="empty">Create a watchlist to begin.</div> : activeSymbols.length === 0 ? <div className="empty"><Star size={22} /><strong>No symbols yet</strong><span>Add a symbol above to start monitoring this watchlist.</span></div> : <div className="quotes">
-              {activeSymbols.map((symbol) => { const quote = quotes.find((item) => item.symbol === symbol); return <button key={symbol} className={`quote-row ${selected === symbol ? "selected" : ""}`} onClick={() => setSelected(symbol)}><div className="symbol">{symbol}</div><div className="price">{formatPrice(quote?.price ?? null)}</div><div className={`status ${statusClass(quote?.status ?? "UNAVAILABLE")}`}><span className="dot" />{quote?.status ?? "UNAVAILABLE"}</div><div className="timestamp">{quote?.timestamp ? formatTime(quote.timestamp) : "Unavailable"}</div><span className="row-remove" role="button" aria-label={`Remove ${symbol}`} onClick={(event) => { event.stopPropagation(); void handleRemoveSymbol(symbol); }}><X size={14} /></span></button>; })}
-            </div>}
-          </section>
-
-          <div className="panel detail">
-            <div className="panel-head"><div><h3>{selected ?? "Asset"}</h3><span>Canonical market snapshot</span></div><ShieldCheck size={20} /></div>
-            {selectedQuote ? <><div className="big-price">{formatPrice(selectedQuote.price)}</div><div className={`large-status ${statusClass(selectedQuote.status)}`}><span className="dot" />{selectedQuote.status}</div><div className="metadata"><div><span>Provider</span><strong>{selectedQuote.source ?? "—"}</strong></div><div><span>Provider symbol</span><strong>{selectedQuote.provider_symbol}</strong></div><div><span>Updated</span><strong>{formatTime(selectedQuote.timestamp)}</strong></div><div><span>Latency</span><strong>{selectedQuote.latency_ms != null ? `${selectedQuote.latency_ms} ms` : "—"}</strong></div></div>{selectedQuote.error && <div className="warning"><AlertTriangle size={16} />{selectedQuote.error}</div>}<div className="eligibility"><Clock3 size={16} /><div><strong>{selectedQuote.status === "LIVE" ? "Research eligible" : "Research disabled"}</strong><span>{selectedQuote.status === "LIVE" ? "This quote passed the basic live-data validation gate." : "The system will not present this as a current market price."}</span></div></div></> : <div className="empty">Select an asset from the active watchlist.</div>}
-          </div>
-        </section>
-
-        <footer>This tool provides market research and analysis assistance only. It is not financial advice, a recommendation to buy or sell, or a substitute for professional advice. Past performance is not indicative of future results. Users are solely responsible for their own decisions.</footer>
-      </main>
-    </div>
-  );
+function WatchlistsPage({ user, onLogout, setPage }: { user: User; onLogout: () => void; setPage: (p: AppPage) => void }) {
+  const [watchlists, setWatchlists] = useState<Watchlist[]>([]); const [activeId, setActiveId] = useState<string | null>(null); const [quotes, setQuotes] = useState<Quote[]>([]); const [selected, setSelected] = useState<string | null>(null); const [loading, setLoading] = useState(true); const [refreshing, setRefreshing] = useState(false); const [action, setAction] = useState<string | null>(null); const [error, setError] = useState<string | null>(null); const [notice, setNotice] = useState<string | null>(null); const [showCreate, setShowCreate] = useState(false); const [name, setName] = useState(""); const [editingId, setEditingId] = useState<string | null>(null); const [editingName, setEditingName] = useState(""); const [symbolToAdd, setSymbolToAdd] = useState(SYMBOLS[0]); const [search, setSearch] = useState(""); const inFlight = useRef(false); const raw = Number(import.meta.env.VITE_QUOTE_REFRESH_SECONDS ?? 60); const refreshSeconds = Number.isFinite(raw) && raw >= 10 ? raw : 60;
+  const active = useMemo(() => watchlists.find(w => w.id === activeId) ?? watchlists[0] ?? null, [activeId, watchlists]); const symbols = active?.watchlist_items.map(i => i.symbol) ?? []; const selectedQuote = useMemo(() => quotes.find(q => q.symbol === selected), [quotes, selected]); const available = useMemo(() => { const query = search.trim().toUpperCase(); return SYMBOLS.filter(s => !query || s.includes(query)); }, [search]);
+  const loadWorkspace = useCallback(async () => { setLoading(true); try { const next = await getWatchlists(); setWatchlists(next); setActiveId(cur => next.some(w => w.id === cur) ? cur : next[0]?.id ?? null); } catch (err) { if (err instanceof ApiError && err.status === 401) { onLogout(); return; } setError(err instanceof Error ? err.message : "Unable to load your watchlists."); } finally { setLoading(false); } }, [onLogout]);
+  const loadQuotes = useCallback(async (list: string[], force = false) => { if (inFlight.current) return; inFlight.current = true; try { if (force) setRefreshing(true); const next = list.length ? await getQuotes(list, force) : []; setQuotes(next); setSelected(cur => cur && next.some(q => q.symbol === cur) ? cur : next[0]?.symbol ?? null); } catch (err) { if (err instanceof ApiError && err.status === 401) { onLogout(); return; } setError(err instanceof Error ? err.message : "Unable to retrieve market data."); } finally { inFlight.current = false; setRefreshing(false); } }, [onLogout]);
+  useEffect(() => { void loadWorkspace(); }, [loadWorkspace]); useEffect(() => { void loadQuotes(symbols); const timer = window.setInterval(() => { if (symbols.length) void loadQuotes(symbols); }, refreshSeconds * 1000); return () => window.clearInterval(timer); }, [symbols.join(","), refreshSeconds, loadQuotes]);
+  const run = async (key: string, operation: () => Promise<void>) => { setAction(key); setError(null); setNotice(null); try { await operation(); await loadWorkspace(); } catch (err) { if (err instanceof ApiError && err.status === 401) { onLogout(); return; } setError(err instanceof Error ? err.message : "The requested action failed."); } finally { setAction(null); } };
+  const create = async (e: FormEvent<HTMLFormElement>) => { e.preventDefault(); const value = name.trim(); if (!value) return; await run("create", async () => { const created = await createWatchlist(value); setName(""); setShowCreate(false); setActiveId(created.id); setNotice(`Created ${created.name}.`); }); };
+  const rename = async (id: string) => { const value = editingName.trim(); if (!value) return; await run(`rename:${id}`, async () => { await renameWatchlist(id, value); setEditingId(null); setEditingName(""); setNotice("Watchlist renamed."); }); };
+  const removeList = async (list: Watchlist) => { if (watchlists.length === 1) { setError("Keep at least one watchlist in your workspace."); return; } if (!window.confirm(`Delete ${list.name}? Its symbols will also be removed.`)) return; await run(`delete:${list.id}`, async () => { await deleteWatchlist(list.id); setNotice(`${list.name} deleted.`); }); };
+  const add = async () => { if (!active) return; if (symbols.includes(symbolToAdd)) { setError(`${symbolToAdd} is already in ${active.name}.`); return; } await run(`add:${symbolToAdd}`, async () => { await addWatchlistSymbol(active.id, symbolToAdd); setSelected(symbolToAdd); setNotice(`${symbolToAdd} added to ${active.name}.`); }); };
+  const remove = async (symbol: string) => { if (!active) return; await run(`remove:${symbol}`, async () => { await removeWatchlistSymbol(active.id, symbol); setNotice(`${symbol} removed.`); }); };
+  return <div className="app"><Header user={user} page="watchlists" setPage={setPage} onLogout={onLogout} onRefresh={() => void loadQuotes(symbols, true)} refreshing={refreshing} disabled={!symbols.length}/><main><section className="hero"><div><div className="eyebrow">Phase 2 · Watchlists</div><h2>Your personal research workspace.</h2><p>Watchlists are persisted to your authenticated account. Market quotes continue to come from the same validated Phase 1 service.</p></div><div className="hero-stat"><Activity size={20}/><strong>{quotes.filter(q => q.status === "LIVE").length}/{symbols.length}</strong><span>live quotes</span></div></section>{error && <div className="error"><AlertTriangle size={17}/>{error}</div>}{notice && <div className="notice"><Check size={17}/>{notice}</div>}<section className="workspace-grid"><aside className="panel watchlist-sidebar"><div className="panel-head"><div><h3>Watchlists</h3><span>Saved to your account</span></div><button className="icon-button" aria-label="Create watchlist" onClick={() => setShowCreate(true)}><Plus size={17}/></button></div>{showCreate && <form className="inline-form" onSubmit={create}><input autoFocus value={name} onChange={e => setName(e.target.value)} placeholder="Watchlist name" maxLength={80}/><button type="submit" disabled={action === "create"}>Create</button><button type="button" className="icon-button" onClick={() => setShowCreate(false)}><X size={15}/></button></form>}{loading ? <div className="empty">Loading workspace…</div> : <div className="watchlist-list">{watchlists.map(w => <div key={w.id} className={`watchlist-entry ${active?.id === w.id ? "active" : ""}`}>{editingId === w.id ? <div className="rename-form"><input autoFocus value={editingName} onChange={e => setEditingName(e.target.value)} maxLength={80} onKeyDown={e => { if (e.key === "Enter") void rename(w.id); if (e.key === "Escape") setEditingId(null); }}/><button className="icon-button" onClick={() => void rename(w.id)}><Check size={14}/></button></div> : <><button className="watchlist-select" onClick={() => setActiveId(w.id)}><Star size={15} fill={active?.id === w.id ? "currentColor" : "none"}/><span>{w.name}</span><small>{w.watchlist_items.length}</small></button><div className="watchlist-actions"><button className="icon-button" aria-label={`Rename ${w.name}`} onClick={() => { setEditingId(w.id); setEditingName(w.name); }}><Pencil size={13}/></button><button className="icon-button danger" aria-label={`Delete ${w.name}`} onClick={() => void removeList(w)}><Trash2 size={13}/></button></div></>}</div>)}</div>}</aside><section className="panel market-panel"><div className="panel-head workspace-head"><div><h3>{active?.name ?? "Watchlist"}</h3><span>{symbols.length} symbols · automatic refresh every {refreshSeconds}s</span></div>{active && <div className="add-symbol"><input value={search} onChange={e => setSearch(e.target.value)} placeholder="Filter symbols" aria-label="Filter symbols"/><select value={symbolToAdd} onChange={e => setSymbolToAdd(e.target.value)} aria-label="Symbol to add">{available.map(s => <option key={s}>{s}</option>)}</select><button onClick={() => void add()} disabled={Boolean(action) || symbols.includes(symbolToAdd)}><Plus size={15}/>Add</button></div>}</div>{!active ? <div className="empty">Create a watchlist to begin.</div> : !symbols.length ? <div className="empty"><Star size={22}/><strong>No symbols yet</strong><span>Add a symbol above to start monitoring this watchlist.</span></div> : <div className="quotes">{symbols.map(symbol => { const q = quotes.find(x => x.symbol === symbol); return <button key={symbol} className={`quote-row ${selected === symbol ? "selected" : ""}`} onClick={() => setSelected(symbol)}><div className="symbol">{symbol}</div><div className="price">{formatPrice(q?.price ?? null)}</div><div className={`status ${statusClass(q?.status ?? "UNAVAILABLE")}`}><span className="dot"/>{q?.status ?? "UNAVAILABLE"}</div><div className="timestamp">{q?.timestamp ? formatTime(q.timestamp) : "Unavailable"}</div><span className="row-remove" role="button" aria-label={`Remove ${symbol}`} onClick={e => { e.stopPropagation(); void remove(symbol); }}><X size={14}/></span></button>; })}</div>}</section><section className="panel detail"><div className="panel-head"><div><h3>{selected ?? "Market snapshot"}</h3><span>Phase 1 quote service</span></div><ShieldCheck size={20}/></div>{selectedQuote ? <><div className="big-price">{formatPrice(selectedQuote.price)}</div><div className={`large-status ${statusClass(selectedQuote.status)}`}><span className="dot"/>{selectedQuote.status}</div><div className="metadata"><div><span>Provider</span><strong>{selectedQuote.source ?? "—"}</strong></div><div><span>Provider symbol</span><strong>{selectedQuote.provider_symbol}</strong></div><div><span>Updated</span><strong>{formatTime(selectedQuote.timestamp)}</strong></div><div><span>Latency</span><strong>{selectedQuote.latency_ms != null ? `${selectedQuote.latency_ms} ms` : "—"}</strong></div></div></> : <div className="empty">Select a symbol to inspect its current quote.</div>}</section></section><footer>This tool provides market research and analysis assistance only. It is not financial advice, a recommendation to buy or sell, or a substitute for professional advice.</footer></main></div>;
 }
 
 function App() {
-  const [user, setUser] = useState<User | null>(null);
-  const [checkingSession, setCheckingSession] = useState(true);
-  const [sessionError, setSessionError] = useState<string | null>(null);
-  const handleAuthenticated = useCallback((nextUser: User) => { setSessionError(null); setUser(nextUser); }, []);
-  const handleLogout = useCallback(() => setUser(null), []);
-
-  useEffect(() => {
-    let active = true;
-    getCurrentUser().then((nextUser) => { if (active) setUser(nextUser); }).catch((err) => {
-      if (!active) return;
-      if (err instanceof ApiError && err.status === 401) { setUser(null); return; }
-      setSessionError(err instanceof Error ? err.message : "Unable to verify your session.");
-    }).finally(() => { if (active) setCheckingSession(false); });
-    return () => { active = false; };
-  }, []);
-
-  if (checkingSession) return <div className="auth-loading">Checking session…</div>;
-  if (sessionError && !user) return <div className="auth-loading"><div className="error auth-error"><AlertTriangle size={17} />{sessionError}</div><button className="auth-submit" onClick={() => window.location.reload()}>Retry</button></div>;
-  if (!user) return <AuthScreen onAuthenticated={handleAuthenticated} />;
-  return <Dashboard user={user} onLogout={handleLogout} />;
+  const [user, setUser] = useState<User | null>(null); const [checking, setChecking] = useState(true); const [sessionError, setSessionError] = useState<string | null>(null); const [page, setPage] = useState<AppPage>("market");
+  const onLogout = useCallback(() => { setUser(null); setPage("market"); }, []); const onAuthenticated = useCallback((next: User) => { setSessionError(null); setUser(next); }, []);
+  useEffect(() => { let active = true; getCurrentUser().then(u => { if (active) setUser(u); }).catch(err => { if (!active) return; if (err instanceof ApiError && err.status === 401) setUser(null); else setSessionError(err instanceof Error ? err.message : "Unable to verify your session."); }).finally(() => { if (active) setChecking(false); }); return () => { active = false; }; }, []);
+  if (checking) return <div className="auth-loading">Checking session…</div>;
+  if (sessionError && !user) return <div className="auth-loading"><div className="error auth-error"><AlertTriangle size={17}/>{sessionError}</div><button className="auth-submit" onClick={() => window.location.reload()}>Retry</button></div>;
+  if (!user) return <AuthScreen onAuthenticated={onAuthenticated}/>;
+  return page === "market" ? <MarketDataPage user={user} onLogout={onLogout} setPage={setPage}/> : <WatchlistsPage user={user} onLogout={onLogout} setPage={setPage}/>;
 }
-
 export default App;
