@@ -14,6 +14,10 @@ class Settings(BaseSettings):
 
     twelve_data_api_key: str = ""
 
+    # Authentication
+    auth_database_path: str = "./data/auth.db"
+    auth_session_seconds: int = 604800
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",
