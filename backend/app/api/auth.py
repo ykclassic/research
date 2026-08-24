@@ -11,12 +11,15 @@ from app.services.supabase_auth import (
     AuthConfigurationError,
     AuthEmailNotConfirmedError,
     AuthInvalidCredentialsError,
+    AuthResetTokenError,
     AuthServiceError,
     AuthUnavailableError,
     get_user,
+    request_password_reset,
     sign_in,
     sign_out,
     sign_up,
+    update_password,
 )
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
@@ -29,10 +32,23 @@ class Credentials(BaseModel):
     password: str = Field(min_length=8, max_length=128)
 
 
+class PasswordResetRequest(BaseModel):
+    email: EmailStr
+
+
+class PasswordResetConfirm(BaseModel):
+    access_token: str = Field(min_length=20, max_length=4096)
+    password: str = Field(min_length=8, max_length=128)
+
+
 class UserResponse(BaseModel):
     id: str
     email: EmailStr
     created_at: str | None = None
+
+
+class MessageResponse(BaseModel):
+    message: str
 
 
 def _cookie_secure() -> bool:
@@ -93,6 +109,8 @@ def _auth_error(exc: AuthServiceError) -> HTTPException:
         return HTTPException(status_code=403, detail="Email address has not been confirmed.")
     if isinstance(exc, AuthInvalidCredentialsError):
         return HTTPException(status_code=401, detail="Invalid email or password.")
+    if isinstance(exc, AuthResetTokenError):
+        return HTTPException(status_code=400, detail="Password reset link is invalid or expired.")
     return HTTPException(status_code=401, detail="Authentication failed.")
 
 
@@ -109,11 +127,7 @@ def get_current_user(
 
 @router.post("/register", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
 async def register(credentials: Credentials) -> UserResponse:
-    """Create an account without creating an authenticated application session.
-
-    Registration and authentication are deliberately separate operations. The
-    caller must explicitly use /login to establish the session cookies.
-    """
+    """Create an account without creating an authenticated application session."""
     try:
         payload = sign_up(credentials.email.strip().lower(), credentials.password)
     except AuthServiceError as exc:
@@ -122,7 +136,6 @@ async def register(credentials: Credentials) -> UserResponse:
         if "already" in detail.lower() or "registered" in detail.lower():
             code = 409
         raise HTTPException(status_code=code, detail=detail) from exc
-
     return _map_user(payload)
 
 
@@ -137,6 +150,33 @@ async def login(credentials: Credentials, response: Response) -> UserResponse:
         raise HTTPException(status_code=401, detail="Authentication did not return a session.")
     _set_auth_cookies(response, access_token)
     return _map_user(payload)
+
+
+@router.post("/password-reset/request", response_model=MessageResponse)
+async def password_reset_request(payload: PasswordResetRequest) -> MessageResponse:
+    """Send a Supabase password-recovery email.
+
+    The response is intentionally identical for existing and unknown addresses
+    so the endpoint does not disclose account existence.
+    """
+    try:
+        request_password_reset(payload.email.strip().lower())
+    except AuthConfigurationError as exc:
+        raise _auth_error(exc) from exc
+    except AuthUnavailableError as exc:
+        raise _auth_error(exc) from exc
+    except AuthServiceError:
+        pass
+    return MessageResponse(message="If an account exists for that email, a password reset link has been sent.")
+
+
+@router.post("/password-reset/confirm", response_model=MessageResponse)
+async def password_reset_confirm(payload: PasswordResetConfirm) -> MessageResponse:
+    try:
+        update_password(payload.access_token, payload.password)
+    except AuthServiceError as exc:
+        raise _auth_error(exc) from exc
+    return MessageResponse(message="Password updated successfully. You can now sign in with your new password.")
 
 
 @router.get("/me", response_model=UserResponse)
