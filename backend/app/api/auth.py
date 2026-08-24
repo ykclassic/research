@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import hashlib
+import hmac
 import secrets
 from typing import Annotated, Any
 
@@ -25,6 +27,7 @@ from app.services.supabase_auth import (
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 SESSION_COOKIE = "mr_access_token"
 CSRF_COOKIE = "mr_csrf"
+CSRF_HEADER = "X-CSRF-Token"
 
 
 class Credentials(BaseModel):
@@ -55,8 +58,16 @@ def _cookie_secure() -> bool:
     return settings.app_env.lower() in {"production", "prod"}
 
 
-def _set_auth_cookies(response: Response, access_token: str) -> None:
-    csrf_token = secrets.token_urlsafe(32)
+def _csrf_token(access_token: str) -> str:
+    return hmac.new(
+        settings.csrf_secret.encode("utf-8"),
+        access_token.encode("utf-8"),
+        hashlib.sha256,
+    ).hexdigest()
+
+
+def _set_auth_cookies(response: Response, access_token: str) -> str:
+    csrf_token = _csrf_token(access_token)
     secure = _cookie_secure()
     response.set_cookie(
         SESSION_COOKIE,
@@ -76,6 +87,8 @@ def _set_auth_cookies(response: Response, access_token: str) -> None:
         samesite="none" if secure else "lax",
         path="/",
     )
+    response.headers[CSRF_HEADER] = csrf_token
+    return csrf_token
 
 
 def _clear_auth_cookies(response: Response) -> None:
@@ -85,9 +98,24 @@ def _clear_auth_cookies(response: Response) -> None:
 
 def _require_csrf(
     csrf_cookie: Annotated[str | None, Cookie(alias=CSRF_COOKIE)] = None,
-    csrf_header: Annotated[str | None, Header(alias="X-CSRF-Token")] = None,
+    csrf_header: Annotated[str | None, Header(alias=CSRF_HEADER)] = None,
+    access_token: Annotated[str | None, Cookie(alias=SESSION_COOKIE)] = None,
 ) -> None:
-    if not csrf_cookie or not csrf_header or not secrets.compare_digest(csrf_cookie, csrf_header):
+    if not csrf_header:
+        raise HTTPException(status_code=403, detail="CSRF validation failed.")
+
+    # Prefer the traditional double-submit cookie check. The signed-token
+    # fallback keeps cross-origin deployments working when browsers restrict
+    # access to non-HttpOnly cookies while still requiring the HttpOnly session.
+    cookie_valid = bool(
+        csrf_cookie
+        and secrets.compare_digest(csrf_cookie, csrf_header)
+    )
+    signed_valid = bool(
+        access_token
+        and secrets.compare_digest(_csrf_token(access_token), csrf_header)
+    )
+    if not (cookie_valid or signed_valid):
         raise HTTPException(status_code=403, detail="CSRF validation failed.")
 
 
@@ -152,13 +180,22 @@ async def login(credentials: Credentials, response: Response) -> UserResponse:
     return _map_user(payload)
 
 
+@router.get("/csrf")
+async def csrf(
+    response: Response,
+    access_token: Annotated[str | None, Cookie(alias=SESSION_COOKIE)] = None,
+) -> MessageResponse:
+    """Return the CSRF token associated with the current authenticated session."""
+    if not access_token:
+        raise HTTPException(status_code=401, detail="Authentication required.")
+    token = _set_auth_cookies(response, access_token)
+    response.headers[CSRF_HEADER] = token
+    return MessageResponse(message="CSRF token issued.")
+
+
 @router.post("/password-reset/request", response_model=MessageResponse)
 async def password_reset_request(payload: PasswordResetRequest) -> MessageResponse:
-    """Send a Supabase password-recovery email.
-
-    The response is intentionally identical for existing and unknown addresses
-    so the endpoint does not disclose account existence.
-    """
+    """Send a Supabase password-recovery email without disclosing account existence."""
     try:
         request_password_reset(payload.email.strip().lower())
     except AuthConfigurationError as exc:
