@@ -27,6 +27,10 @@ class AuthUnavailableError(AuthServiceError):
     """Raised when the Supabase Auth service cannot be reached or is unavailable."""
 
 
+class AuthResetTokenError(AuthServiceError):
+    """Raised when a password-reset token is invalid or expired."""
+
+
 def _require_config() -> tuple[str, str]:
     if not settings.supabase_url or not settings.supabase_publishable_key:
         raise AuthConfigurationError("Supabase Auth is not configured.")
@@ -97,6 +101,44 @@ def sign_in(email: str, password: str) -> dict[str, Any]:
         )
     except httpx.RequestError as exc:
         raise AuthUnavailableError("Authentication service is unavailable.") from exc
+    if response.status_code >= 400:
+        _raise_auth_error(response)
+    return response.json()
+
+
+def request_password_reset(email: str) -> None:
+    base_url, _ = _require_config()
+    redirect_to = settings.auth_password_reset_redirect_url.strip()
+    if not redirect_to:
+        raise AuthConfigurationError("Password reset redirect URL is not configured.")
+    try:
+        response = httpx.post(
+            f"{base_url}/auth/v1/recover",
+            headers=_headers(),
+            json={"email": email, "redirect_to": redirect_to},
+            timeout=settings.http_timeout_seconds,
+        )
+    except httpx.RequestError as exc:
+        raise AuthUnavailableError("Authentication service is unavailable.") from exc
+    if response.status_code >= 400:
+        _raise_auth_error(response)
+
+
+def update_password(access_token: str, new_password: str) -> dict[str, Any]:
+    if not access_token.strip():
+        raise AuthResetTokenError("Password reset link is invalid or expired.")
+    base_url, _ = _require_config()
+    try:
+        response = httpx.put(
+            f"{base_url}/auth/v1/user",
+            headers={**_headers(), "Authorization": f"Bearer {access_token}"},
+            json={"password": new_password},
+            timeout=settings.http_timeout_seconds,
+        )
+    except httpx.RequestError as exc:
+        raise AuthUnavailableError("Authentication service is unavailable.") from exc
+    if response.status_code in {401, 403}:
+        raise AuthResetTokenError("Password reset link is invalid or expired.")
     if response.status_code >= 400:
         _raise_auth_error(response)
     return response.json()
