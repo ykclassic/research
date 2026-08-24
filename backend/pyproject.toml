@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "adaptive-market-research-backend"
-version = "1.0.0"
+version = "1.1.0"
 description = "Backend for the Adaptive Intelligent Market Research Bot"
 requires-python = ">=3.11"
 dependencies = [
@@ -12,7 +12,8 @@ dependencies = [
     "uvicorn[standard]==0.35.0",
     "httpx==0.28.1",
     "pydantic==2.11.7",
-    "pydantic-settings==2.10.1"
+    "pydantic-settings==2.10.1",
+    "email-validator==2.3.0"
 ]
 
 [project.optional-dependencies]
