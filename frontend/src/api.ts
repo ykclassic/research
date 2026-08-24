@@ -24,6 +24,21 @@ export interface User {
   created_at: string;
 }
 
+export interface WatchlistItem {
+  id: string;
+  symbol: string;
+  created_at: string;
+}
+
+export interface Watchlist {
+  id: string;
+  user_id: string;
+  name: string;
+  created_at: string;
+  updated_at: string;
+  watchlist_items: WatchlistItem[];
+}
+
 export class ApiError extends Error {
   readonly status: number;
 
@@ -147,10 +162,7 @@ export async function logout(): Promise<void> {
   await request<void>("/api/auth/logout", { method: "POST" });
 }
 
-export async function getQuotes(
-  symbols: string[],
-  refresh = false,
-): Promise<Quote[]> {
+export async function getQuotes(symbols: string[], refresh = false): Promise<Quote[]> {
   const params = new URLSearchParams({
     symbols: symbols.join(","),
     refresh: String(refresh),
@@ -158,4 +170,41 @@ export async function getQuotes(
 
   const body = await request<{ quotes: Quote[] }>(`/api/market/quotes?${params}`);
   return body.quotes;
+}
+
+export async function getWatchlists(): Promise<Watchlist[]> {
+  const body = await request<{ watchlists: Watchlist[] }>("/api/watchlists");
+  return body.watchlists;
+}
+
+export async function createWatchlist(name: string): Promise<Watchlist> {
+  return request<Watchlist>("/api/watchlists", {
+    method: "POST",
+    body: JSON.stringify({ name }),
+  });
+}
+
+export async function renameWatchlist(id: string, name: string): Promise<Watchlist> {
+  return request<Watchlist>(`/api/watchlists/${encodeURIComponent(id)}`, {
+    method: "PATCH",
+    body: JSON.stringify({ name }),
+  });
+}
+
+export async function deleteWatchlist(id: string): Promise<void> {
+  await request<void>(`/api/watchlists/${encodeURIComponent(id)}`, { method: "DELETE" });
+}
+
+export async function addWatchlistSymbol(id: string, symbol: string): Promise<WatchlistItem> {
+  return request<WatchlistItem>(`/api/watchlists/${encodeURIComponent(id)}/symbols`, {
+    method: "POST",
+    body: JSON.stringify({ symbol }),
+  });
+}
+
+export async function removeWatchlistSymbol(id: string, symbol: string): Promise<void> {
+  await request<void>(
+    `/api/watchlists/${encodeURIComponent(id)}/symbols/${encodeURIComponent(symbol)}`,
+    { method: "DELETE" },
+  );
 }
