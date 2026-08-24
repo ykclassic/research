@@ -5,6 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "adaptive-market-research-backend"
 version = "1.0.0"
+description = "Backend for the Adaptive Intelligent Market Research Bot"
 requires-python = ">=3.11"
 dependencies = [
     "fastapi==0.116.1",
@@ -12,6 +13,11 @@ dependencies = [
     "httpx==0.28.1",
     "pydantic==2.11.7",
     "pydantic-settings==2.10.1"
+]
+
+[project.optional-dependencies]
+test = [
+    "pytest==8.4.1"
 ]
 
 [tool.pytest.ini_options]
