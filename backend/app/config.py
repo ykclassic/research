@@ -18,6 +18,7 @@ class Settings(BaseSettings):
     supabase_url: str = ""
     supabase_publishable_key: str = ""
     auth_session_seconds: int = 604800
+    auth_password_reset_redirect_url: str = "http://localhost:5173/?reset=1"
 
     model_config = SettingsConfigDict(
         env_file=".env",
