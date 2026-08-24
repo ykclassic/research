@@ -12,3 +12,7 @@ dist/
 coverage/
 *.log
 .DS_Store
+
+# Local authentication state
+backend/data/
+*.db
