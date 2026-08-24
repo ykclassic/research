@@ -38,22 +38,13 @@ async def get_quotes(
     if not requested:
         raise HTTPException(status_code=400, detail="At least one symbol is required.")
 
-    quotes = []
-    for symbol in requested:
-        try:
-            quotes.append(await service.get_quote(symbol, force_refresh=refresh))
-        except ValueError as exc:
-            quotes.append({
-                "symbol": symbol.upper(),
-                "status": QuoteStatus.UNAVAILABLE,
-                "error": str(exc),
-            })
+    try:
+        quotes = await service.get_quotes(requested, force_refresh=refresh)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     return {
-        "quotes": [
-            item.model_dump(mode="json") if hasattr(item, "model_dump") else item
-            for item in quotes
-        ]
+        "quotes": [quote.model_dump(mode="json") for quote in quotes]
     }
 
 
