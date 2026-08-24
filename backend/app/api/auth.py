@@ -103,8 +103,16 @@ async def me(user: Annotated[UserResponse, Depends(get_current_user)]) -> UserRe
     return user
 
 
-@router.post("/logout", status_code=status.HTTP_204_NO_CONTENT, dependencies=[Depends(_require_csrf)])
-async def logout(response: Response, access_token: Annotated[str | None, Cookie(alias=SESSION_COOKIE)] = None) -> None:
+@router.post(
+    "/logout",
+    response_model=None,
+    status_code=status.HTTP_204_NO_CONTENT,
+    dependencies=[Depends(_require_csrf)],
+)
+async def logout(
+    response: Response,
+    access_token: Annotated[str | None, Cookie(alias=SESSION_COOKIE)] = None,
+) -> None:
     if access_token:
         try:
             sign_out(access_token)
