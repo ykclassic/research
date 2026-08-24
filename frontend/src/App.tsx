@@ -1,8 +1,18 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { Activity, AlertTriangle, Clock3, RefreshCw, ShieldCheck } from "lucide-react";
-import { getQuotes, Quote } from "./api";
+import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
+import { Activity, AlertTriangle, Clock3, LogOut, RefreshCw, ShieldCheck } from "lucide-react";
+import {
+  getCurrentUser,
+  getQuotes,
+  login,
+  logout,
+  register,
+  Quote,
+  User,
+} from "./api";
 
 const SYMBOLS = ["BTC/USD", "ETH/USD", "SOL/USD", "EUR/USD", "NVDA", "AAPL", "SPY"];
+
+type AuthMode = "login" | "register";
 
 function formatPrice(price: number | null): string {
   if (price === null) return "—";
@@ -23,7 +33,114 @@ function statusClass(status: Quote["status"]): string {
   return "unavailable";
 }
 
-function App() {
+function AuthScreen({ onAuthenticated }: { onAuthenticated: (user: User) => void }) {
+  const [mode, setMode] = useState<AuthMode>("login");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const submit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setError(null);
+
+    if (mode === "register" && password !== confirmPassword) {
+      setError("Passwords do not match.");
+      return;
+    }
+
+    setBusy(true);
+    try {
+      const user = mode === "login"
+        ? await login(email.trim(), password)
+        : await register(email.trim(), password);
+      onAuthenticated(user);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Authentication failed.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="auth-page">
+      <div className="auth-card">
+        <div className="eyebrow">Adaptive Intelligence</div>
+        <h1>{mode === "login" ? "Welcome back" : "Create your account"}</h1>
+        <p className="auth-subtitle">
+          {mode === "login"
+            ? "Sign in to access validated market research."
+            : "Create an account to access the research dashboard."}
+        </p>
+
+        {error && (
+          <div className="error auth-error">
+            <AlertTriangle size={17} />
+            {error}
+          </div>
+        )}
+
+        <form onSubmit={submit} className="auth-form">
+          <label>
+            Email
+            <input
+              type="email"
+              autoComplete="email"
+              value={email}
+              onChange={(event) => setEmail(event.target.value)}
+              required
+            />
+          </label>
+
+          <label>
+            Password
+            <input
+              type="password"
+              autoComplete={mode === "login" ? "current-password" : "new-password"}
+              value={password}
+              onChange={(event) => setPassword(event.target.value)}
+              minLength={8}
+              required
+            />
+          </label>
+
+          {mode === "register" && (
+            <label>
+              Confirm password
+              <input
+                type="password"
+                autoComplete="new-password"
+                value={confirmPassword}
+                onChange={(event) => setConfirmPassword(event.target.value)}
+                minLength={8}
+                required
+              />
+            </label>
+          )}
+
+          <button className="auth-submit" type="submit" disabled={busy}>
+            {busy ? "Please wait…" : mode === "login" ? "Sign in" : "Register"}
+          </button>
+        </form>
+
+        <button
+          className="auth-switch"
+          type="button"
+          onClick={() => {
+            setMode(mode === "login" ? "register" : "login");
+            setError(null);
+            setConfirmPassword("");
+          }}
+        >
+          {mode === "login" ? "Need an account? Register" : "Already registered? Sign in"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function Dashboard({ user, onLogout }: { user: User; onLogout: () => void }) {
   const [quotes, setQuotes] = useState<Quote[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -57,6 +174,14 @@ function App() {
     [quotes, selected],
   );
 
+  const handleLogout = async () => {
+    try {
+      await logout();
+    } finally {
+      onLogout();
+    }
+  };
+
   return (
     <div className="app">
       <header className="topbar">
@@ -64,10 +189,17 @@ function App() {
           <div className="eyebrow">Adaptive Intelligence</div>
           <h1>Market Research</h1>
         </div>
-        <button className="refresh" onClick={() => void loadQuotes(true)} disabled={refreshing}>
-          <RefreshCw size={16} className={refreshing ? "spin" : ""} />
-          {refreshing ? "Refreshing" : "Refresh prices"}
-        </button>
+        <div className="topbar-actions">
+          <span className="user-email">{user.email}</span>
+          <button className="logout" onClick={() => void handleLogout()}>
+            <LogOut size={16} />
+            Sign out
+          </button>
+          <button className="refresh" onClick={() => void loadQuotes(true)} disabled={refreshing}>
+            <RefreshCw size={16} className={refreshing ? "spin" : ""} />
+            {refreshing ? "Refreshing" : "Refresh prices"}
+          </button>
+        </div>
       </header>
 
       <main>
@@ -158,9 +290,7 @@ function App() {
                   <Clock3 size={16} />
                   <div>
                     <strong>
-                      {selectedQuote.status === "LIVE"
-                        ? "Research eligible"
-                        : "Research disabled"}
+                      {selectedQuote.status === "LIVE" ? "Research eligible" : "Research disabled"}
                     </strong>
                     <span>
                       {selectedQuote.status === "LIVE"
@@ -185,6 +315,28 @@ function App() {
       </main>
     </div>
   );
+}
+
+function App() {
+  const [user, setUser] = useState<User | null>(null);
+  const [checkingSession, setCheckingSession] = useState(true);
+
+  useEffect(() => {
+    getCurrentUser()
+      .then(setUser)
+      .catch(() => setUser(null))
+      .finally(() => setCheckingSession(false));
+  }, []);
+
+  if (checkingSession) {
+    return <div className="auth-loading">Checking session…</div>;
+  }
+
+  if (!user) {
+    return <AuthScreen onAuthenticated={setUser} />;
+  }
+
+  return <Dashboard user={user} onLogout={() => setUser(null)} />;
 }
 
 export default App;
