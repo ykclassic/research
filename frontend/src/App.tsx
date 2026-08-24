@@ -1,9 +1,20 @@
-import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
+import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Activity, AlertTriangle, Clock3, LogOut, RefreshCw, ShieldCheck } from "lucide-react";
-import { getCurrentUser, getQuotes, login, logout, register, Quote, User } from "./api";
+import {
+  ApiError,
+  confirmPasswordReset,
+  getCurrentUser,
+  getQuotes,
+  login,
+  logout,
+  Quote,
+  register,
+  requestPasswordReset,
+  User,
+} from "./api";
 
 const SYMBOLS = ["BTC/USD", "ETH/USD", "SOL/USD", "EUR/USD", "NVDA", "AAPL", "SPY"];
-type AuthMode = "login" | "register";
+type AuthMode = "login" | "register" | "forgot" | "reset";
 
 function formatPrice(price: number | null): string {
   if (price === null) return "—";
@@ -29,9 +40,30 @@ function AuthScreen({ onAuthenticated }: { onAuthenticated: (user: User) => void
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
+  const [resetToken, setResetToken] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const hash = new URLSearchParams(window.location.hash.replace(/^#/, ""));
+    const token = hash.get("access_token");
+    const recovery = hash.get("type") === "recovery" || params.get("reset") === "1";
+
+    if (token && recovery) {
+      setResetToken(token);
+      setMode("reset");
+      setError(null);
+      setSuccess(null);
+    } else if (params.get("reset") === "1") {
+      setMode("forgot");
+    }
+  }, []);
+
+  const clearRecoveryUrl = () => {
+    window.history.replaceState({}, document.title, window.location.pathname);
+  };
 
   const switchMode = (nextMode: AuthMode) => {
     setMode(nextMode);
@@ -39,6 +71,7 @@ function AuthScreen({ onAuthenticated }: { onAuthenticated: (user: User) => void
     setSuccess(null);
     setPassword("");
     setConfirmPassword("");
+    if (nextMode !== "reset") setResetToken(null);
   };
 
   const submit = async (event: FormEvent<HTMLFormElement>) => {
@@ -46,7 +79,7 @@ function AuthScreen({ onAuthenticated }: { onAuthenticated: (user: User) => void
     setError(null);
     setSuccess(null);
 
-    if (mode === "register" && password !== confirmPassword) {
+    if ((mode === "register" || mode === "reset") && password !== confirmPassword) {
       setError("Passwords do not match.");
       return;
     }
@@ -59,11 +92,33 @@ function AuthScreen({ onAuthenticated }: { onAuthenticated: (user: User) => void
         return;
       }
 
-      await register(email.trim(), password);
+      if (mode === "register") {
+        await register(email.trim(), password);
+        setMode("login");
+        setPassword("");
+        setConfirmPassword("");
+        setSuccess("Registration successful. Please sign in with your new account.");
+        return;
+      }
+
+      if (mode === "forgot") {
+        const message = await requestPasswordReset(email.trim());
+        setSuccess(message);
+        return;
+      }
+
+      if (!resetToken) {
+        setError("Password reset link is missing or invalid.");
+        return;
+      }
+
+      const message = await confirmPasswordReset(resetToken, password);
+      clearRecoveryUrl();
+      setResetToken(null);
       setMode("login");
       setPassword("");
       setConfirmPassword("");
-      setSuccess("Registration successful. Please sign in with your new account.");
+      setSuccess(message);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Authentication failed.");
     } finally {
@@ -71,14 +126,30 @@ function AuthScreen({ onAuthenticated }: { onAuthenticated: (user: User) => void
     }
   };
 
+  const title =
+    mode === "login"
+      ? "Welcome back"
+      : mode === "register"
+        ? "Create your account"
+        : mode === "forgot"
+          ? "Reset your password"
+          : "Choose a new password";
+
+  const subtitle =
+    mode === "login"
+      ? "Sign in to access validated market research."
+      : mode === "register"
+        ? "Create an account to access the research dashboard."
+        : mode === "forgot"
+          ? "Enter your account email and we will send a secure reset link."
+          : "Enter a new password for your account.";
+
   return (
     <div className="auth-page">
       <div className="auth-card">
         <div className="eyebrow">Adaptive Intelligence</div>
-        <h1>{mode === "login" ? "Welcome back" : "Create your account"}</h1>
-        <p className="auth-subtitle">
-          {mode === "login" ? "Sign in to access validated market research." : "Create an account to access the research dashboard."}
-        </p>
+        <h1>{title}</h1>
+        <p className="auth-subtitle">{subtitle}</p>
         {success && <div className="auth-success" role="status">{success}</div>}
         {error && (
           <div className="error auth-error" role="alert">
@@ -87,22 +158,32 @@ function AuthScreen({ onAuthenticated }: { onAuthenticated: (user: User) => void
           </div>
         )}
         <form onSubmit={submit} className="auth-form">
-          <label>
-            Email
-            <input type="email" autoComplete="email" value={email} onChange={(event) => setEmail(event.target.value)} required />
-          </label>
-          <label>
-            Password
-            <input
-              type="password"
-              autoComplete={mode === "login" ? "current-password" : "new-password"}
-              value={password}
-              onChange={(event) => setPassword(event.target.value)}
-              minLength={8}
-              required
-            />
-          </label>
-          {mode === "register" && (
+          {(mode === "login" || mode === "register" || mode === "forgot") && (
+            <label>
+              Email
+              <input
+                type="email"
+                autoComplete="email"
+                value={email}
+                onChange={(event) => setEmail(event.target.value)}
+                required
+              />
+            </label>
+          )}
+          {(mode === "login" || mode === "register" || mode === "reset") && (
+            <label>
+              Password
+              <input
+                type="password"
+                autoComplete={mode === "login" ? "current-password" : "new-password"}
+                value={password}
+                onChange={(event) => setPassword(event.target.value)}
+                minLength={8}
+                required
+              />
+            </label>
+          )}
+          {(mode === "register" || mode === "reset") && (
             <label>
               Confirm password
               <input
@@ -116,12 +197,43 @@ function AuthScreen({ onAuthenticated }: { onAuthenticated: (user: User) => void
             </label>
           )}
           <button className="auth-submit" type="submit" disabled={busy}>
-            {busy ? "Please wait…" : mode === "login" ? "Sign in" : "Register"}
+            {busy
+              ? "Please wait…"
+              : mode === "login"
+                ? "Sign in"
+                : mode === "register"
+                  ? "Register"
+                  : mode === "forgot"
+                    ? "Send reset link"
+                    : "Update password"}
           </button>
         </form>
-        <button className="auth-switch" type="button" onClick={() => switchMode(mode === "login" ? "register" : "login")}>
-          {mode === "login" ? "Need an account? Register" : "Already registered? Sign in"}
-        </button>
+
+        {mode === "login" && (
+          <button className="auth-switch" type="button" onClick={() => switchMode("forgot")}>
+            Forgot your password?
+          </button>
+        )}
+        {mode === "login" && (
+          <button className="auth-switch" type="button" onClick={() => switchMode("register")}>
+            Need an account? Register
+          </button>
+        )}
+        {mode === "register" && (
+          <button className="auth-switch" type="button" onClick={() => switchMode("login")}>
+            Already registered? Sign in
+          </button>
+        )}
+        {mode === "forgot" && (
+          <button className="auth-switch" type="button" onClick={() => switchMode("login")}>
+            Back to Sign in
+          </button>
+        )}
+        {mode === "reset" && (
+          <button className="auth-switch" type="button" onClick={() => { clearRecoveryUrl(); switchMode("login"); }}>
+            Back to Sign in
+          </button>
+        )}
       </div>
     </div>
   );
@@ -133,20 +245,31 @@ function Dashboard({ user, onLogout }: { user: User; onLogout: () => void }) {
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [selected, setSelected] = useState("BTC/USD");
-  const refreshSeconds = Number(import.meta.env.VITE_QUOTE_REFRESH_SECONDS ?? 60);
+  const requestInFlight = useRef(false);
+  const refreshSecondsRaw = Number(import.meta.env.VITE_QUOTE_REFRESH_SECONDS ?? 60);
+  const refreshSeconds = Number.isFinite(refreshSecondsRaw) && refreshSecondsRaw >= 10 ? refreshSecondsRaw : 60;
 
   const loadQuotes = useCallback(async (force = false) => {
+    if (requestInFlight.current) return;
+    requestInFlight.current = true;
     try {
       setError(null);
-      force ? setRefreshing(true) : setLoading(true);
-      setQuotes(await getQuotes(SYMBOLS, force));
+      if (force) setRefreshing(true);
+      else if (quotes.length === 0) setLoading(true);
+      const nextQuotes = await getQuotes(SYMBOLS, force);
+      setQuotes(nextQuotes);
     } catch (err) {
+      if (err instanceof ApiError && err.status === 401) {
+        onLogout();
+        return;
+      }
       setError(err instanceof Error ? err.message : "Unable to retrieve market data.");
     } finally {
+      requestInFlight.current = false;
       setLoading(false);
       setRefreshing(false);
     }
-  }, []);
+  }, [onLogout, quotes.length]);
 
   useEffect(() => {
     void loadQuotes(false);
@@ -234,14 +357,50 @@ function Dashboard({ user, onLogout }: { user: User; onLogout: () => void }) {
 function App() {
   const [user, setUser] = useState<User | null>(null);
   const [checkingSession, setCheckingSession] = useState(true);
+  const [sessionError, setSessionError] = useState<string | null>(null);
+
+  const handleAuthenticated = useCallback((nextUser: User) => {
+    setSessionError(null);
+    setUser(nextUser);
+  }, []);
+
+  const handleLogout = useCallback(() => {
+    setUser(null);
+  }, []);
 
   useEffect(() => {
-    getCurrentUser().then(setUser).catch(() => setUser(null)).finally(() => setCheckingSession(false));
+    let active = true;
+    getCurrentUser()
+      .then((nextUser) => {
+        if (active) setUser(nextUser);
+      })
+      .catch((err) => {
+        if (!active) return;
+        if (err instanceof ApiError && err.status === 401) {
+          setUser(null);
+          return;
+        }
+        setSessionError(err instanceof Error ? err.message : "Unable to verify your session.");
+      })
+      .finally(() => {
+        if (active) setCheckingSession(false);
+      });
+    return () => {
+      active = false;
+    };
   }, []);
 
   if (checkingSession) return <div className="auth-loading">Checking session…</div>;
-  if (!user) return <AuthScreen onAuthenticated={setUser} />;
-  return <Dashboard user={user} onLogout={() => setUser(null)} />;
+  if (sessionError && !user) {
+    return (
+      <div className="auth-loading">
+        <div className="error auth-error"><AlertTriangle size={17} />{sessionError}</div>
+        <button className="auth-submit" onClick={() => window.location.reload()}>Retry</button>
+      </div>
+    );
+  }
+  if (!user) return <AuthScreen onAuthenticated={handleAuthenticated} />;
+  return <Dashboard user={user} onLogout={handleLogout} />;
 }
 
 export default App;
