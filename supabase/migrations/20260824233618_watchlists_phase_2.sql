@@ -71,4 +71,4 @@ end;
 $$;
 
 drop trigger if exists watchlists_set_updated_at on public.watchlists;
-create trigger watchlists_set_updated_at before update on public.watchlists for each row execute function public.set_watchlist_updated_at;
+create trigger watchlists_set_updated_at before update on public.watchlists for each row execute function public.set_watchlist_updated_at();
