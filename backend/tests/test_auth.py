@@ -12,27 +12,30 @@ def client():
         yield test_client
 
 
-def test_register_creates_auth_cookies_and_current_user(client):
+def test_register_does_not_create_auth_session(client):
     user = {
         "id": "u1",
         "email": "user@example.com",
         "created_at": "2026-01-01T00:00:00Z",
     }
-    with patch("app.api.auth.sign_up", return_value={"user": user, "access_token": "token"}), patch(
-        "app.api.auth.get_user", return_value=user
-    ):
+    with patch(
+        "app.api.auth.sign_up",
+        return_value={"user": user, "access_token": "token"},
+    ) as sign_up, patch("app.api.auth.get_user") as get_user:
         response = client.post(
             "/api/auth/register",
             json={"email": "user@example.com", "password": "correct-horse-battery"},
         )
-        assert response.status_code == 201
-        assert response.json() == user
-        assert "mr_access_token" in response.cookies
-        assert "mr_csrf" in response.cookies
 
-        me = client.get("/api/auth/me")
-        assert me.status_code == 200
-        assert me.json() == user
+    assert response.status_code == 201
+    assert response.json() == user
+    assert response.cookies.get("mr_access_token") is None
+    assert response.cookies.get("mr_csrf") is None
+    sign_up.assert_called_once_with("user@example.com", "correct-horse-battery")
+    get_user.assert_not_called()
+
+    me = client.get("/api/auth/me")
+    assert me.status_code == 401
 
 
 def test_duplicate_registration_is_rejected(client):
@@ -48,6 +51,31 @@ def test_duplicate_registration_is_rejected(client):
         )
 
     assert response.status_code == 409
+
+
+def test_login_creates_auth_session(client):
+    user = {
+        "id": "u1",
+        "email": "user@example.com",
+        "created_at": "2026-01-01T00:00:00Z",
+    }
+    with patch(
+        "app.api.auth.sign_in",
+        return_value={"user": user, "access_token": "token"},
+    ), patch("app.api.auth.get_user", return_value=user):
+        response = client.post(
+            "/api/auth/login",
+            json={"email": "user@example.com", "password": "correct-horse-battery"},
+        )
+
+    assert response.status_code == 200
+    assert response.json() == user
+    assert response.cookies.get("mr_access_token") == "token"
+    assert response.cookies.get("mr_csrf")
+
+    me = client.get("/api/auth/me")
+    assert me.status_code == 200
+    assert me.json() == user
 
 
 def test_login_rejects_invalid_password(client):
