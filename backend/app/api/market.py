@@ -1,10 +1,15 @@
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 
+from app.api.auth import get_current_user
 from app.models import QuoteStatus
 from app.services.quote_service import QuoteService
 from app.services.scoring import score_quote
 
-router = APIRouter(prefix="/api/market", tags=["market"])
+router = APIRouter(
+    prefix="/api/market",
+    tags=["market"],
+    dependencies=[Depends(get_current_user)],
+)
 service = QuoteService()
 
 
