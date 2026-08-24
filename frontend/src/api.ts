@@ -18,7 +18,76 @@ export interface Quote {
   error: string | null;
 }
 
-const API_BASE = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8000";
+export interface User {
+  id: string;
+  email: string;
+  created_at: string;
+}
+
+const API_BASE = (import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8000").replace(/\/$/, "");
+
+function getCookie(name: string): string | null {
+  const encodedName = `${encodeURIComponent(name)}=`;
+  const cookie = document.cookie
+    .split(";")
+    .map((item) => item.trim())
+    .find((item) => item.startsWith(encodedName));
+  return cookie ? decodeURIComponent(cookie.slice(encodedName.length)) : null;
+}
+
+async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
+  const headers = new Headers(init.headers);
+  if (init.body && !headers.has("Content-Type")) {
+    headers.set("Content-Type", "application/json");
+  }
+
+  if (init.method && init.method !== "GET") {
+    const csrf = getCookie("mr_csrf");
+    if (csrf) headers.set("X-CSRF-Token", csrf);
+  }
+
+  const response = await fetch(`${API_BASE}${path}`, {
+    ...init,
+    headers,
+    credentials: "include",
+  });
+
+  if (!response.ok) {
+    let message = `Request failed: ${response.status}`;
+    try {
+      const body = (await response.json()) as { detail?: string };
+      if (body.detail) message = body.detail;
+    } catch {
+      // Keep the HTTP status message when the response is not JSON.
+    }
+    throw new Error(message);
+  }
+
+  if (response.status === 204) return undefined as T;
+  return (await response.json()) as T;
+}
+
+export async function register(email: string, password: string): Promise<User> {
+  return request<User>("/api/auth/register", {
+    method: "POST",
+    body: JSON.stringify({ email, password }),
+  });
+}
+
+export async function login(email: string, password: string): Promise<User> {
+  return request<User>("/api/auth/login", {
+    method: "POST",
+    body: JSON.stringify({ email, password }),
+  });
+}
+
+export async function getCurrentUser(): Promise<User> {
+  return request<User>("/api/auth/me");
+}
+
+export async function logout(): Promise<void> {
+  await request<void>("/api/auth/logout", { method: "POST" });
+}
 
 export async function getQuotes(
   symbols: string[],
@@ -29,11 +98,6 @@ export async function getQuotes(
     refresh: String(refresh),
   });
 
-  const response = await fetch(`${API_BASE}/api/market/quotes?${params}`);
-  if (!response.ok) {
-    throw new Error(`Quote request failed: ${response.status}`);
-  }
-
-  const body = (await response.json()) as { quotes: Quote[] };
+  const body = await request<{ quotes: Quote[] }>(`/api/market/quotes?${params}`);
   return body.quotes;
 }
