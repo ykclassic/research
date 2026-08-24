@@ -20,6 +20,9 @@ class Settings(BaseSettings):
     auth_session_seconds: int = 604800
     auth_password_reset_redirect_url: str = "http://localhost:5173/?reset=1"
 
+    # CSRF signing secret. Set a long random value in production.
+    csrf_secret: str = "development-only-change-me"
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",
