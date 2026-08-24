@@ -14,8 +14,9 @@ class Settings(BaseSettings):
 
     twelve_data_api_key: str = ""
 
-    # Authentication
-    auth_database_path: str = "./data/auth.db"
+    # Supabase Auth
+    supabase_url: str = ""
+    supabase_publishable_key: str = ""
     auth_session_seconds: int = 604800
 
     model_config = SettingsConfigDict(
