@@ -24,6 +24,16 @@ export interface User {
   created_at: string;
 }
 
+export class ApiError extends Error {
+  readonly status: number;
+
+  constructor(message: string, status: number) {
+    super(message);
+    this.name = "ApiError";
+    this.status = status;
+  }
+}
+
 const API_BASE = (import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8000").replace(/\/$/, "");
 
 function getCookie(name: string): string | null {
@@ -46,11 +56,16 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
     if (csrf) headers.set("X-CSRF-Token", csrf);
   }
 
-  const response = await fetch(`${API_BASE}${path}`, {
-    ...init,
-    headers,
-    credentials: "include",
-  });
+  let response: Response;
+  try {
+    response = await fetch(`${API_BASE}${path}`, {
+      ...init,
+      headers,
+      credentials: "include",
+    });
+  } catch {
+    throw new ApiError("Unable to reach the application server. Check your connection and try again.", 0);
+  }
 
   if (!response.ok) {
     let message = `Request failed: ${response.status}`;
@@ -60,7 +75,7 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
     } catch {
       // Keep the HTTP status message when the response is not JSON.
     }
-    throw new Error(message);
+    throw new ApiError(message, response.status);
   }
 
   if (response.status === 204) return undefined as T;
@@ -79,6 +94,22 @@ export async function login(email: string, password: string): Promise<User> {
     method: "POST",
     body: JSON.stringify({ email, password }),
   });
+}
+
+export async function requestPasswordReset(email: string): Promise<string> {
+  const response = await request<{ message: string }>("/api/auth/password-reset/request", {
+    method: "POST",
+    body: JSON.stringify({ email }),
+  });
+  return response.message;
+}
+
+export async function confirmPasswordReset(accessToken: string, password: string): Promise<string> {
+  const response = await request<{ message: string }>("/api/auth/password-reset/confirm", {
+    method: "POST",
+    body: JSON.stringify({ access_token: accessToken, password }),
+  });
+  return response.message;
 }
 
 export async function getCurrentUser(): Promise<User> {
