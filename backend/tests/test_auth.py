@@ -68,14 +68,14 @@ def test_login_creates_auth_session(client):
             json={"email": "user@example.com", "password": "correct-horse-battery"},
         )
 
-    assert response.status_code == 200
-    assert response.json() == user
-    assert response.cookies.get("mr_access_token") == "token"
-    assert response.cookies.get("mr_csrf")
+        assert response.status_code == 200
+        assert response.json() == user
+        assert response.cookies.get("mr_access_token") == "token"
+        assert response.cookies.get("mr_csrf")
 
-    me = client.get("/api/auth/me")
-    assert me.status_code == 200
-    assert me.json() == user
+        me = client.get("/api/auth/me")
+        assert me.status_code == 200
+        assert me.json() == user
 
 
 def test_login_rejects_invalid_password(client):
