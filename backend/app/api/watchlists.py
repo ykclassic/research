@@ -5,20 +5,17 @@ from typing import Annotated
 from fastapi import APIRouter, Cookie, Depends, HTTPException, status
 from pydantic import BaseModel, Field
 
-from app.api.auth import CSRF_COOKIE, _require_csrf, get_current_user
-from app.models import UserResponse
+from app.api.auth import UserResponse, _require_csrf, get_current_user
 from app.services.supabase_data import (
     DataConfigurationError,
     DataConflictError,
     DataNotFoundError,
-    DataRequestError,
     DataServiceError,
     DataUnavailableError,
     add_symbol,
     create_watchlist,
     delete_watchlist,
     get_or_create_default_watchlist,
-    list_watchlists,
     remove_symbol,
     update_watchlist,
 )
