@@ -7,7 +7,7 @@ from fastapi import APIRouter, Cookie, Depends, Header, HTTPException, Response,
 from pydantic import BaseModel, EmailStr, Field
 
 from app.config import settings
-from app.services.auth import AuthConfigurationError, AuthServiceError, get_user, sign_in, sign_out, sign_up
+from app.services.supabase_auth import AuthConfigurationError, AuthServiceError, get_user, sign_in, sign_out, sign_up
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 SESSION_COOKIE = "mr_access_token"
@@ -57,12 +57,10 @@ def _map_user(payload: dict[str, Any]) -> UserResponse:
 def _auth_error(exc: Exception) -> HTTPException:
     if isinstance(exc, AuthConfigurationError):
         return HTTPException(status_code=503, detail="Authentication service is not configured.")
-    return HTTPException(status_code=401, detail="Invalid authentication credentials.")
+    return HTTPException(status_code=401, detail="Invalid email or password.")
 
 
-def get_current_user(
-    access_token: Annotated[str | None, Cookie(alias=SESSION_COOKIE)] = None,
-) -> UserResponse:
+def get_current_user(access_token: Annotated[str | None, Cookie(alias=SESSION_COOKIE)] = None) -> UserResponse:
     if not access_token:
         raise HTTPException(status_code=401, detail="Authentication required.")
     try:
@@ -81,7 +79,6 @@ async def register(credentials: Credentials, response: Response) -> UserResponse
         if "already" in detail.lower() or "registered" in detail.lower():
             code = 409
         raise HTTPException(status_code=code, detail=detail) from exc
-
     access_token = payload.get("access_token")
     if access_token:
         _set_auth_cookies(response, access_token)
