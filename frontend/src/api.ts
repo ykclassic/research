@@ -35,6 +35,7 @@ export class ApiError extends Error {
 }
 
 const API_BASE = (import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8000").replace(/\/$/, "");
+const REQUEST_TIMEOUT_MS = 12_000;
 
 function getCookie(name: string): string | null {
   const encodedName = `${encodeURIComponent(name)}=`;
@@ -56,15 +57,41 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
     if (csrf) headers.set("X-CSRF-Token", csrf);
   }
 
+  const controller = new AbortController();
+  let timeoutId: number | undefined;
+  let removeAbortListener: (() => void) | undefined;
+
+  if (init.signal) {
+    if (init.signal.aborted) {
+      controller.abort(init.signal.reason);
+    } else {
+      const abort = () => controller.abort(init.signal?.reason);
+      init.signal.addEventListener("abort", abort, { once: true });
+      removeAbortListener = () => init.signal?.removeEventListener("abort", abort);
+    }
+  }
+
+  timeoutId = window.setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+
   let response: Response;
   try {
     response = await fetch(`${API_BASE}${path}`, {
       ...init,
       headers,
       credentials: "include",
+      signal: controller.signal,
     });
-  } catch {
+  } catch (error) {
+    if (error instanceof DOMException && error.name === "AbortError") {
+      throw new ApiError(
+        `The application server did not respond within ${REQUEST_TIMEOUT_MS / 1000} seconds. Check the API deployment and try again.`,
+        0,
+      );
+    }
     throw new ApiError("Unable to reach the application server. Check your connection and try again.", 0);
+  } finally {
+    if (timeoutId !== undefined) window.clearTimeout(timeoutId);
+    removeAbortListener?.();
   }
 
   if (!response.ok) {
