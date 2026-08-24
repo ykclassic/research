@@ -3,6 +3,11 @@ from unittest.mock import patch
 from fastapi.testclient import TestClient
 
 from app.main import app
+from app.services.supabase_auth import (
+    AuthEmailNotConfirmedError,
+    AuthInvalidCredentialsError,
+    AuthUnavailableError,
+)
 
 
 client = TestClient(app)
@@ -50,6 +55,51 @@ def test_login_creates_session_cookie():
     assert response.json()["id"] == "u1"
     assert "mr_access_token" in response.cookies
     assert "mr_csrf" in response.cookies
+
+
+def test_login_rejects_invalid_credentials():
+    client.cookies.clear()
+    with patch(
+        "app.api.auth.sign_in",
+        side_effect=AuthInvalidCredentialsError("Invalid login credentials"),
+    ):
+        response = client.post(
+            "/api/auth/login",
+            json={"email": "user@example.com", "password": "wrongpass"},
+        )
+
+    assert response.status_code == 401
+    assert response.json()["detail"] == "Invalid email or password."
+
+
+def test_login_reports_unconfirmed_email():
+    client.cookies.clear()
+    with patch(
+        "app.api.auth.sign_in",
+        side_effect=AuthEmailNotConfirmedError("Email not confirmed"),
+    ):
+        response = client.post(
+            "/api/auth/login",
+            json={"email": "user@example.com", "password": "password123"},
+        )
+
+    assert response.status_code == 403
+    assert response.json()["detail"] == "Email address has not been confirmed."
+
+
+def test_login_reports_auth_service_unavailable():
+    client.cookies.clear()
+    with patch(
+        "app.api.auth.sign_in",
+        side_effect=AuthUnavailableError("Authentication service is unavailable."),
+    ):
+        response = client.post(
+            "/api/auth/login",
+            json={"email": "user@example.com", "password": "password123"},
+        )
+
+    assert response.status_code == 503
+    assert response.json()["detail"] == "Authentication service is temporarily unavailable."
 
 
 def test_me_requires_authentication():
