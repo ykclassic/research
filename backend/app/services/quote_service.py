@@ -4,6 +4,7 @@ from app.config import settings
 from app.models import Quote, QuoteStatus
 from app.providers.twelve_data import TwelveDataProvider
 from app.services.cache import TTLCache
+from app.symbols import normalize_symbol
 
 
 class QuoteService:
@@ -23,8 +24,26 @@ class QuoteService:
             self.cache.set(key, quote, settings.quote_cache_seconds)
         return quote
 
+    async def _get_quote_bounded(self, symbol: str, force_refresh: bool) -> Quote:
+        """Return a deterministic unavailable result instead of blocking the API indefinitely."""
+        try:
+            # Keep the aggregate /quotes endpoint below the frontend's 12s request budget.
+            return await asyncio.wait_for(
+                self.get_quote(symbol, force_refresh=force_refresh),
+                timeout=8.0,
+            )
+        except asyncio.TimeoutError:
+            mapping = normalize_symbol(symbol)
+            return Quote(
+                symbol=mapping.internal,
+                provider_symbol=mapping.twelve_data,
+                status=QuoteStatus.UNAVAILABLE,
+                source=self.provider.name,
+                error="Market-data provider exceeded the API latency budget.",
+            )
+
     async def get_quotes(self, symbols: list[str], force_refresh: bool = False) -> list[Quote]:
-        """Fetch independent symbols concurrently while preserving request order."""
+        """Fetch independent symbols concurrently and preserve request order."""
         return list(await asyncio.gather(
-            *(self.get_quote(symbol, force_refresh=force_refresh) for symbol in symbols)
+            *(self._get_quote_bounded(symbol, force_refresh) for symbol in symbols)
         ))
