@@ -10,6 +10,7 @@ from app.config import settings
 from app.models import Quote, QuoteStatus
 from app.models.market import Candle, OHLCVDataset, Timeframe
 from app.providers.base import MarketDataProvider
+from app.services.data_validation import validate_ohlcv_dataset
 from app.symbols import normalize_symbol
 
 
@@ -165,7 +166,7 @@ class TwelveDataProvider(MarketDataProvider):
                     requested_at=requested_at,
                     candles=tuple(candles),
                 )
-                return dataset
+                return validate_ohlcv_dataset(dataset)
             except (httpx.HTTPError, ValueError) as exc:
                 last_error = str(exc)
                 if attempt < settings.http_max_retries:
