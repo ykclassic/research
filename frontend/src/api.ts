@@ -9,8 +9,17 @@ export interface Quote { symbol: string; provider_symbol: string; price: number 
 export interface User { id: string; email: string; created_at: string; }
 export interface WatchlistItem { id: string; symbol: string; created_at: string; }
 export interface Watchlist { id: string; user_id: string; name: string; created_at: string; updated_at: string; watchlist_items: WatchlistItem[]; }
-export interface Candle { timestamp: string; open: number; high: number; low: number; close: number; volume: number | null; }
-export interface TechnicalAnalysis { symbol: string; timeframe: string; source: string; candles: Candle[]; indicators: Record<string, number | string | null>; }
+export interface Candle { timestamp: string; open: number; high: number; low: number; close: number; volume: number | null; is_complete: boolean; }
+export interface TechnicalAnalysis {
+  symbol: string;
+  timeframe: string;
+  source: string;
+  calculated_at: string;
+  latest_candle_timestamp: string;
+  candle_count: number;
+  candles: Candle[];
+  indicators: Record<string, number | string | null>;
+}
 
 export class ApiError extends Error {
   readonly status: number;
