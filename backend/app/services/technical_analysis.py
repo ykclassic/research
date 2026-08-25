@@ -1,9 +1,8 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
 from math import sqrt
 
-from app.models.market import Candle, OHLCVDataset, TechnicalAnalysisResult
+from app.models.market import Candle
 
 
 def _sma(values: list[float], period: int) -> float | None:
@@ -148,7 +147,12 @@ def _vwap(candles: list[Candle]) -> float | None:
 
 
 def calculate_indicators(candles: list[Candle]) -> dict[str, float | None | str]:
-    """Calculate deterministic indicators from a completed canonical candle set."""
+    """Calculate deterministic indicators from completed canonical candles.
+
+    This function is deliberately pure: it performs no I/O, provider access,
+    caching, timestamp generation, or dataset preparation. Dataset preparation
+    belongs to FeatureEngine.
+    """
     if not candles:
         raise ValueError("At least one completed candle is required.")
     if not all(c.is_complete for c in candles):
@@ -226,20 +230,3 @@ def calculate_indicators(candles: list[Candle]) -> dict[str, float | None | str]
         "vwap": _vwap(candles),
         "trend": trend,
     }
-
-
-def calculate_feature_set(dataset: OHLCVDataset) -> TechnicalAnalysisResult:
-    """Canonical entry point for deterministic technical research features."""
-    completed = dataset.completed_candles
-    if not completed:
-        raise ValueError("OHLCV dataset contains no completed candles.")
-    indicators = calculate_indicators(list(completed))
-    return TechnicalAnalysisResult(
-        symbol=dataset.symbol,
-        timeframe=dataset.timeframe,
-        source=dataset.source,
-        calculated_at=datetime.now(timezone.utc),
-        latest_candle_timestamp=completed[-1].timestamp,
-        candle_count=len(completed),
-        indicators=indicators,
-    )
