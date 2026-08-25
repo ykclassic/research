@@ -1,10 +1,10 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
 from math import isfinite
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
 class Timeframe(str, Enum):
@@ -28,7 +28,7 @@ class Timeframe(str, Enum):
 
 
 class Candle(BaseModel):
-    """Canonical, validated OHLCV candle used by research calculations."""
+    """Canonical, immutable OHLCV candle used by all research calculations."""
 
     model_config = ConfigDict(frozen=True)
 
@@ -43,6 +43,13 @@ class Candle(BaseModel):
     source: str
     is_complete: bool
 
+    @field_validator("timestamp")
+    @classmethod
+    def timestamp_must_be_timezone_aware(cls, value: datetime) -> datetime:
+        if value.tzinfo is None or value.utcoffset() is None:
+            raise ValueError("Candle timestamp must be timezone-aware.")
+        return value.astimezone(timezone.utc)
+
     @field_validator("open", "high", "low", "close", "volume")
     @classmethod
     def finite_number(cls, value: float | None) -> float | None:
@@ -50,28 +57,15 @@ class Candle(BaseModel):
             raise ValueError("OHLCV values must be finite numbers.")
         return value
 
-    @field_validator("high")
-    @classmethod
-    def high_must_not_be_below_open(cls, value: float, info):
-        if "open" in info.data and value < info.data["open"]:
-            raise ValueError("Candle high cannot be below open.")
-        return value
-
-    @field_validator("low")
-    @classmethod
-    def low_must_not_be_above_open(cls, value: float, info):
-        if "open" in info.data and value > info.data["open"]:
-            raise ValueError("Candle low cannot be above open.")
-        return value
-
-    @field_validator("close")
-    @classmethod
-    def close_must_be_within_range(cls, value: float, info):
-        if "high" in info.data and value > info.data["high"]:
-            raise ValueError("Candle close cannot be above high.")
-        if "low" in info.data and value < info.data["low"]:
-            raise ValueError("Candle close cannot be below low.")
-        return value
+    @model_validator(mode="after")
+    def validate_price_range(self) -> Candle:
+        if self.high < max(self.open, self.close):
+            raise ValueError("Candle high must be >= open and close.")
+        if self.low > min(self.open, self.close):
+            raise ValueError("Candle low must be <= open and close.")
+        if self.high < self.low:
+            raise ValueError("Candle high must be >= low.")
+        return self
 
 
 class OHLCVDataset(BaseModel):
@@ -86,6 +80,15 @@ class OHLCVDataset(BaseModel):
     provider_timestamp: datetime | None = None
     candles: tuple[Candle, ...]
 
+    @field_validator("requested_at", "provider_timestamp")
+    @classmethod
+    def metadata_timestamp_utc(cls, value: datetime | None) -> datetime | None:
+        if value is None:
+            return None
+        if value.tzinfo is None or value.utcoffset() is None:
+            raise ValueError("Dataset timestamps must be timezone-aware.")
+        return value.astimezone(timezone.utc)
+
     @field_validator("candles")
     @classmethod
     def validate_candles(cls, candles: tuple[Candle, ...]) -> tuple[Candle, ...]:
@@ -97,6 +100,17 @@ class OHLCVDataset(BaseModel):
                 raise ValueError("OHLCV candle timestamps must be strictly increasing.")
             previous = candle.timestamp
         return candles
+
+    @model_validator(mode="after")
+    def validate_candle_identity(self) -> OHLCVDataset:
+        for candle in self.candles:
+            if candle.symbol != self.symbol:
+                raise ValueError("Every candle must match the dataset symbol.")
+            if candle.timeframe != self.timeframe:
+                raise ValueError("Every candle must match the dataset timeframe.")
+            if candle.source != self.source:
+                raise ValueError("Every candle must match the dataset source.")
+        return self
 
     @property
     def latest_candle(self) -> Candle:
@@ -114,18 +128,15 @@ class OHLCVDataset(BaseModel):
         return None
 
 
-class IndicatorValue(BaseModel):
-    value: float | None
-    period: int | None = None
-
-
 class TechnicalAnalysisResult(BaseModel):
     """Deterministic indicator output with dataset provenance."""
+
+    model_config = ConfigDict(frozen=True)
 
     symbol: str
     timeframe: Timeframe
     source: str
     calculated_at: datetime
     latest_candle_timestamp: datetime
-    candle_count: int
+    candle_count: int = Field(ge=1)
     indicators: dict[str, float | None | str]
