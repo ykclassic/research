@@ -65,7 +65,7 @@ def test_indicators_calculate_long_periods_without_lookahead():
 def test_indicator_values_change_when_latest_completed_candle_changes():
     original = candles(260)
     modified = original[:-1] + [
-        original[-1].model_copy(update={"close": original[-1].close + 20})
+        original[-1].model_copy(update={"close": original[-1].close - 20})
     ]
     first = calculate_indicators(original)
     second = calculate_indicators(modified)
