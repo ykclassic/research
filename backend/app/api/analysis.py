@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
 from app.api.auth import get_current_user
 from app.models.market import Timeframe
@@ -20,6 +20,8 @@ quote_service = QuoteService()
 
 
 class CandleResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     timestamp: datetime
     open: float
     high: float
