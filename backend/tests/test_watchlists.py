@@ -3,7 +3,7 @@ from unittest.mock import patch
 import pytest
 from fastapi.testclient import TestClient
 
-from app.api.auth import CSRF_COOKIE, SESSION_COOKIE, UserResponse, get_current_user
+from app.api.auth import CSRF_COOKIE, CSRF_HEADER, SESSION_COOKIE, UserResponse, get_current_user
 from app.main import app
 
 
@@ -20,6 +20,7 @@ def client():
     with TestClient(app) as test_client:
         test_client.cookies.set(SESSION_COOKIE, "access-token")
         test_client.cookies.set(CSRF_COOKIE, "csrf-token")
+        test_client.headers[CSRF_HEADER] = "csrf-token"
         yield test_client
     app.dependency_overrides.clear()
 
@@ -43,6 +44,7 @@ def test_get_watchlists_returns_default_workspace(client):
 
 def test_create_watchlist_requires_csrf(client):
     client.cookies.delete(CSRF_COOKIE)
+    client.headers.pop(CSRF_HEADER, None)
     response = client.post("/api/watchlists", json={"name": "Crypto"})
     assert response.status_code == 403
 
