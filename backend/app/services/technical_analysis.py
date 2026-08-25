@@ -1,17 +1,9 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from datetime import datetime, timezone
 from math import sqrt
 
-
-@dataclass(frozen=True)
-class Candle:
-    timestamp: str
-    open: float
-    high: float
-    low: float
-    close: float
-    volume: float | None = None
+from app.models.market import Candle, OHLCVDataset, TechnicalAnalysisResult
 
 
 def _sma(values: list[float], period: int) -> float | None:
@@ -51,7 +43,11 @@ def _rsi(values: list[float], period: int = 14) -> float | None:
 
 def _true_ranges(candles: list[Candle]) -> list[float]:
     return [
-        max(candles[i].high - candles[i].low, abs(candles[i].high - candles[i - 1].close), abs(candles[i].low - candles[i - 1].close))
+        max(
+            candles[i].high - candles[i].low,
+            abs(candles[i].high - candles[i - 1].close),
+            abs(candles[i].low - candles[i - 1].close),
+        )
         for i in range(1, len(candles))
     ]
 
@@ -75,7 +71,13 @@ def _adx(candles: list[Candle], period: int = 14) -> float | None:
     for index in range(1, len(candles)):
         current, previous = candles[index], candles[index - 1]
         up, down = current.high - previous.high, previous.low - current.low
-        trs.append(max(current.high - current.low, abs(current.high - previous.close), abs(current.low - previous.close)))
+        trs.append(
+            max(
+                current.high - current.low,
+                abs(current.high - previous.close),
+                abs(current.low - previous.close),
+            )
+        )
         plus_dm.append(up if up > down and up > 0 else 0.0)
         minus_dm.append(down if down > up and down > 0 else 0.0)
     atr = sum(trs[:period]) / period
@@ -89,7 +91,9 @@ def _adx(candles: list[Candle], period: int = 14) -> float | None:
         plus_di = 100.0 * plus / atr if atr else 0.0
         minus_di = 100.0 * minus / atr if atr else 0.0
         denominator = plus_di + minus_di
-        dx_values.append(100.0 * abs(plus_di - minus_di) / denominator if denominator else 0.0)
+        dx_values.append(
+            100.0 * abs(plus_di - minus_di) / denominator if denominator else 0.0
+        )
     if len(dx_values) < period:
         return None
     adx = sum(dx_values[:period]) / period
@@ -98,15 +102,21 @@ def _adx(candles: list[Candle], period: int = 14) -> float | None:
     return adx
 
 
-def _stochastic(candles: list[Candle], period: int = 14, signal_period: int = 3) -> tuple[float | None, float | None]:
+def _stochastic(
+    candles: list[Candle], period: int = 14, signal_period: int = 3
+) -> tuple[float | None, float | None]:
     if len(candles) < period:
         return None, None
     k_history: list[float] = []
     for end in range(period, len(candles) + 1):
-        window = candles[end - period:end]
+        window = candles[end - period : end]
         highest = max(c.high for c in window)
         lowest = min(c.low for c in window)
-        k_history.append(50.0 if highest == lowest else 100.0 * (candles[end - 1].close - lowest) / (highest - lowest))
+        k_history.append(
+            50.0
+            if highest == lowest
+            else 100.0 * (candles[end - 1].close - lowest) / (highest - lowest)
+        )
     k = k_history[-1]
     d = _sma(k_history, signal_period)
     return k, d
@@ -127,21 +137,36 @@ def _obv(candles: list[Candle]) -> float | None:
 def _vwap(candles: list[Candle]) -> float | None:
     if not candles or any(c.volume is None for c in candles):
         return None
-    session_key = candles[-1].timestamp[:10]
-    session = [c for c in candles if c.timestamp[:10] == session_key]
+    session_date = candles[-1].timestamp.date()
+    session = [c for c in candles if c.timestamp.date() == session_date]
     volume = sum(c.volume or 0.0 for c in session)
     if volume <= 0:
         return None
-    return sum(((c.high + c.low + c.close) / 3.0) * (c.volume or 0.0) for c in session) / volume
+    return sum(
+        ((c.high + c.low + c.close) / 3.0) * (c.volume or 0.0) for c in session
+    ) / volume
 
 
 def calculate_indicators(candles: list[Candle]) -> dict[str, float | None | str]:
+    """Calculate deterministic indicators from a completed canonical candle set."""
     if not candles:
         raise ValueError("At least one completed candle is required.")
+    if not all(c.is_complete for c in candles):
+        raise ValueError("Technical indicators require completed candles only.")
+
     closes = [c.close for c in candles]
-    ema20, ema50, ema200 = _ema(closes, 20), _ema(closes, 50), _ema(closes, 200)
-    sma20, sma50, sma200 = _sma(closes, 20), _sma(closes, 50), _sma(closes, 200)
+    ema20, ema50, ema200 = (
+        _ema(closes, 20),
+        _ema(closes, 50),
+        _ema(closes, 200),
+    )
+    sma20, sma50, sma200 = (
+        _sma(closes, 20),
+        _sma(closes, 50),
+        _sma(closes, 200),
+    )
     rsi = _rsi(closes)
+
     macd_line = signal = None
     if len(closes) >= 26:
         macd_history: list[float] = []
@@ -152,6 +177,7 @@ def calculate_indicators(candles: list[Candle]) -> dict[str, float | None | str]
                 macd_history.append(fast - slow)
         if macd_history:
             macd_line, signal = macd_history[-1], _ema(macd_history, 9)
+
     atr, adx = _atr(candles), _adx(candles)
     bb_mid = sma20
     bb_upper = bb_lower = bb_width = None
@@ -161,6 +187,7 @@ def calculate_indicators(candles: list[Candle]) -> dict[str, float | None | str]
         deviation = sqrt(sum((x - mean) ** 2 for x in window) / 20)
         bb_upper, bb_lower = mean + 2.0 * deviation, mean - 2.0 * deviation
         bb_width = (bb_upper - bb_lower) / mean if mean else None
+
     stoch_k, stoch_d = _stochastic(candles)
     current = candles[-1].close
     trend = "UNKNOWN"
@@ -171,13 +198,48 @@ def calculate_indicators(candles: list[Candle]) -> dict[str, float | None | str]
             trend = "BEARISH"
         else:
             trend = "NEUTRAL"
+
     return {
-        "ema20": ema20, "ema50": ema50, "ema200": ema200,
-        "sma20": sma20, "sma50": sma50, "sma200": sma200,
-        "rsi14": rsi, "macd": macd_line, "macd_signal": signal,
-        "macd_histogram": macd_line - signal if macd_line is not None and signal is not None else None,
-        "atr14": atr, "adx14": adx,
-        "bb_middle": bb_mid, "bb_upper": bb_upper, "bb_lower": bb_lower, "bb_width": bb_width,
-        "stochastic_k": stoch_k, "stochastic_d": stoch_d,
-        "obv": _obv(candles), "vwap": _vwap(candles), "trend": trend,
+        "ema20": ema20,
+        "ema50": ema50,
+        "ema200": ema200,
+        "sma20": sma20,
+        "sma50": sma50,
+        "sma200": sma200,
+        "rsi14": rsi,
+        "macd": macd_line,
+        "macd_signal": signal,
+        "macd_histogram": (
+            macd_line - signal
+            if macd_line is not None and signal is not None
+            else None
+        ),
+        "atr14": atr,
+        "adx14": adx,
+        "bb_middle": bb_mid,
+        "bb_upper": bb_upper,
+        "bb_lower": bb_lower,
+        "bb_width": bb_width,
+        "stochastic_k": stoch_k,
+        "stochastic_d": stoch_d,
+        "obv": _obv(candles),
+        "vwap": _vwap(candles),
+        "trend": trend,
     }
+
+
+def calculate_feature_set(dataset: OHLCVDataset) -> TechnicalAnalysisResult:
+    """Canonical entry point for deterministic technical research features."""
+    completed = dataset.completed_candles
+    if not completed:
+        raise ValueError("OHLCV dataset contains no completed candles.")
+    indicators = calculate_indicators(list(completed))
+    return TechnicalAnalysisResult(
+        symbol=dataset.symbol,
+        timeframe=dataset.timeframe,
+        source=dataset.source,
+        calculated_at=datetime.now(timezone.utc),
+        latest_candle_timestamp=completed[-1].timestamp,
+        candle_count=len(completed),
+        indicators=indicators,
+    )
