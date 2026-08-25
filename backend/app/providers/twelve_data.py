@@ -7,8 +7,8 @@ import httpx
 from app.config import settings
 from app.models import Quote, QuoteStatus
 from app.providers.base import MarketDataProvider
-from app.symbols import normalize_symbol
 from app.services.technical_analysis import Candle
+from app.symbols import normalize_symbol
 
 
 class TwelveDataProvider(MarketDataProvider):
@@ -57,7 +57,7 @@ class TwelveDataProvider(MarketDataProvider):
         mapping = normalize_symbol(internal_symbol)
         if not settings.twelve_data_api_key:
             raise RuntimeError("TWELVE_DATA_API_KEY is not configured.")
-        params = {"symbol": mapping.twelve_data, "interval": interval, "outputsize": str(min(max(outputsize, 50), 5000)), "apikey": settings.twelve_data_api_key, "order": "ASC"}
+        params = {"symbol": mapping.twelve_data, "interval": interval, "outputsize": str(min(max(outputsize, 50), 5000)), "apikey": settings.twelve_data_api_key}
         timeout = httpx.Timeout(settings.http_timeout_seconds)
         async with httpx.AsyncClient(timeout=timeout) as client:
             response = await client.get(f"{self.base_url}/time_series", params=params)
@@ -66,6 +66,7 @@ class TwelveDataProvider(MarketDataProvider):
         if payload.get("status") == "error" or "values" not in payload:
             raise ValueError(str(payload.get("message", "Provider returned no historical data.")))
         candles: list[Candle] = []
+        # Twelve Data returns time-series values ordered newest-first by default.
         for row in reversed(payload["values"]):
             try:
                 candles.append(Candle(timestamp=str(row["datetime"]), open=float(row["open"]), high=float(row["high"]), low=float(row["low"]), close=float(row["close"]), volume=float(row["volume"]) if row.get("volume") is not None else None))
