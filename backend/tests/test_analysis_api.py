@@ -73,7 +73,7 @@ def test_analysis_returns_canonical_feature_result(authenticated_client, monkeyp
         params={"timeframe": "1h", "limit": 250},
     )
 
-    assert response.status_code == 200
+    assert response.status_code == 200, response.text
     body = response.json()
     assert body["symbol"] == SYMBOL
     assert body["timeframe"] == "1h"
@@ -97,7 +97,7 @@ def test_analysis_excludes_forming_candle_from_feature_calculation(authenticated
 
     response = authenticated_client.get("/api/analysis/BTC%2FUSD")
 
-    assert response.status_code == 200
+    assert response.status_code == 200, response.text
     body = response.json()
     assert len(body["candles"]) == 260
     assert body["candles"][-1]["is_complete"] is False
