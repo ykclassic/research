@@ -14,7 +14,7 @@ SOURCE = "test_provider"
 USER = {"id": "u1", "email": "user@example.com"}
 
 
-def make_dataset(count: int = 260) -> OHLCVDataset:
+def make_dataset(count: int = 260, *, incomplete_last: bool = False) -> OHLCVDataset:
     start = datetime(2026, 1, 1, tzinfo=timezone.utc)
     candles = []
     price = 100.0
@@ -31,7 +31,7 @@ def make_dataset(count: int = 260) -> OHLCVDataset:
                 symbol=SYMBOL,
                 timeframe=Timeframe.HOUR_1,
                 source=SOURCE,
-                is_complete=True,
+                is_complete=not (incomplete_last and index == count - 1),
             )
         )
     return OHLCVDataset(
@@ -79,11 +79,30 @@ def test_analysis_returns_canonical_feature_result(authenticated_client, monkeyp
     assert body["timeframe"] == "1h"
     assert body["source"] == SOURCE
     assert body["candle_count"] == 260
+    assert body["calculated_at"]
     assert body["latest_candle_timestamp"] == dataset.candles[-1].timestamp.isoformat().replace("+00:00", "Z")
     assert len(body["candles"]) == 260
     assert body["candles"][-1]["is_complete"] is True
     assert body["indicators"]["ema20"] is not None
     assert calls == {"symbol": SYMBOL, "timeframe": Timeframe.HOUR_1, "limit": 250}
+
+
+def test_analysis_excludes_forming_candle_from_feature_calculation(authenticated_client, monkeypatch):
+    dataset = make_dataset(incomplete_last=True)
+
+    async def fake_get_candles(symbol, timeframe, limit):
+        return dataset
+
+    monkeypatch.setattr(quote_service.provider, "get_candles", fake_get_candles)
+
+    response = authenticated_client.get("/api/analysis/BTC%2FUSD")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert len(body["candles"]) == 260
+    assert body["candles"][-1]["is_complete"] is False
+    assert body["candle_count"] == 259
+    assert body["latest_candle_timestamp"] == dataset.candles[-2].timestamp.isoformat().replace("+00:00", "Z")
 
 
 def test_analysis_rejects_invalid_timeframe(authenticated_client):
@@ -102,7 +121,7 @@ def test_analysis_rejects_invalid_limit(authenticated_client):
     assert response.status_code == 422
 
 
-def test_analysis_maps_provider_or_feature_failure_to_503(authenticated_client, monkeypatch):
+def test_analysis_maps_provider_failure_to_503(authenticated_client, monkeypatch):
     async def failing_get_candles(symbol, timeframe, limit):
         raise ValueError("provider returned malformed candle data")
 
@@ -112,3 +131,21 @@ def test_analysis_maps_provider_or_feature_failure_to_503(authenticated_client, 
 
     assert response.status_code == 503
     assert response.json()["detail"] == "provider returned malformed candle data"
+
+
+def test_analysis_maps_feature_failure_to_503(authenticated_client, monkeypatch):
+    dataset = make_dataset()
+
+    async def fake_get_candles(symbol, timeframe, limit):
+        return dataset
+
+    def failing_feature_engine(dataset):
+        raise ValueError("feature calculation failed")
+
+    monkeypatch.setattr(quote_service.provider, "get_candles", fake_get_candles)
+    monkeypatch.setattr("app.api.analysis.calculate_feature_set", failing_feature_engine)
+
+    response = authenticated_client.get("/api/analysis/BTC%2FUSD")
+
+    assert response.status_code == 503
+    assert response.json()["detail"] == "feature calculation failed"
