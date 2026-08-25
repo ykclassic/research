@@ -230,3 +230,15 @@ def calculate_indicators(candles: list[Candle]) -> dict[str, float | None | str]
         "vwap": _vwap(candles),
         "trend": trend,
     }
+
+
+def calculate_feature_set(dataset):
+    """Compatibility entry point for the canonical FeatureEngine.
+
+    The import is intentionally local so the numerical module can remain a
+    dependency of FeatureEngine without creating a circular import at module
+    initialization time.
+    """
+    from app.services.feature_engine import calculate_feature_set as _calculate_feature_set
+
+    return _calculate_feature_set(dataset)
