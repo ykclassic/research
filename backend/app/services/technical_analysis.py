@@ -46,22 +46,20 @@ def _rsi(values: list[float], period: int = 14) -> float | None:
         avg_loss = ((avg_loss * (period - 1)) + loss) / period
     if avg_loss == 0:
         return 100.0 if avg_gain > 0 else 50.0
-    rs = avg_gain / avg_loss
-    return 100.0 - (100.0 / (1.0 + rs))
+    return 100.0 - (100.0 / (1.0 + (avg_gain / avg_loss)))
+
+
+def _true_ranges(candles: list[Candle]) -> list[float]:
+    return [
+        max(candles[i].high - candles[i].low, abs(candles[i].high - candles[i - 1].close), abs(candles[i].low - candles[i - 1].close))
+        for i in range(1, len(candles))
+    ]
 
 
 def _atr(candles: list[Candle], period: int = 14) -> float | None:
-    if len(candles) <= period:
+    true_ranges = _true_ranges(candles)
+    if len(true_ranges) < period:
         return None
-    true_ranges: list[float] = []
-    for index in range(1, len(candles)):
-        current = candles[index]
-        previous = candles[index - 1]
-        true_ranges.append(max(
-            current.high - current.low,
-            abs(current.high - previous.close),
-            abs(current.low - previous.close),
-        ))
     value = sum(true_ranges[:period]) / period
     for true_range in true_ranges[period:]:
         value = ((value * (period - 1)) + true_range) / period
@@ -75,10 +73,8 @@ def _adx(candles: list[Candle], period: int = 14) -> float | None:
     plus_dm: list[float] = []
     minus_dm: list[float] = []
     for index in range(1, len(candles)):
-        current = candles[index]
-        previous = candles[index - 1]
-        up = current.high - previous.high
-        down = previous.low - current.low
+        current, previous = candles[index], candles[index - 1]
+        up, down = current.high - previous.high, previous.low - current.low
         trs.append(max(current.high - current.low, abs(current.high - previous.close), abs(current.low - previous.close)))
         plus_dm.append(up if up > down and up > 0 else 0.0)
         minus_dm.append(down if down > up and down > 0 else 0.0)
@@ -102,15 +98,18 @@ def _adx(candles: list[Candle], period: int = 14) -> float | None:
     return adx
 
 
-def _stochastic(candles: list[Candle], period: int = 14) -> tuple[float | None, float | None]:
+def _stochastic(candles: list[Candle], period: int = 14, signal_period: int = 3) -> tuple[float | None, float | None]:
     if len(candles) < period:
         return None, None
-    recent = candles[-period:]
-    highest = max(c.high for c in recent)
-    lowest = min(c.low for c in recent)
-    k = 50.0 if highest == lowest else 100.0 * (candles[-1].close - lowest) / (highest - lowest)
-    # A single current %K is preferable to manufacturing historical values for the %D line.
-    return k, k
+    k_history: list[float] = []
+    for end in range(period, len(candles) + 1):
+        window = candles[end - period:end]
+        highest = max(c.high for c in window)
+        lowest = min(c.low for c in window)
+        k_history.append(50.0 if highest == lowest else 100.0 * (candles[end - 1].close - lowest) / (highest - lowest))
+    k = k_history[-1]
+    d = _sma(k_history, signal_period)
+    return k, d
 
 
 def _obv(candles: list[Candle]) -> float | None:
@@ -126,61 +125,49 @@ def _obv(candles: list[Candle]) -> float | None:
 
 
 def _vwap(candles: list[Candle]) -> float | None:
-    usable = [c for c in candles if c.volume is not None]
-    if not usable:
+    if not candles or any(c.volume is None for c in candles):
         return None
-    volume = sum(c.volume or 0.0 for c in usable)
+    session_key = candles[-1].timestamp[:10]
+    session = [c for c in candles if c.timestamp[:10] == session_key]
+    volume = sum(c.volume or 0.0 for c in session)
     if volume <= 0:
         return None
-    return sum(((c.high + c.low + c.close) / 3.0) * (c.volume or 0.0) for c in usable) / volume
+    return sum(((c.high + c.low + c.close) / 3.0) * (c.volume or 0.0) for c in session) / volume
 
 
 def calculate_indicators(candles: list[Candle]) -> dict[str, float | None | str]:
     if not candles:
         raise ValueError("At least one completed candle is required.")
     closes = [c.close for c in candles]
-    ema20 = _ema(closes, 20)
-    ema50 = _ema(closes, 50)
-    ema200 = _ema(closes, 200)
-    sma20 = _sma(closes, 20)
-    sma50 = _sma(closes, 50)
-    sma200 = _sma(closes, 200)
+    ema20, ema50, ema200 = _ema(closes, 20), _ema(closes, 50), _ema(closes, 200)
+    sma20, sma50, sma200 = _sma(closes, 20), _sma(closes, 50), _sma(closes, 200)
     rsi = _rsi(closes)
-    macd_line = None
-    signal = None
+    macd_line = signal = None
     if len(closes) >= 26:
-        # Build the MACD history so the signal line is calculated from the same series.
         macd_history: list[float] = []
         for end in range(26, len(closes) + 1):
             window = closes[:end]
-            fast = _ema(window, 12)
-            slow = _ema(window, 26)
+            fast, slow = _ema(window, 12), _ema(window, 26)
             if fast is not None and slow is not None:
                 macd_history.append(fast - slow)
         if macd_history:
-            macd_line = macd_history[-1]
-            signal = _ema(macd_history, 9)
-    atr = _atr(candles)
-    adx = _adx(candles)
+            macd_line, signal = macd_history[-1], _ema(macd_history, 9)
+    atr, adx = _atr(candles), _adx(candles)
     bb_mid = sma20
-    bb_upper = None
-    bb_lower = None
-    bb_width = None
+    bb_upper = bb_lower = bb_width = None
     if len(closes) >= 20:
         window = closes[-20:]
         mean = sum(window) / 20
-        variance = sum((x - mean) ** 2 for x in window) / 20
-        deviation = sqrt(variance)
-        bb_upper = mean + 2.0 * deviation
-        bb_lower = mean - 2.0 * deviation
+        deviation = sqrt(sum((x - mean) ** 2 for x in window) / 20)
+        bb_upper, bb_lower = mean + 2.0 * deviation, mean - 2.0 * deviation
         bb_width = (bb_upper - bb_lower) / mean if mean else None
     stoch_k, stoch_d = _stochastic(candles)
     current = candles[-1].close
     trend = "UNKNOWN"
-    if ema200 is not None:
-        if current > ema200 and ema50 is not None and current > ema50:
+    if ema200 is not None and ema50 is not None:
+        if current > ema200 and current > ema50:
             trend = "BULLISH"
-        elif current < ema200 and ema50 is not None and current < ema50:
+        elif current < ema200 and current < ema50:
             trend = "BEARISH"
         else:
             trend = "NEUTRAL"
