@@ -7,8 +7,8 @@ from pydantic import BaseModel
 
 from app.api.auth import get_current_user
 from app.models.market import Timeframe
+from app.services.feature_engine import calculate_feature_set
 from app.services.quote_service import QuoteService
-from app.services.technical_analysis import calculate_feature_set
 from app.symbols import normalize_symbol
 
 router = APIRouter(
@@ -53,12 +53,6 @@ async def get_analysis(
             timeframe,
             limit,
         )
-        if len(dataset.completed_candles) < 20:
-            raise HTTPException(
-                status_code=503,
-                detail="Insufficient completed historical candles for technical analysis.",
-            )
-
         result = calculate_feature_set(dataset)
         return AnalysisResponse(
             symbol=result.symbol,
