@@ -1,7 +1,10 @@
+from __future__ import annotations
+
 from abc import ABC, abstractmethod
 from datetime import datetime
 
 from app.models import Quote
+from app.models.market import OHLCVDataset, Timeframe
 
 
 class MarketDataProvider(ABC):
@@ -9,6 +12,15 @@ class MarketDataProvider(ABC):
 
     @abstractmethod
     async def get_quote(self, internal_symbol: str) -> Quote:
+        raise NotImplementedError
+
+    @abstractmethod
+    async def get_candles(
+        self,
+        internal_symbol: str,
+        timeframe: Timeframe,
+        outputsize: int = 250,
+    ) -> OHLCVDataset:
         raise NotImplementedError
 
     @abstractmethod
