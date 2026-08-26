@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, model_validator
 
 from app.api.auth import get_current_user
 from app.models.market import Timeframe
@@ -41,6 +41,25 @@ class AnalysisResponse(BaseModel):
     candles: list[CandleResponse]
     indicators: dict[str, float | str | None]
 
+    @model_validator(mode="after")
+    def validate_timestamp_consistency(self) -> AnalysisResponse:
+        completed = [candle for candle in self.candles if candle.is_complete]
+        if not completed:
+            raise ValueError("Analysis response must contain at least one completed candle.")
+
+        expected_latest = completed[-1].timestamp
+        if self.latest_candle_timestamp != expected_latest:
+            raise ValueError(
+                "Analysis latest_candle_timestamp must equal the latest completed candle timestamp."
+            )
+
+        if self.candle_count != len(completed):
+            raise ValueError(
+                "Analysis candle_count must equal the number of completed candles."
+            )
+
+        return self
+
 
 @router.get("/{symbol:path}", response_model=AnalysisResponse)
 async def get_analysis(
@@ -56,14 +75,25 @@ async def get_analysis(
             limit,
         )
         result = calculate_feature_set(dataset)
+        candles = [CandleResponse.model_validate(candle) for candle in dataset.candles]
+        completed = [candle for candle in candles if candle.is_complete]
+        if not completed:
+            raise ValueError("Provider returned no completed candles for analysis.")
+
+        # Derive response metadata from the exact candle list being serialized.
+        # This prevents a stale or inconsistent feature-result timestamp from
+        # diverging from the canonical dataset presented to the frontend.
+        latest_completed_timestamp = completed[-1].timestamp
+        candle_count = len(completed)
+
         return AnalysisResponse(
             symbol=result.symbol,
             timeframe=result.timeframe,
             source=result.source,
             calculated_at=result.calculated_at,
-            latest_candle_timestamp=result.latest_candle_timestamp,
-            candle_count=result.candle_count,
-            candles=[CandleResponse.model_validate(candle) for candle in dataset.candles],
+            latest_candle_timestamp=latest_completed_timestamp,
+            candle_count=candle_count,
+            candles=candles,
             indicators=result.indicators,
         )
     except HTTPException:
