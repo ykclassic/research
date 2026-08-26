@@ -7,6 +7,7 @@ class Settings(BaseSettings):
     api_host: str = "0.0.0.0"
     api_port: int = 8000
     cors_origins: str = "http://localhost:5173"
+    trusted_hosts: str = "localhost,127.0.0.1,testserver"
 
     quote_cache_seconds: int = 30
     stale_quote_seconds: int = 180
@@ -55,6 +56,19 @@ class Settings(BaseSettings):
             ("http://localhost", "http://127.0.0.1")
         ):
             raise ValueError("Production password-reset redirect must not use localhost.")
+
+        hosts = [host.strip() for host in self.trusted_hosts.split(",") if host.strip()]
+        if not hosts:
+            # The current Render deployment is covered by the secure default.
+            # Custom production domains should set TRUSTED_HOSTS explicitly.
+            self.trusted_hosts = "research-76vr.onrender.com"
+        elif not any(
+            host not in {"localhost", "127.0.0.1", "testserver"}
+            for host in hosts
+        ):
+            raise ValueError(
+                "Production TRUSTED_HOSTS must include a non-localhost host."
+            )
 
         return self
 
