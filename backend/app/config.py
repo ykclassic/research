@@ -13,6 +13,7 @@ class Settings(BaseSettings):
     stale_quote_seconds: int = 180
     http_timeout_seconds: float = 10.0
     http_max_retries: int = 3
+    analysis_timeout_seconds: float = 10.0
 
     twelve_data_api_key: str = ""
 
@@ -67,6 +68,9 @@ class Settings(BaseSettings):
             raise ValueError(
                 "Production TRUSTED_HOSTS must include a non-localhost host."
             )
+
+        if self.analysis_timeout_seconds <= 0:
+            raise ValueError("Production analysis timeout must be greater than zero.")
 
         return self
 

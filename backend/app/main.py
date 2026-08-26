@@ -1,4 +1,5 @@
 from contextlib import asynccontextmanager
+from time import perf_counter
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -43,6 +44,7 @@ app.add_middleware(
 
 @app.middleware("http")
 async def security_headers(request: Request, call_next):
+    started = perf_counter()
     response = await call_next(request)
 
     response.headers["X-Content-Type-Options"] = "nosniff"
@@ -50,6 +52,7 @@ async def security_headers(request: Request, call_next):
     response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
     response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
     response.headers["X-Permitted-Cross-Domain-Policies"] = "none"
+    response.headers["Server-Timing"] = f"app;dur={(perf_counter() - started) * 1000:.2f}"
 
     if request.url.path.startswith("/api/"):
         response.headers["Cache-Control"] = "no-store"

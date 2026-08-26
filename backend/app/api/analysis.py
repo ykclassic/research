@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+import asyncio
 from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, ConfigDict, model_validator
 
 from app.api.auth import get_current_user
+from app.config import settings
 from app.models.market import Timeframe
 from app.services.feature_engine import calculate_feature_set
 from app.services.quote_service import QuoteService
@@ -69,10 +71,13 @@ async def get_analysis(
 ):
     try:
         mapping = normalize_symbol(symbol)
-        dataset = await quote_service.provider.get_candles(
-            mapping.internal,
-            timeframe,
-            limit,
+        dataset = await asyncio.wait_for(
+            quote_service.provider.get_candles(
+                mapping.internal,
+                timeframe,
+                limit,
+            ),
+            timeout=settings.analysis_timeout_seconds,
         )
         result = calculate_feature_set(dataset)
         candles = [CandleResponse.model_validate(candle) for candle in dataset.candles]
@@ -98,5 +103,10 @@ async def get_analysis(
         )
     except HTTPException:
         raise
+    except asyncio.TimeoutError as exc:
+        raise HTTPException(
+            status_code=503,
+            detail="Market-data provider exceeded the analysis latency budget.",
+        ) from exc
     except (RuntimeError, ValueError) as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
