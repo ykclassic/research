@@ -1,3 +1,4 @@
+from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -29,6 +30,33 @@ class Settings(BaseSettings):
         case_sensitive=False,
         extra="ignore",
     )
+
+    @model_validator(mode="after")
+    def validate_production_security(self) -> "Settings":
+        if self.app_env.lower() != "production":
+            return self
+
+        if self.csrf_secret == "development-only-change-me" or len(self.csrf_secret) < 32:
+            raise ValueError(
+                "Production requires a non-default CSRF_SECRET of at least 32 characters."
+            )
+
+        origins = [origin.strip() for origin in self.cors_origins.split(",") if origin.strip()]
+        if not origins:
+            raise ValueError("Production requires at least one configured CORS origin.")
+        if not any(not origin.startswith(("http://localhost", "http://127.0.0.1")) for origin in origins):
+            raise ValueError("Production CORS origins must include a non-localhost origin.")
+
+        if not self.twelve_data_api_key.strip():
+            raise ValueError("Production requires TWELVE_DATA_API_KEY.")
+        if not self.supabase_url.strip() or not self.supabase_publishable_key.strip():
+            raise ValueError("Production requires Supabase URL and publishable key.")
+        if self.auth_password_reset_redirect_url.startswith(
+            ("http://localhost", "http://127.0.0.1")
+        ):
+            raise ValueError("Production password-reset redirect must not use localhost.")
+
+        return self
 
 
 settings = Settings()
