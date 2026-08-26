@@ -1,12 +1,13 @@
 from datetime import datetime, timedelta, timezone
 
 import pytest
+from fastapi import HTTPException
 from fastapi.testclient import TestClient
 from pydantic import ValidationError
 
 from app.api.analysis import quote_service
-from app.api.auth import get_current_user
-from app.config import Settings
+from app.api.auth import _csrf_token, _require_csrf, get_current_user
+from app.config import Settings, settings
 from app.main import app
 from app.models.market import Candle, OHLCVDataset, Timeframe
 from app.services.feature_engine import FeatureEngine
@@ -59,6 +60,31 @@ def test_health_contract():
     assert body["ok"] is True
     assert body["service"] == "adaptive-market-research-bot"
     assert body["environment"]
+
+
+def test_security_headers_are_present():
+    with TestClient(app) as client:
+        response = client.get("/health")
+
+    assert response.headers["x-content-type-options"] == "nosniff"
+    assert response.headers["x-frame-options"] == "DENY"
+    assert response.headers["referrer-policy"] == "strict-origin-when-cross-origin"
+    assert response.headers["permissions-policy"] == "camera=(), microphone=(), geolocation=()"
+    assert response.headers["x-permitted-cross-domain-policies"] == "none"
+
+
+def test_api_responses_are_not_browser_cacheable():
+    with TestClient(app) as client:
+        response = client.get("/api/market/quotes")
+
+    assert response.headers["cache-control"] == "no-store"
+
+
+def test_untrusted_host_is_rejected():
+    with TestClient(app) as client:
+        response = client.get("/health", headers={"Host": "evil.example"})
+
+    assert response.status_code == 400
 
 
 def test_protected_read_endpoints_require_authentication():
@@ -131,6 +157,33 @@ def test_feature_engine_preserves_source_and_timeframe():
     )
 
 
+def test_production_csrf_rejects_untrusted_origin(monkeypatch):
+    monkeypatch.setattr(settings, "app_env", "production")
+    monkeypatch.setattr(settings, "cors_origins", "https://research-dusky-six.vercel.app")
+    token = _csrf_token("access-token")
+
+    with pytest.raises(HTTPException, match="origin validation"):
+        _require_csrf(
+            csrf_cookie=token,
+            csrf_header=token,
+            access_token="access-token",
+            origin="https://evil.example",
+        )
+
+
+def test_production_csrf_accepts_configured_origin(monkeypatch):
+    monkeypatch.setattr(settings, "app_env", "production")
+    monkeypatch.setattr(settings, "cors_origins", "https://research-dusky-six.vercel.app")
+    token = _csrf_token("access-token")
+
+    _require_csrf(
+        csrf_cookie=token,
+        csrf_header=token,
+        access_token="access-token",
+        origin="https://research-dusky-six.vercel.app",
+    )
+
+
 def test_production_settings_reject_default_csrf_secret():
     with pytest.raises(ValidationError, match="CSRF_SECRET"):
         Settings(
@@ -157,16 +210,32 @@ def test_production_settings_require_provider_and_supabase_configuration():
         )
 
 
+def test_production_settings_reject_local_only_trusted_hosts():
+    with pytest.raises(ValidationError, match="TRUSTED_HOSTS"):
+        Settings(
+            app_env="production",
+            csrf_secret="x" * 32,
+            cors_origins="https://research-dusky-six.vercel.app",
+            trusted_hosts="localhost,127.0.0.1,testserver",
+            twelve_data_api_key="test-provider-key",
+            supabase_url="https://example.supabase.co",
+            supabase_publishable_key="test-publishable-key",
+            auth_password_reset_redirect_url="https://research-dusky-six.vercel.app/?reset=1",
+        )
+
+
 def test_production_settings_accept_valid_security_configuration():
-    settings = Settings(
+    configured = Settings(
         app_env="production",
         csrf_secret="x" * 32,
         cors_origins="https://research-dusky-six.vercel.app",
+        trusted_hosts="research-76vr.onrender.com",
         twelve_data_api_key="test-provider-key",
         supabase_url="https://example.supabase.co",
         supabase_publishable_key="test-publishable-key",
         auth_password_reset_redirect_url="https://research-dusky-six.vercel.app/?reset=1",
     )
 
-    assert settings.app_env == "production"
-    assert settings.cors_origins == "https://research-dusky-six.vercel.app"
+    assert configured.app_env == "production"
+    assert configured.cors_origins == "https://research-dusky-six.vercel.app"
+    assert configured.trusted_hosts == "research-76vr.onrender.com"
