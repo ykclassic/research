@@ -6,7 +6,7 @@ from fastapi.testclient import TestClient
 from app.api.auth import get_current_user
 from app.api.analysis import quote_service
 from app.main import app
-from app.models.market import Candle, OHLCVDataset, Timeframe
+from app.models.market import Candle, OHLCVDataset, TechnicalAnalysisResult, Timeframe
 
 
 SYMBOL = "BTC/USD"
@@ -103,6 +103,36 @@ def test_analysis_excludes_forming_candle_from_feature_calculation(authenticated
     assert body["candles"][-1]["is_complete"] is False
     assert body["candle_count"] == 259
     assert body["latest_candle_timestamp"] == dataset.candles[-2].timestamp.isoformat().replace("+00:00", "Z")
+
+
+def test_analysis_uses_serialized_candle_timestamp_not_stale_feature_metadata(authenticated_client, monkeypatch):
+    dataset = make_dataset()
+    stale_timestamp = dataset.candles[0].timestamp
+
+    async def fake_get_candles(symbol, timeframe, limit):
+        return dataset
+
+    def stale_feature_result(_dataset):
+        return TechnicalAnalysisResult(
+            symbol=SYMBOL,
+            timeframe=Timeframe.HOUR_1,
+            source=SOURCE,
+            calculated_at=datetime.now(timezone.utc),
+            latest_candle_timestamp=stale_timestamp,
+            candle_count=1,
+            indicators={"ema20": 1.0},
+        )
+
+    monkeypatch.setattr(quote_service.provider, "get_candles", fake_get_candles)
+    monkeypatch.setattr("app.api.analysis.calculate_feature_set", stale_feature_result)
+
+    response = authenticated_client.get("/api/analysis/BTC%2FUSD")
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    expected = dataset.candles[-1].timestamp.isoformat().replace("+00:00", "Z")
+    assert body["latest_candle_timestamp"] == expected
+    assert body["candle_count"] == len(dataset.candles)
 
 
 def test_analysis_rejects_invalid_timeframe(authenticated_client):
