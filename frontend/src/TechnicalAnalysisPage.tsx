@@ -55,8 +55,8 @@ export default function TechnicalAnalysisPage({ user, onLogout, setPage }: { use
     const sequence = ++requestSequence.current;
     try {
       setError(null);
+      setLoading(true);
       if (force) setRefreshing(true);
-      else setLoading(true);
       setData(null);
 
       const response = await getTechnicalAnalysis(symbol, timeframe);
