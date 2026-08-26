@@ -7,7 +7,7 @@ class Settings(BaseSettings):
     api_host: str = "0.0.0.0"
     api_port: int = 8000
     cors_origins: str = "http://localhost:5173"
-    trusted_hosts: str = "localhost,127.0.0.1,testserver"
+    trusted_hosts: str = "localhost,127.0.0.1,testserver,research-76vr.onrender.com"
 
     quote_cache_seconds: int = 30
     stale_quote_seconds: int = 180
@@ -59,10 +59,8 @@ class Settings(BaseSettings):
 
         hosts = [host.strip() for host in self.trusted_hosts.split(",") if host.strip()]
         if not hosts:
-            # The current Render deployment is covered by the secure default.
-            # Custom production domains should set TRUSTED_HOSTS explicitly.
-            self.trusted_hosts = "research-76vr.onrender.com"
-        elif not any(
+            raise ValueError("Production requires at least one configured trusted host.")
+        if not any(
             host not in {"localhost", "127.0.0.1", "testserver"}
             for host in hosts
         ):
