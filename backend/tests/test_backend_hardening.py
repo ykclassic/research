@@ -2,9 +2,11 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 from fastapi.testclient import TestClient
+from pydantic import ValidationError
 
 from app.api.analysis import quote_service
 from app.api.auth import get_current_user
+from app.config import Settings
 from app.main import app
 from app.models.market import Candle, OHLCVDataset, Timeframe
 from app.services.feature_engine import FeatureEngine
@@ -127,3 +129,44 @@ def test_feature_engine_preserves_source_and_timeframe():
     assert result.latest_candle_timestamp == datetime(
         2026, 1, 2, 15, tzinfo=timezone.utc
     )
+
+
+def test_production_settings_reject_default_csrf_secret():
+    with pytest.raises(ValidationError, match="CSRF_SECRET"):
+        Settings(
+            app_env="production",
+            csrf_secret="development-only-change-me",
+            cors_origins="https://research-dusky-six.vercel.app",
+            twelve_data_api_key="test-provider-key",
+            supabase_url="https://example.supabase.co",
+            supabase_publishable_key="test-publishable-key",
+            auth_password_reset_redirect_url="https://research-dusky-six.vercel.app/?reset=1",
+        )
+
+
+def test_production_settings_require_provider_and_supabase_configuration():
+    with pytest.raises(ValidationError, match="TWELVE_DATA_API_KEY"):
+        Settings(
+            app_env="production",
+            csrf_secret="x" * 32,
+            cors_origins="https://research-dusky-six.vercel.app",
+            twelve_data_api_key="",
+            supabase_url="https://example.supabase.co",
+            supabase_publishable_key="test-publishable-key",
+            auth_password_reset_redirect_url="https://research-dusky-six.vercel.app/?reset=1",
+        )
+
+
+def test_production_settings_accept_valid_security_configuration():
+    settings = Settings(
+        app_env="production",
+        csrf_secret="x" * 32,
+        cors_origins="https://research-dusky-six.vercel.app",
+        twelve_data_api_key="test-provider-key",
+        supabase_url="https://example.supabase.co",
+        supabase_publishable_key="test-publishable-key",
+        auth_password_reset_redirect_url="https://research-dusky-six.vercel.app/?reset=1",
+    )
+
+    assert settings.app_env == "production"
+    assert settings.cors_origins == "https://research-dusky-six.vercel.app"
