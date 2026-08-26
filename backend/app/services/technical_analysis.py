@@ -21,6 +21,23 @@ def _ema(values: list[float], period: int) -> float | None:
     return ema
 
 
+def _ema_series(values: list[float], period: int) -> list[float | None]:
+    """Return the EMA at every available position using the canonical seed."""
+    result: list[float | None] = [None] * len(values)
+    if len(values) < period:
+        return result
+
+    multiplier = 2.0 / (period + 1)
+    ema = sum(values[:period]) / period
+    result[period - 1] = ema
+
+    for index in range(period, len(values)):
+        ema = (values[index] - ema) * multiplier + ema
+        result[index] = ema
+
+    return result
+
+
 def _rsi(values: list[float], period: int = 14) -> float | None:
     if len(values) <= period:
         return None
@@ -173,14 +190,18 @@ def calculate_indicators(candles: list[Candle]) -> dict[str, float | None | str]
 
     macd_line = signal = None
     if len(closes) >= 26:
-        macd_history: list[float] = []
-        for end in range(26, len(closes) + 1):
-            window = closes[:end]
-            fast, slow = _ema(window, 12), _ema(window, 26)
-            if fast is not None and slow is not None:
-                macd_history.append(fast - slow)
+        # Build EMA histories once instead of recalculating EMA over every
+        # growing prefix. This keeps MACD calculation linear in candle count.
+        fast_history = _ema_series(closes, 12)
+        slow_history = _ema_series(closes, 26)
+        macd_history = [
+            fast_history[index] - slow_history[index]
+            for index in range(25, len(closes))
+            if fast_history[index] is not None and slow_history[index] is not None
+        ]
         if macd_history:
-            macd_line, signal = macd_history[-1], _ema(macd_history, 9)
+            macd_line = macd_history[-1]
+            signal = _ema(macd_history, 9)
 
     atr, adx = _atr(candles), _adx(candles)
     bb_mid = sma20
