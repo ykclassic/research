@@ -96,13 +96,27 @@ def _clear_auth_cookies(response: Response) -> None:
     response.delete_cookie(CSRF_COOKIE, path="/")
 
 
+def _configured_origins() -> set[str]:
+    return {
+        origin.strip().rstrip("/")
+        for origin in settings.cors_origins.split(",")
+        if origin.strip()
+    }
+
+
 def _require_csrf(
     csrf_cookie: Annotated[str | None, Cookie(alias=CSRF_COOKIE)] = None,
     csrf_header: Annotated[str | None, Header(alias=CSRF_HEADER)] = None,
     access_token: Annotated[str | None, Cookie(alias=SESSION_COOKIE)] = None,
+    origin: Annotated[str | None, Header(alias="Origin")] = None,
 ) -> None:
     if not csrf_header:
         raise HTTPException(status_code=403, detail="CSRF validation failed.")
+
+    if settings.app_env.lower() in {"production", "prod"}:
+        normalized_origin = origin.rstrip("/") if origin else None
+        if normalized_origin not in _configured_origins():
+            raise HTTPException(status_code=403, detail="CSRF origin validation failed.")
 
     # Prefer the traditional double-submit cookie check. The signed-token
     # fallback keeps cross-origin deployments working when browsers restrict
