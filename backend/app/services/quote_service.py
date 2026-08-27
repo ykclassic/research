@@ -17,12 +17,12 @@ class QuoteService:
         if not force_refresh:
             cached = self.cache.get(key)
             if cached is not None:
-                return cached
+                return cached.model_copy(update={"cache_hit": True})
 
         quote = await self.provider.get_quote(key)
         if quote.status == QuoteStatus.LIVE:
-            self.cache.set(key, quote, settings.quote_cache_seconds)
-        return quote
+            self.cache.set(key, quote.model_copy(update={"cache_hit": False}), settings.quote_cache_seconds)
+        return quote.model_copy(update={"cache_hit": False})
 
     async def _get_quote_bounded(self, symbol: str, force_refresh: bool) -> Quote:
         """Return a deterministic unavailable result instead of blocking the API indefinitely."""
@@ -40,6 +40,7 @@ class QuoteService:
                 status=QuoteStatus.UNAVAILABLE,
                 source=self.provider.name,
                 error="Market-data provider exceeded the API latency budget.",
+                cache_hit=False,
             )
 
     async def get_quotes(self, symbols: list[str], force_refresh: bool = False) -> list[Quote]:
