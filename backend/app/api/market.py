@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Response
 
 from app.api.auth import get_current_user
 from app.models import QuoteStatus
@@ -14,11 +14,15 @@ service = QuoteService()
 
 
 @router.get("/quote/{symbol:path}")
-async def get_quote(symbol: str, refresh: bool = False):
+async def get_quote(symbol: str, response: Response, refresh: bool = False):
     try:
         quote = await service.get_quote(symbol, force_refresh=refresh)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    response.headers["X-Market-Data-Source"] = quote.source or "unknown"
+    response.headers["X-Market-Data-Cache"] = "HIT" if quote.cache_hit else "MISS"
+    response.headers["X-Market-Data-Refresh"] = "true" if refresh else "false"
 
     return {
         "quote": quote.model_dump(mode="json"),
