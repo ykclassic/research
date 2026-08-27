@@ -42,20 +42,21 @@ class TwelveDataProvider(MarketDataProvider):
     def _parse_provider_quote_timestamp(cls, payload: dict) -> datetime | None:
         """Extract Twelve Data's own quote-update timestamp when available."""
         value = payload.get("last_update_at")
-        if value is not None:
-            if isinstance(value, (int, float)):
-                return datetime.fromtimestamp(value, tz=timezone.utc)
-            return cls._parse_timestamp(str(value))
+        if value is None:
+            value = payload.get("timestamp")
+        if value is None:
+            return None
 
-        # Twelve Data's timestamp field can describe the interval rather than
-        # the exact quote update time. Use it only as a fallback when the
-        # provider does not return last_update_at.
-        value = payload.get("timestamp")
-        if value is not None:
-            if isinstance(value, (int, float)):
-                return datetime.fromtimestamp(value, tz=timezone.utc)
-            return cls._parse_timestamp(str(value))
-        return None
+        if isinstance(value, (int, float)):
+            return datetime.fromtimestamp(value, tz=timezone.utc)
+
+        text = str(value).strip()
+        try:
+            if text.isdigit():
+                return datetime.fromtimestamp(float(text), tz=timezone.utc)
+            return cls._parse_timestamp(text)
+        except ValueError as exc:
+            raise ValueError(f"Provider returned invalid quote timestamp: {value}") from exc
 
     async def get_quote(self, internal_symbol: str) -> Quote:
         mapping = normalize_symbol(internal_symbol)
