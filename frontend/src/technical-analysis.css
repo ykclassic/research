@@ -15,4 +15,11 @@
 .candle-head { color: var(--muted, #8c96a8); font-size: .76rem; text-transform: uppercase; letter-spacing: .06em; border-bottom: 1px solid rgba(148,163,184,.15); }
 .candle-row { border-bottom: 1px solid rgba(148,163,184,.08); font-size: .86rem; }
 .candle-row:last-child { border-bottom: 0; }
+.chart-panel { overflow: hidden; }
+.technical-chart-shell { width: 100%; min-width: 0; }
+.technical-chart-header { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 0 2px 12px; color: var(--muted, #8c96a8); font-size: .76rem; }
+.technical-chart-header > div { display: flex; align-items: baseline; gap: 10px; min-width: 0; }
+.technical-chart-header strong { color: var(--text, #e5e7eb); font-size: .9rem; }
+.technical-chart { width: 100%; min-height: 360px; border: 1px solid rgba(148,163,184,.12); border-radius: 12px; overflow: hidden; }
 @media (max-width: 900px) { .ta-overview { grid-template-columns: 1fr; } .indicator-table { grid-template-columns: 1fr; } .ta-controls .refresh { margin-left: 0; } }
+@media (max-width: 640px) { .technical-chart-header { align-items: flex-start; flex-direction: column; } .technical-chart-header > div { flex-wrap: wrap; } }
