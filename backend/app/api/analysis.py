@@ -6,7 +6,7 @@ from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, ConfigDict, model_validator
 
-from app.api.auth import get_current_user
+from app.api.auth import get_current_user_or_github_actions
 from app.config import settings
 from app.models.market import Timeframe
 from app.services.feature_engine import calculate_feature_set
@@ -16,7 +16,7 @@ from app.symbols import normalize_symbol
 router = APIRouter(
     prefix="/api/analysis",
     tags=["analysis"],
-    dependencies=[Depends(get_current_user)],
+    dependencies=[Depends(get_current_user_or_github_actions)],
 )
 quote_service = QuoteService()
 
@@ -85,9 +85,6 @@ async def get_analysis(
         if not completed:
             raise ValueError("Provider returned no completed candles for analysis.")
 
-        # Derive response metadata from the exact candle list being serialized.
-        # This prevents a stale or inconsistent feature-result timestamp from
-        # diverging from the canonical dataset presented to the frontend.
         latest_completed_timestamp = completed[-1].timestamp
         candle_count = len(completed)
 
