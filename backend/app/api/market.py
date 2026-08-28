@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
 
-from app.api.auth import get_current_user
+from app.api.auth import get_current_user_or_github_actions
 from app.models import QuoteStatus
 from app.services.quote_service import QuoteService
 from app.services.scoring import score_quote
@@ -8,7 +8,7 @@ from app.services.scoring import score_quote
 router = APIRouter(
     prefix="/api/market",
     tags=["market"],
-    dependencies=[Depends(get_current_user)],
+    dependencies=[Depends(get_current_user_or_github_actions)],
 )
 service = QuoteService()
 
