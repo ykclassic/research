@@ -6,7 +6,7 @@ from fastapi.testclient import TestClient
 from pydantic import ValidationError
 
 from app.api.analysis import quote_service
-from app.api.auth import _csrf_token, _require_csrf, get_current_user
+from app.api.auth import _csrf_token, _require_csrf, get_current_user_or_github_actions
 from app.config import Settings, settings
 from app.main import app
 from app.models.market import Candle, OHLCVDataset, Timeframe
@@ -45,10 +45,10 @@ def make_dataset(count: int = 40) -> OHLCVDataset:
 
 @pytest.fixture()
 def authenticated_client():
-    app.dependency_overrides[get_current_user] = lambda: USER
+    app.dependency_overrides[get_current_user_or_github_actions] = lambda: USER
     with TestClient(app) as client:
         yield client
-    app.dependency_overrides.pop(get_current_user, None)
+    app.dependency_overrides.pop(get_current_user_or_github_actions, None)
 
 
 def test_health_contract():
