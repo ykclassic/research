@@ -26,6 +26,17 @@ class Settings(BaseSettings):
     # CSRF signing secret. Set a long random value in production.
     csrf_secret: str = "development-only-change-me"
 
+    # GitHub Actions OIDC trust for server-to-server production verification.
+    # These are configuration values, not secrets. The workflow presents a
+    # short-lived GitHub-signed JWT; no long-lived verification credential is
+    # stored in GitHub Actions secrets.
+    github_oidc_issuer: str = "https://token.actions.githubusercontent.com"
+    github_oidc_jwks_url: str = "https://token.actions.githubusercontent.com/.well-known/jwks"
+    github_oidc_audience: str = "research-production-verifier"
+    github_oidc_repository: str = "ykclassic/research"
+    github_oidc_workflow: str = ".github/workflows/production-market-data-verification.yml"
+    github_oidc_ref: str = "refs/heads/main"
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",
@@ -71,6 +82,15 @@ class Settings(BaseSettings):
 
         if self.analysis_timeout_seconds <= 0:
             raise ValueError("Production analysis timeout must be greater than zero.")
+
+        if not self.github_oidc_audience.strip():
+            raise ValueError("Production requires GITHUB_OIDC_AUDIENCE.")
+        if self.github_oidc_repository != "ykclassic/research":
+            raise ValueError("Production GitHub OIDC repository must be ykclassic/research.")
+        if self.github_oidc_ref != "refs/heads/main":
+            raise ValueError("Production GitHub OIDC verification must be restricted to main.")
+        if not self.github_oidc_workflow.startswith(".github/workflows/"):
+            raise ValueError("Production GitHub OIDC workflow must be a repository workflow path.")
 
         return self
 
