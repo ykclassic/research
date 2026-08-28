@@ -58,15 +58,9 @@ def request_json(
     url: str,
     *,
     params: dict[str, Any] | None = None,
-    cookies: dict[str, str] | None = None,
     headers: dict[str, str] | None = None,
 ) -> httpx.Response:
-    response = client.get(
-        url,
-        params=params,
-        cookies=cookies,
-        headers=headers,
-    )
+    response = client.get(url, params=params, headers=headers)
     response.raise_for_status()
     return response
 
@@ -89,7 +83,7 @@ def get_api_quote(
     client: httpx.Client,
     base_url: str,
     symbol: str,
-    access_token: str,
+    oidc_token: str,
     *,
     nonce: str,
 ) -> httpx.Response:
@@ -97,8 +91,8 @@ def get_api_quote(
         client,
         f"{base_url}/api/market/quote/{symbol}",
         params={"refresh": "true", "verification_nonce": nonce},
-        cookies={"mr_access_token": access_token},
         headers={
+            "Authorization": f"Bearer {oidc_token}",
             "Cache-Control": "no-cache",
             "X-Verification-Nonce": nonce,
         },
@@ -117,7 +111,7 @@ def get_direct_twelve_data(
         headers={"Cache-Control": "no-cache"},
     )
     payload = response.json()
-    if "code" in payload or "message" in payload and "close" not in payload:
+    if "code" in payload or ("message" in payload and "close" not in payload):
         raise RuntimeError(f"Twelve Data error: {payload}")
     return payload
 
@@ -151,10 +145,10 @@ def main() -> int:
     parser.add_argument("--max-observation-age", type=float, default=MAX_BACKEND_OBSERVATION_AGE_SECONDS)
     args = parser.parse_args()
 
-    access_token = os.getenv("MR_ACCESS_TOKEN")
+    oidc_token = os.getenv("GITHUB_OIDC_TOKEN")
     twelve_data_key = os.getenv("TWELVE_DATA_API_KEY")
-    if not access_token:
-        print("FAIL: MR_ACCESS_TOKEN is required for the protected production endpoints.", file=sys.stderr)
+    if not oidc_token:
+        print("FAIL: GITHUB_OIDC_TOKEN is required for protected production verification.", file=sys.stderr)
         return 2
     if not twelve_data_key:
         print("FAIL: TWELVE_DATA_API_KEY is required for direct provider verification.", file=sys.stderr)
@@ -169,11 +163,12 @@ def main() -> int:
         try:
             results.append(verify_health(client, base_url))
 
-            # Directly query the deployed backend. The frontend URL is never used
-            # by this verifier, which makes frontend involvement unnecessary.
+            # The verifier calls the deployed Render backend directly. It never
+            # calls the Vercel frontend, so a frontend-derived price cannot make
+            # this test pass.
             first_nonce = str(uuid.uuid4())
             first_response = get_api_quote(
-                client, base_url, symbol, access_token, nonce=first_nonce
+                client, base_url, symbol, oidc_token, nonce=first_nonce
             )
             first = first_response.json()
             quote1 = first["quote"]
@@ -187,15 +182,12 @@ def main() -> int:
             results.append(CheckResult(
                 "Deployed API owns the returned price",
                 True,
-                f"Direct GET to {base_url}; no frontend URL used; source={quote1['source']}; request_nonce={first_nonce}",
+                f"Direct GET to {base_url}; frontend URL was never used; source={quote1['source']}; OIDC-authenticated request",
             ))
 
             observed_at = parse_datetime(quote1["observed_at"])
             provider_timestamp = quote1.get("provider_timestamp")
-            if provider_timestamp:
-                provider_time = parse_datetime(provider_timestamp)
-            else:
-                provider_time = parse_datetime(quote1["timestamp"])
+            provider_time = parse_datetime(provider_timestamp) if provider_timestamp else parse_datetime(quote1["timestamp"])
             now = utc_now()
             observation_age = (now - observed_at).total_seconds()
             provider_age = (now - provider_time).total_seconds()
@@ -237,8 +229,10 @@ def main() -> int:
                 client,
                 f"{base_url}/api/analysis/{symbol}",
                 params={"timeframe": args.timeframe, "limit": args.limit, "verification_nonce": str(uuid.uuid4())},
-                cookies={"mr_access_token": access_token},
-                headers={"Cache-Control": "no-cache"},
+                headers={
+                    "Authorization": f"Bearer {oidc_token}",
+                    "Cache-Control": "no-cache",
+                },
             )
             analysis = analysis_response.json()
             completed = [c for c in analysis["candles"] if c["is_complete"]]
@@ -257,12 +251,13 @@ def main() -> int:
                 f"current=${api_price:.8f}; last_completed_close=${last_close:.8f}; price_delta=${price_delta:.8f}; quote_vs_candle_time_delta={timestamp_delta.total_seconds():.0f}s",
             ))
 
-            # Two forced-refresh requests prove the verifier can bypass the
-            # application cache. The backend must report MISS for both calls.
+            # Two forced-refresh requests must bypass the application cache and
+            # produce a newer backend observation. This is stronger than merely
+            # checking HTTP cache-control headers.
             time.sleep(CACHE_PROBE_DELAY_SECONDS)
             second_nonce = str(uuid.uuid4())
             second_response = get_api_quote(
-                client, base_url, symbol, access_token, nonce=second_nonce
+                client, base_url, symbol, oidc_token, nonce=second_nonce
             )
             second = second_response.json()
             quote2 = second["quote"]
