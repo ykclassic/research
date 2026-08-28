@@ -4,7 +4,7 @@ from datetime import datetime, timedelta, timezone
 from fastapi.testclient import TestClient
 
 from app.api.analysis import quote_service
-from app.api.auth import get_current_user
+from app.api.auth import get_current_user_or_github_actions
 from app.config import settings
 from app.main import app
 from app.models.market import Candle, OHLCVDataset, Timeframe
@@ -49,7 +49,7 @@ def test_health_exposes_server_timing():
 
 
 def test_analysis_provider_timeout_is_bounded(monkeypatch):
-    app.dependency_overrides[get_current_user] = lambda: USER
+    app.dependency_overrides[get_current_user_or_github_actions] = lambda: USER
     original_timeout = settings.analysis_timeout_seconds
     settings.analysis_timeout_seconds = 0.01
 
@@ -63,14 +63,14 @@ def test_analysis_provider_timeout_is_bounded(monkeypatch):
             response = client.get("/api/analysis/BTC%2FUSD")
     finally:
         settings.analysis_timeout_seconds = original_timeout
-        app.dependency_overrides.pop(get_current_user, None)
+        app.dependency_overrides.pop(get_current_user_or_github_actions, None)
 
     assert response.status_code == 503
     assert response.json()["detail"] == "Market-data provider exceeded the analysis latency budget."
 
 
 def test_analysis_server_timing_is_present(monkeypatch):
-    app.dependency_overrides[get_current_user] = lambda: USER
+    app.dependency_overrides[get_current_user_or_github_actions] = lambda: USER
 
     async def fast_get_candles(symbol, timeframe, limit):
         return make_dataset()
@@ -80,7 +80,7 @@ def test_analysis_server_timing_is_present(monkeypatch):
         with TestClient(app) as client:
             response = client.get("/api/analysis/BTC%2FUSD", params={"limit": 250})
     finally:
-        app.dependency_overrides.pop(get_current_user, None)
+        app.dependency_overrides.pop(get_current_user_or_github_actions, None)
 
     assert response.status_code == 200
     assert response.headers["server-timing"].startswith("app;dur=")
@@ -88,7 +88,7 @@ def test_analysis_server_timing_is_present(monkeypatch):
 
 
 def test_analysis_response_remains_numerically_deterministic(monkeypatch):
-    app.dependency_overrides[get_current_user] = lambda: USER
+    app.dependency_overrides[get_current_user_or_github_actions] = lambda: USER
 
     async def fast_get_candles(symbol, timeframe, limit):
         return make_dataset()
@@ -99,7 +99,7 @@ def test_analysis_response_remains_numerically_deterministic(monkeypatch):
             first = client.get("/api/analysis/BTC%2FUSD", params={"limit": 250}).json()
             second = client.get("/api/analysis/BTC%2FUSD", params={"limit": 250}).json()
     finally:
-        app.dependency_overrides.pop(get_current_user, None)
+        app.dependency_overrides.pop(get_current_user_or_github_actions, None)
 
     assert first["indicators"] == second["indicators"]
     assert first["latest_candle_timestamp"] == second["latest_candle_timestamp"]
