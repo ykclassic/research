@@ -41,18 +41,9 @@ jobs:
           token_response="$(curl --fail-with-body --silent --show-error \
             -H "Authorization: bearer ${ACTIONS_ID_TOKEN_REQUEST_TOKEN}" \
             "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=${GITHUB_OIDC_AUDIENCE}")"
-          python - <<'PY' >> "$GITHUB_ENV"
-          import json
-          import os
-
-          response = json.loads(os.environ["TOKEN_RESPONSE"])
-          token = response.get("value")
-          if not token:
-              raise SystemExit("GitHub OIDC provider returned no token")
-          print(f"GITHUB_OIDC_TOKEN={token}")
-          PY
-        env:
-          TOKEN_RESPONSE: ${{ steps.request-token.outputs.token_response }}
+          token="$(python -c 'import json,sys; print(json.load(sys.stdin)["value"])' <<< "$token_response")"
+          test -n "$token"
+          echo "GITHUB_OIDC_TOKEN=$token" >> "$GITHUB_ENV"
 
       - name: Verify deployed market-data path
         run: python backend/scripts/verify_production_market_data.py
