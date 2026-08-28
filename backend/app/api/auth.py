@@ -3,9 +3,12 @@ from __future__ import annotations
 import hashlib
 import hmac
 import secrets
+from functools import lru_cache
 from typing import Annotated, Any
 
+import jwt
 from fastapi import APIRouter, Cookie, Depends, Header, HTTPException, Response, status
+from jwt import PyJWKClient
 from pydantic import BaseModel, EmailStr, Field
 
 from app.config import settings
@@ -28,6 +31,8 @@ router = APIRouter(prefix="/api/auth", tags=["auth"])
 SESSION_COOKIE = "mr_access_token"
 CSRF_COOKIE = "mr_csrf"
 CSRF_HEADER = "X-CSRF-Token"
+GITHUB_OIDC_ALGORITHMS = ("RS256",)
+GITHUB_OIDC_EVENTS = {"schedule", "workflow_dispatch"}
 
 
 class Credentials(BaseModel):
@@ -52,6 +57,11 @@ class UserResponse(BaseModel):
 
 class MessageResponse(BaseModel):
     message: str
+
+
+@lru_cache(maxsize=1)
+def _github_oidc_jwks_client() -> PyJWKClient:
+    return PyJWKClient(settings.github_oidc_jwks_url, cache_jwk_set=True, lifespan=300)
 
 
 def _cookie_secure() -> bool:
@@ -118,9 +128,6 @@ def _require_csrf(
         if normalized_origin not in _configured_origins():
             raise HTTPException(status_code=403, detail="CSRF origin validation failed.")
 
-    # Prefer the traditional double-submit cookie check. The signed-token
-    # fallback keeps cross-origin deployments working when browsers restrict
-    # access to non-HttpOnly cookies while still requiring the HttpOnly session.
     cookie_valid = bool(
         csrf_cookie
         and secrets.compare_digest(csrf_cookie, csrf_header)
@@ -156,6 +163,37 @@ def _auth_error(exc: AuthServiceError) -> HTTPException:
     return HTTPException(status_code=401, detail="Authentication failed.")
 
 
+def _validate_github_oidc_claims(claims: dict[str, Any]) -> None:
+    expected_workflow_ref = f"{settings.github_oidc_repository}/{settings.github_oidc_workflow}@{settings.github_oidc_ref}"
+
+    if claims.get("repository") != settings.github_oidc_repository:
+        raise HTTPException(status_code=403, detail="GitHub OIDC repository is not trusted.")
+    if claims.get("ref") != settings.github_oidc_ref:
+        raise HTTPException(status_code=403, detail="GitHub OIDC ref is not trusted.")
+    if claims.get("workflow_ref") != expected_workflow_ref:
+        raise HTTPException(status_code=403, detail="GitHub OIDC workflow is not trusted.")
+    if claims.get("event_name") not in GITHUB_OIDC_EVENTS:
+        raise HTTPException(status_code=403, detail="GitHub OIDC event is not trusted.")
+
+
+def _verify_github_oidc_token(token: str) -> None:
+    try:
+        signing_key = _github_oidc_jwks_client().get_signing_key_from_jwt(token)
+        claims = jwt.decode(
+            token,
+            signing_key.key,
+            algorithms=list(GITHUB_OIDC_ALGORITHMS),
+            audience=settings.github_oidc_audience,
+            issuer=settings.github_oidc_issuer,
+            options={"require": ["exp", "iat", "iss", "aud", "sub"]},
+        )
+        _validate_github_oidc_claims(claims)
+    except HTTPException:
+        raise
+    except (jwt.PyJWTError, OSError, ValueError) as exc:
+        raise HTTPException(status_code=401, detail="Invalid GitHub Actions OIDC token.") from exc
+
+
 def get_current_user(
     access_token: Annotated[str | None, Cookie(alias=SESSION_COOKIE)] = None,
 ) -> UserResponse:
@@ -165,6 +203,26 @@ def get_current_user(
         return _map_user(get_user(access_token))
     except AuthServiceError as exc:
         raise _auth_error(exc) from exc
+
+
+def get_current_user_or_github_actions(
+    authorization: Annotated[str | None, Header(alias="Authorization")] = None,
+    access_token: Annotated[str | None, Cookie(alias=SESSION_COOKIE)] = None,
+) -> UserResponse | None:
+    """Authenticate either a normal Supabase session or trusted GitHub Actions OIDC.
+
+    The OIDC path is intentionally limited to market/analysis read endpoints by
+    the routers that depend on this function. It does not grant access to auth,
+    watchlist mutation, or administrative endpoints.
+    """
+    if authorization:
+        scheme, _, token = authorization.partition(" ")
+        if scheme.lower() != "bearer" or not token.strip():
+            raise HTTPException(status_code=401, detail="Invalid Authorization header.")
+        _verify_github_oidc_token(token.strip())
+        return None
+
+    return get_current_user(access_token)
 
 
 @router.post("/register", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
