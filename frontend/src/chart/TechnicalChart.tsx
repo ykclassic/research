@@ -18,6 +18,7 @@ interface TechnicalChartProps {
 }
 
 const CHART_HEIGHT = 680;
+const INDICATOR_PANE_HEIGHT = 120;
 
 export default function TechnicalChart({ data, height = CHART_HEIGHT }: TechnicalChartProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -87,6 +88,8 @@ export default function TechnicalChart({ data, height = CHART_HEIGHT }: Technica
       },
     });
 
+    // lightweight-charts 5.x places a series in a pane using the third
+    // addSeries argument. `pane` is not a series option in 5.2.1.
     const candles = chart.addSeries(CandlestickSeries, {
       upColor: "#26a69a",
       downColor: "#ef5350",
@@ -96,8 +99,7 @@ export default function TechnicalChart({ data, height = CHART_HEIGHT }: Technica
       priceLineVisible: true,
       lastValueVisible: true,
       title: "Price",
-      pane: 0,
-    });
+    }, 0);
 
     const volume = chart.addSeries(HistogramSeries, {
       priceFormat: { type: "volume" },
@@ -105,8 +107,7 @@ export default function TechnicalChart({ data, height = CHART_HEIGHT }: Technica
       lastValueVisible: false,
       priceLineVisible: false,
       title: "Volume",
-      pane: 0,
-    });
+    }, 0);
 
     chart.priceScale("volume").applyOptions({
       scaleMargins: { top: 0.78, bottom: 0 },
@@ -117,23 +118,21 @@ export default function TechnicalChart({ data, height = CHART_HEIGHT }: Technica
       lineWidth: 1 as const,
       priceLineVisible: false,
       lastValueVisible: false,
-      pane: 0,
     };
-    const ema20 = chart.addSeries(LineSeries, { ...lineOptions, title: "EMA 20" });
-    const ema50 = chart.addSeries(LineSeries, { ...lineOptions, title: "EMA 50" });
-    const ema200 = chart.addSeries(LineSeries, { ...lineOptions, title: "EMA 200" });
-    const bbUpper = chart.addSeries(LineSeries, { ...lineOptions, title: "BB Upper" });
-    const bbLower = chart.addSeries(LineSeries, { ...lineOptions, title: "BB Lower" });
-    const vwap = chart.addSeries(LineSeries, { ...lineOptions, title: "VWAP" });
+    const ema20 = chart.addSeries(LineSeries, { ...lineOptions, title: "EMA 20" }, 0);
+    const ema50 = chart.addSeries(LineSeries, { ...lineOptions, title: "EMA 50" }, 0);
+    const ema200 = chart.addSeries(LineSeries, { ...lineOptions, title: "EMA 200" }, 0);
+    const bbUpper = chart.addSeries(LineSeries, { ...lineOptions, title: "BB Upper" }, 0);
+    const bbLower = chart.addSeries(LineSeries, { ...lineOptions, title: "BB Lower" }, 0);
+    const vwap = chart.addSeries(LineSeries, { ...lineOptions, title: "VWAP" }, 0);
 
     const rsi = chart.addSeries(LineSeries, {
       lineWidth: 2,
       priceLineVisible: false,
       lastValueVisible: true,
       title: "RSI (14)",
-      pane: 1,
-    });
-    chart.panes()[1]?.setHeight(120);
+    }, 1);
+    chart.panes()[1]?.setHeight(INDICATOR_PANE_HEIGHT);
     chart.priceScale("rsi").applyOptions({
       autoScale: false,
       scaleMargins: { top: 0.1, bottom: 0.1 },
@@ -147,23 +146,20 @@ export default function TechnicalChart({ data, height = CHART_HEIGHT }: Technica
       priceLineVisible: false,
       lastValueVisible: true,
       title: "MACD",
-      pane: 2,
-    });
+    }, 2);
     const macdSignal = chart.addSeries(LineSeries, {
       lineWidth: 1,
       priceLineVisible: false,
       lastValueVisible: true,
       title: "Signal",
-      pane: 2,
-    });
+    }, 2);
     const macdHistogram = chart.addSeries(HistogramSeries, {
       priceFormat: { type: "price", precision: 5, minMove: 0.00001 },
       priceLineVisible: false,
       lastValueVisible: false,
       title: "Histogram",
-      pane: 2,
-    });
-    chart.panes()[2]?.setHeight(120);
+    }, 2);
+    chart.panes()[2]?.setHeight(INDICATOR_PANE_HEIGHT);
 
     chartRef.current = chart;
     candleSeriesRef.current = candles;
@@ -226,8 +222,8 @@ export default function TechnicalChart({ data, height = CHART_HEIGHT }: Technica
     macdRef.current?.applyOptions({ visible: showMacd });
     macdSignalRef.current?.applyOptions({ visible: showMacd });
     macdHistogramRef.current?.applyOptions({ visible: showMacd });
-    chart.panes()[1]?.setHeight(showRsi ? 120 : 0);
-    chart.panes()[2]?.setHeight(showMacd ? 120 : 0);
+    chart.panes()[1]?.setHeight(showRsi ? INDICATOR_PANE_HEIGHT : 0);
+    chart.panes()[2]?.setHeight(showMacd ? INDICATOR_PANE_HEIGHT : 0);
     chart.timeScale().fitContent();
   }, [dataset, indicators, showMacd, showOverlays, showRsi, showVolume]);
 
