@@ -1,10 +1,19 @@
 import type { TechnicalAnalysis } from "../api";
+import type { UTCTimestamp } from "lightweight-charts";
 import type { ChartCandle, ChartDataset, ChartPriceLine, ChartVolumeBar } from "./chartTypes";
 
-function toTime(timestamp: string): number {
+function toTime(timestamp: string): UTCTimestamp {
   const milliseconds = Date.parse(timestamp);
-  if (!Number.isFinite(milliseconds)) throw new Error(`Invalid candle timestamp: ${timestamp}`);
-  return Math.floor(milliseconds / 1000);
+  if (!Number.isFinite(milliseconds)) {
+    throw new Error(`Invalid candle timestamp: ${timestamp}`);
+  }
+
+  const seconds = Math.floor(milliseconds / 1000);
+  if (!Number.isSafeInteger(seconds) || seconds < 0) {
+    throw new Error(`Invalid candle timestamp: ${timestamp}`);
+  }
+
+  return seconds as UTCTimestamp;
 }
 
 function finiteNumber(value: unknown, field: string): number {
@@ -38,13 +47,13 @@ function toPriceLines(indicators: TechnicalAnalysis["indicators"]): ChartPriceLi
 export function toChartDataset(data: TechnicalAnalysis): ChartDataset {
   const candles: ChartCandle[] = [];
   const volume: ChartVolumeBar[] = [];
-  let previousTime = 0;
+  let previousTime: UTCTimestamp | null = null;
 
   for (const candle of data.candles) {
     if (!candle.is_complete) continue;
 
     const time = toTime(candle.timestamp);
-    if (time <= previousTime) {
+    if (previousTime !== null && time <= previousTime) {
       throw new Error("Chart candles are not strictly increasing by timestamp.");
     }
 
