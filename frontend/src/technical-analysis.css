@@ -17,9 +17,15 @@
 .candle-row:last-child { border-bottom: 0; }
 .chart-panel { overflow: hidden; }
 .technical-chart-shell { width: 100%; min-width: 0; }
-.technical-chart-header { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 0 2px 12px; color: var(--muted, #8c96a8); font-size: .76rem; }
+.technical-chart-header { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 0 2px 10px; color: var(--muted, #8c96a8); font-size: .76rem; }
 .technical-chart-header > div { display: flex; align-items: baseline; gap: 10px; min-width: 0; }
 .technical-chart-header strong { color: var(--text, #e5e7eb); font-size: .9rem; }
+.technical-chart-toolbar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 0 2px 12px; }
+.chart-toggle { appearance: none; border: 1px solid rgba(148,163,184,.18); background: transparent; color: var(--muted, #8c96a8); border-radius: 8px; padding: 6px 10px; font: inherit; font-size: .76rem; font-weight: 700; cursor: pointer; }
+.chart-toggle:hover { border-color: rgba(148,163,184,.35); color: var(--text, #e5e7eb); }
+.chart-toggle.active { color: var(--text, #e5e7eb); border-color: rgba(148,163,184,.38); background: rgba(148,163,184,.08); }
+.chart-toggle:focus-visible { outline: 2px solid currentColor; outline-offset: 2px; }
+.chart-hint { margin-left: auto; color: var(--muted, #8c96a8); font-size: .72rem; }
 .technical-chart { width: 100%; min-height: 360px; border: 1px solid rgba(148,163,184,.12); border-radius: 12px; overflow: hidden; }
 @media (max-width: 900px) { .ta-overview { grid-template-columns: 1fr; } .indicator-table { grid-template-columns: 1fr; } .ta-controls .refresh { margin-left: 0; } }
-@media (max-width: 640px) { .technical-chart-header { align-items: flex-start; flex-direction: column; } .technical-chart-header > div { flex-wrap: wrap; } }
+@media (max-width: 640px) { .technical-chart-header { align-items: flex-start; flex-direction: column; } .technical-chart-header > div { flex-wrap: wrap; } .chart-hint { margin-left: 0; width: 100%; } }
