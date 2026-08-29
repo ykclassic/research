@@ -17,15 +17,27 @@ interface TechnicalChartProps {
 
 const CHART_HEIGHT = 520;
 
+type VisibleLogicalRange = { from: number; to: number };
+
 export default function TechnicalChart({ data, height = CHART_HEIGHT }: TechnicalChartProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const chartRef = useRef<IChartApi | null>(null);
   const candleSeriesRef = useRef<ISeriesApi<"Candlestick"> | null>(null);
   const volumeSeriesRef = useRef<ISeriesApi<"Histogram"> | null>(null);
+  const hasInitialDataRef = useRef(false);
   const [showVolume, setShowVolume] = useState(true);
   const [showOverlays, setShowOverlays] = useState(true);
 
-  const dataset = useMemo(() => toChartDataset(data), [data]);
+  const transformed = useMemo(() => {
+    try {
+      return { dataset: toChartDataset(data), error: null as string | null };
+    } catch (error) {
+      return {
+        dataset: null,
+        error: error instanceof Error ? error.message : "The API returned malformed chart data.",
+      };
+    }
+  }, [data]);
 
   useEffect(() => {
     const container = containerRef.current;
@@ -99,6 +111,7 @@ export default function TechnicalChart({ data, height = CHART_HEIGHT }: Technica
       chartRef.current = null;
       candleSeriesRef.current = null;
       volumeSeriesRef.current = null;
+      hasInitialDataRef.current = false;
     };
   }, [height]);
 
@@ -106,14 +119,16 @@ export default function TechnicalChart({ data, height = CHART_HEIGHT }: Technica
     const chart = chartRef.current;
     const candles = candleSeriesRef.current;
     const volume = volumeSeriesRef.current;
-    if (!chart || !candles || !volume) return;
+    if (!chart || !candles || !volume || !transformed.dataset) return;
 
-    candles.setData(dataset.candles);
-    volume.setData(dataset.volume);
+    const previousRange = chart.timeScale().getVisibleLogicalRange() as VisibleLogicalRange | null;
+
+    candles.setData(transformed.dataset.candles);
+    volume.setData(transformed.dataset.volume);
 
     for (const line of candles.priceLines()) candles.removePriceLine(line);
     if (showOverlays) {
-      for (const line of dataset.priceLines) {
+      for (const line of transformed.dataset.priceLines) {
         candles.createPriceLine({
           price: line.price,
           title: line.title,
@@ -127,11 +142,26 @@ export default function TechnicalChart({ data, height = CHART_HEIGHT }: Technica
     chart.priceScale("volume").applyOptions({
       scaleMargins: showVolume ? { top: 0.82, bottom: 0 } : { top: 1, bottom: 0 },
     });
-    chart.timeScale().fitContent();
-  }, [dataset, showOverlays, showVolume]);
+
+    if (previousRange) {
+      chart.timeScale().setVisibleLogicalRange(previousRange);
+    } else {
+      chart.timeScale().fitContent();
+    }
+    hasInitialDataRef.current = true;
+  }, [transformed.dataset, showOverlays, showVolume]);
 
   function resetView(): void {
     chartRef.current?.timeScale().fitContent();
+  }
+
+  if (transformed.error) {
+    return (
+      <div className="technical-chart-error" role="alert">
+        <strong>Chart data validation failed.</strong>
+        <span>{transformed.error}</span>
+      </div>
+    );
   }
 
   return (
@@ -139,9 +169,9 @@ export default function TechnicalChart({ data, height = CHART_HEIGHT }: Technica
       <div className="technical-chart-header">
         <div>
           <strong>{data.symbol}</strong>
-          <span>{data.timeframe} · {dataset.candles.length} completed candles</span>
+          <span>{data.timeframe} · {transformed.dataset?.candles.length ?? 0} completed candles</span>
         </div>
-        <span>Lightweight Charts</span>
+        <span>{data.source} · API data</span>
       </div>
       <div className="technical-chart-toolbar" role="toolbar" aria-label="Chart controls">
         <button type="button" className={showVolume ? "chart-toggle active" : "chart-toggle"} onClick={() => setShowVolume(value => !value)} aria-pressed={showVolume}>
@@ -153,7 +183,7 @@ export default function TechnicalChart({ data, height = CHART_HEIGHT }: Technica
         <button type="button" className="chart-toggle" onClick={resetView}>
           Reset view
         </button>
-        <span className="chart-hint">Scroll to zoom · drag to pan · crosshair follows pointer</span>
+        <span className="chart-hint">Scroll/pinch to zoom · drag to pan · crosshair follows pointer</span>
       </div>
       <div
         ref={containerRef}
