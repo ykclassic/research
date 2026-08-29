@@ -11,7 +11,6 @@ type RangePreset = "recent" | "1d" | "1w" | "1m" | "3m" | "custom";
 
 export function toUtcStart(date: string): string { return `${date}T00:00:00Z`; }
 export function toUtcEnd(date: string): string { return `${date}T23:59:59Z`; }
-
 export function buildRange(preset: RangePreset, now = new Date(), customStart = "", customEnd = ""): TechnicalAnalysisRange {
   if (preset === "recent") return {};
   if (preset === "custom") {
@@ -36,7 +35,7 @@ function formatTimestamp(timestamp: string | undefined): string {
   const parsed = new Date(timestamp);
   return Number.isNaN(parsed.getTime()) ? timestamp : parsed.toLocaleString(undefined, { timeZone: "UTC", hour12: false }) + " UTC";
 }
-function validateAnalysisResponse(data: TechnicalAnalysis, requestedSymbol: string, requestedTimeframe: string): TechnicalAnalysis {
+export function validateAnalysisResponse(data: TechnicalAnalysis, requestedSymbol: string, requestedTimeframe: string): TechnicalAnalysis {
   if (data.symbol !== requestedSymbol) throw new Error(`The API returned analysis for ${data.symbol} instead of ${requestedSymbol}.`);
   if (data.timeframe !== requestedTimeframe) throw new Error(`The API returned timeframe ${data.timeframe} instead of ${requestedTimeframe}.`);
   if (!Array.isArray(data.candles) || data.candles.length === 0) throw new Error("The API returned no historical candles for this analysis.");
@@ -59,7 +58,6 @@ export default function TechnicalAnalysisPage({ user, onLogout, setPage }: { use
   const requestSequence = useRef(0);
   const inFlightKey = useRef<string | null>(null);
   const hasDataRef = useRef(false);
-
   useEffect(() => { hasDataRef.current = Boolean(data); }, [data]);
 
   const range = useMemo(() => buildRange(rangePreset, new Date(), customStart, customEnd), [rangePreset, customStart, customEnd]);
