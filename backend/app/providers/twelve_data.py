@@ -38,6 +38,10 @@ class TwelveDataProvider(MarketDataProvider):
             parsed = parsed.replace(tzinfo=timezone.utc)
         return parsed.astimezone(timezone.utc)
 
+    @staticmethod
+    def _format_range_timestamp(value: datetime) -> str:
+        return value.astimezone(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+
     @classmethod
     def _parse_provider_quote_timestamp(cls, payload: dict) -> datetime | None:
         """Extract Twelve Data's own quote-update timestamp when available."""
@@ -138,19 +142,30 @@ class TwelveDataProvider(MarketDataProvider):
         internal_symbol: str,
         timeframe: Timeframe,
         outputsize: int = 250,
+        start_date: datetime | None = None,
+        end_date: datetime | None = None,
     ) -> OHLCVDataset:
         mapping = normalize_symbol(internal_symbol)
         if not settings.twelve_data_api_key:
             raise RuntimeError("TWELVE_DATA_API_KEY is not configured.")
+        if (start_date is None) != (end_date is None):
+            raise ValueError("Historical candle ranges require both start_date and end_date.")
+        if start_date is not None and end_date is not None and start_date >= end_date:
+            raise ValueError("Historical candle start_date must be before end_date.")
 
         interval = self._intervals[timeframe]
         requested_at = datetime.now(timezone.utc)
         params = {
             "symbol": mapping.twelve_data,
             "interval": interval,
-            "outputsize": str(min(max(outputsize, 50), 5000)),
             "apikey": settings.twelve_data_api_key,
         }
+        if start_date is not None and end_date is not None:
+            params["start_date"] = self._format_range_timestamp(start_date)
+            params["end_date"] = self._format_range_timestamp(end_date)
+        else:
+            params["outputsize"] = str(min(max(outputsize, 50), 5000))
+
         last_error = "Unknown provider error"
         for attempt in range(settings.http_max_retries + 1):
             try:
