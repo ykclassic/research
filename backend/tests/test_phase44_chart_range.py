@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from fastapi.testclient import TestClient
 
@@ -12,20 +12,21 @@ USER = {"id": "u1", "email": "user@example.com"}
 
 
 def make_dataset() -> OHLCVDataset:
+    start = datetime(2026, 8, 1, tzinfo=timezone.utc)
     candles = tuple(
         Candle(
-            timestamp=datetime(2026, 8, day, tzinfo=timezone.utc),
-            open=100 + day,
-            high=101 + day,
-            low=99 + day,
-            close=100.5 + day,
-            volume=1000 + day,
+            timestamp=start + timedelta(hours=index),
+            open=100 + index,
+            high=101 + index,
+            low=99 + index,
+            close=100.5 + index,
+            volume=1000 + index,
             symbol="BTC/USD",
             timeframe=Timeframe.HOUR_1,
             source="test_provider",
             is_complete=True,
         )
-        for day in (1, 2, 3)
+        for index in range(25)
     )
     return OHLCVDataset(
         symbol="BTC/USD",
@@ -60,7 +61,7 @@ def test_analysis_forwards_server_range_without_client_side_filtering(monkeypatc
         assert calls["timeframe"] == Timeframe.HOUR_1
         assert calls["start_date"] == datetime(2026, 8, 1, tzinfo=timezone.utc)
         assert calls["end_date"] == datetime(2026, 8, 3, 23, 59, 59, tzinfo=timezone.utc)
-        assert len(response.json()["candles"]) == 3
+        assert len(response.json()["candles"]) == 25
     finally:
         app.dependency_overrides.pop(get_current_user_or_github_actions, None)
 
