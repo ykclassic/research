@@ -16,8 +16,8 @@ DEFAULT_API_BASE = "https://research-76vr.onrender.com"
 DEFAULT_SYMBOL = "BTC/USD"
 DEFAULT_TIMEFRAME = "1h"
 DEFAULT_ANALYSIS_LIMIT = 250
-DIRECT_PROVIDER_TOLERANCE = 0.001  # 0.10%
-INDEPENDENT_SOURCE_TOLERANCE = 0.005  # 0.50%
+DIRECT_PROVIDER_TOLERANCE = 0.001
+INDEPENDENT_SOURCE_TOLERANCE = 0.005
 MAX_PROVIDER_AGE_SECONDS = 120.0
 MAX_BACKEND_OBSERVATION_AGE_SECONDS = 15.0
 MIN_CURRENT_VS_CANDLE_PRICE_DELTA = 0.01
@@ -67,12 +67,7 @@ def request_json(
     params: dict[str, Any] | None = None,
     headers: dict[str, str] | None = None,
 ) -> httpx.Response:
-    """GET JSON with bounded retries for transient network/read timeouts.
-
-    Production verification must fail on persistent network failures, but a
-    single Render cold-start or provider read timeout should not make the
-    verification nondeterministically fail before the service can respond.
-    """
+    """GET JSON with bounded retries for transient network/read timeouts."""
     last_error: httpx.ReadTimeout | None = None
     for attempt in range(HTTP_READ_RETRIES + 1):
         try:
@@ -99,11 +94,7 @@ def request_json(
 
 def verify_health(client: httpx.Client, base_url: str) -> CheckResult:
     started = time.perf_counter()
-    response = request_json(
-        client,
-        f"{base_url}/health",
-        operation="production health check",
-    )
+    response = request_json(client, f"{base_url}/health", operation="production health check")
     elapsed_ms = (time.perf_counter() - started) * 1000
     require(response.status_code == 200, f"health returned HTTP {response.status_code}: {response.text}")
     payload = response.json()
@@ -115,14 +106,7 @@ def verify_health(client: httpx.Client, base_url: str) -> CheckResult:
     )
 
 
-def get_api_quote(
-    client: httpx.Client,
-    base_url: str,
-    symbol: str,
-    oidc_token: str,
-    *,
-    nonce: str,
-) -> httpx.Response:
+def get_api_quote(client: httpx.Client, base_url: str, symbol: str, oidc_token: str, *, nonce: str) -> httpx.Response:
     return request_json(
         client,
         f"{base_url}/api/market/quote/{symbol}",
@@ -136,16 +120,12 @@ def get_api_quote(
     )
 
 
-def get_direct_twelve_data(
-    client: httpx.Client,
-    api_key: str,
-    symbol: str,
-) -> dict[str, Any]:
+def get_direct_twelve_data(client: httpx.Client, api_key: str, symbol: str) -> dict[str, Any]:
     response = request_json(
         client,
         "https://api.twelvedata.com/quote",
-        operation=f"direct Twelve Data quote for {symbol}",
-        params={"symbol": symbol, "apikey": api_key},
+        operation=f"direct Twelve Data one-minute quote for {symbol}",
+        params={"symbol": symbol, "interval": "1min", "apikey": api_key},
         headers={"Cache-Control": "no-cache"},
     )
     payload = response.json()
@@ -159,11 +139,7 @@ def get_independent_coin_gecko(client: httpx.Client) -> dict[str, Any]:
         client,
         "https://api.coingecko.com/api/v3/simple/price",
         operation="CoinGecko independent verification",
-        params={
-            "ids": "bitcoin",
-            "vs_currencies": "usd",
-            "include_last_updated_at": "true",
-        },
+        params={"ids": "bitcoin", "vs_currencies": "usd", "include_last_updated_at": "true"},
         headers={"Cache-Control": "no-cache"},
     )
     payload = response.json()
@@ -196,38 +172,23 @@ def main() -> int:
     base_url = args.api_base.rstrip("/")
     symbol = args.symbol.upper()
     results: list[CheckResult] = []
+    timeout = httpx.Timeout(connect=HTTP_CONNECT_TIMEOUT_SECONDS, read=HTTP_READ_TIMEOUT_SECONDS, write=HTTP_WRITE_TIMEOUT_SECONDS, pool=HTTP_POOL_TIMEOUT_SECONDS)
 
-    timeout = httpx.Timeout(
-        connect=HTTP_CONNECT_TIMEOUT_SECONDS,
-        read=HTTP_READ_TIMEOUT_SECONDS,
-        write=HTTP_WRITE_TIMEOUT_SECONDS,
-        pool=HTTP_POOL_TIMEOUT_SECONDS,
-    )
     with httpx.Client(timeout=timeout, follow_redirects=True) as client:
         try:
             results.append(verify_health(client, base_url))
 
-            # The verifier calls the deployed Render backend directly. It never
-            # calls the Vercel frontend, so a frontend-derived price cannot make
-            # this test pass.
             first_nonce = str(uuid.uuid4())
-            first_response = get_api_quote(
-                client, base_url, symbol, oidc_token, nonce=first_nonce
-            )
+            first_response = get_api_quote(client, base_url, symbol, oidc_token, nonce=first_nonce)
             first = first_response.json()
             quote1 = first["quote"]
             require(quote1["status"] == "LIVE", f"API quote is not LIVE: {quote1}")
             require(quote1["source"] == "twelve_data", f"API source is not Twelve Data: {quote1}")
             require(first_response.headers.get("X-Market-Data-Source") == "twelve_data", "API source header is not twelve_data")
             require(first_response.headers.get("X-Market-Data-Refresh") == "true", "API did not acknowledge refresh=true")
-            require(first_response.headers.get("Cache-Control", "").lower().find("no-store") >= 0, "API response is not marked no-store")
+            require("no-store" in first_response.headers.get("Cache-Control", "").lower(), "API response is not marked no-store")
             require(first_response.headers.get("X-Market-Data-Cache") == "MISS", "Refresh request was not a backend cache miss/bypass")
-
-            results.append(CheckResult(
-                "Deployed API owns the returned price",
-                True,
-                f"Direct GET to {base_url}; frontend URL was never used; source={quote1['source']}; OIDC-authenticated request",
-            ))
+            results.append(CheckResult("Deployed API owns the returned price", True, f"Direct GET to {base_url}; frontend URL was never used; source={quote1['source']}; OIDC-authenticated request"))
 
             observed_at = parse_datetime(quote1["observed_at"])
             provider_timestamp = quote1.get("provider_timestamp")
@@ -237,47 +198,30 @@ def main() -> int:
             provider_age = (now - provider_time).total_seconds()
             require(-2 <= observation_age <= args.max_observation_age, f"Backend observation age is {observation_age:.2f}s")
             require(-120 <= provider_age <= args.max_provider_age, f"Provider quote age is {provider_age:.2f}s")
-            results.append(CheckResult(
-                "Fresh timestamps",
-                True,
-                f"provider_timestamp={provider_time.isoformat()} age={provider_age:.2f}s; observed_at={observed_at.isoformat()} age={observation_age:.2f}s",
-            ))
+            results.append(CheckResult("Fresh timestamps", True, f"provider_timestamp={provider_time.isoformat()} age={provider_age:.2f}s; observed_at={observed_at.isoformat()} age={observation_age:.2f}s"))
 
             direct_twelve = get_direct_twelve_data(client, twelve_data_key, symbol)
             direct_price = float(direct_twelve.get("close", direct_twelve.get("price")))
             api_price = float(quote1["price"])
             provider_error = relative_error(api_price, direct_price)
             require(provider_error <= args.provider_tolerance, f"API vs direct Twelve Data error {provider_error:.6%}")
-            results.append(CheckResult(
-                "API agrees with Twelve Data",
-                True,
-                f"API=${api_price:.8f}; direct Twelve Data=${direct_price:.8f}; error={provider_error:.6%} <= {args.provider_tolerance:.2%}",
-            ))
+            results.append(CheckResult("API agrees with Twelve Data", True, f"API=${api_price:.8f}; direct Twelve Data=${direct_price:.8f}; error={provider_error:.6%} <= {args.provider_tolerance:.2%}"))
 
             independent = get_independent_coin_gecko(client)
             independent_price = float(independent["usd"])
             independent_error = relative_error(api_price, independent_price)
-            independent_timestamp = datetime.fromtimestamp(
-                float(independent["last_updated_at"]), tz=timezone.utc
-            )
+            independent_timestamp = datetime.fromtimestamp(float(independent["last_updated_at"]), tz=timezone.utc)
             independent_age = (utc_now() - independent_timestamp).total_seconds()
             require(independent_error <= args.independent_tolerance, f"API vs CoinGecko error {independent_error:.6%}")
             require(independent_age <= 60.0, f"CoinGecko verification data is stale: {independent_age:.2f}s")
-            results.append(CheckResult(
-                "API agrees with independent source",
-                True,
-                f"API=${api_price:.8f}; CoinGecko=${independent_price:.8f}; error={independent_error:.6%} <= {args.independent_tolerance:.2%}; independent_age={independent_age:.2f}s",
-            ))
+            results.append(CheckResult("API agrees with independent source", True, f"API=${api_price:.8f}; CoinGecko=${independent_price:.8f}; error={independent_error:.6%} <= {args.independent_tolerance:.2%}; independent_age={independent_age:.2f}s"))
 
             analysis_response = request_json(
                 client,
                 f"{base_url}/api/analysis/{symbol}",
                 operation=f"deployed analysis for {symbol} {args.timeframe}",
                 params={"timeframe": args.timeframe, "limit": args.limit, "verification_nonce": str(uuid.uuid4())},
-                headers={
-                    "Authorization": f"Bearer {oidc_token}",
-                    "Cache-Control": "no-cache",
-                },
+                headers={"Authorization": f"Bearer {oidc_token}", "Cache-Control": "no-cache"},
             )
             analysis = analysis_response.json()
             completed = [c for c in analysis["candles"] if c["is_complete"]]
@@ -286,35 +230,19 @@ def main() -> int:
             last_close = float(last_completed["close"])
             price_delta = abs(api_price - last_close)
             timestamp_delta = provider_time - parse_datetime(last_completed["timestamp"])
-            require(
-                price_delta >= MIN_CURRENT_VS_CANDLE_PRICE_DELTA or timestamp_delta.total_seconds() > 0,
-                "Current quote is indistinguishable from the latest completed candle in both price and time",
-            )
-            results.append(CheckResult(
-                "Current quote is distinct from last completed candle",
-                True,
-                f"current=${api_price:.8f}; last_completed_close=${last_close:.8f}; price_delta=${price_delta:.8f}; quote_vs_candle_time_delta={timestamp_delta.total_seconds():.0f}s",
-            ))
+            require(price_delta >= MIN_CURRENT_VS_CANDLE_PRICE_DELTA or timestamp_delta.total_seconds() > 0, "Current quote is indistinguishable from the latest completed candle in both price and time")
+            results.append(CheckResult("Current quote is distinct from last completed candle", True, f"current=${api_price:.8f}; last_completed_close=${last_close:.8f}; price_delta=${price_delta:.8f}; quote_vs_candle_time_delta={timestamp_delta.total_seconds():.0f}s"))
 
-            # Two forced-refresh requests must bypass the application cache and
-            # produce a newer backend observation. This is stronger than merely
-            # checking HTTP cache-control headers.
             time.sleep(CACHE_PROBE_DELAY_SECONDS)
             second_nonce = str(uuid.uuid4())
-            second_response = get_api_quote(
-                client, base_url, symbol, oidc_token, nonce=second_nonce
-            )
+            second_response = get_api_quote(client, base_url, symbol, oidc_token, nonce=second_nonce)
             second = second_response.json()
             quote2 = second["quote"]
             require(second_response.headers.get("X-Market-Data-Cache") == "MISS", "Second refresh request was served from application cache")
-            require(second_response.headers.get("Cache-Control", "").lower().find("no-store") >= 0, "Second response is not no-store")
+            require("no-store" in second_response.headers.get("Cache-Control", "").lower(), "Second response is not no-store")
             observed2 = parse_datetime(quote2["observed_at"])
             require(observed2 > observed_at, "Second forced-refresh observation timestamp did not advance")
-            results.append(CheckResult(
-                "No stale cached response",
-                True,
-                f"forced refreshes reported MISS; observed_at advanced from {observed_at.isoformat()} to {observed2.isoformat()}",
-            ))
+            results.append(CheckResult("No stale cached response", True, f"forced refreshes reported MISS; observed_at advanced from {observed_at.isoformat()} to {observed2.isoformat()}"))
 
         except (AssertionError, KeyError, TypeError, ValueError, RuntimeError, httpx.HTTPError) as exc:
             results.append(CheckResult("PRODUCTION VERIFICATION", False, str(exc)))
