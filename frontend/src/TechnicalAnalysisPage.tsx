@@ -9,13 +9,8 @@ const ANALYSIS_REFRESH_MS = 60_000;
 
 type RangePreset = "recent" | "1d" | "1w" | "1m" | "3m" | "custom";
 
-export function toUtcStart(date: string): string {
-  return `${date}T00:00:00Z`;
-}
-
-export function toUtcEnd(date: string): string {
-  return `${date}T23:59:59Z`;
-}
+export function toUtcStart(date: string): string { return `${date}T00:00:00Z`; }
+export function toUtcEnd(date: string): string { return `${date}T23:59:59Z`; }
 
 export function buildRange(preset: RangePreset, now = new Date(), customStart = "", customEnd = ""): TechnicalAnalysisRange {
   if (preset === "recent") return {};
@@ -23,35 +18,24 @@ export function buildRange(preset: RangePreset, now = new Date(), customStart = 
     if (!customStart || !customEnd) return {};
     return { startDate: toUtcStart(customStart), endDate: toUtcEnd(customEnd) };
   }
-
   const end = new Date(now);
   end.setUTCHours(23, 59, 59, 0);
   const start = new Date(end);
   const days = preset === "1d" ? 1 : preset === "1w" ? 7 : preset === "1m" ? 30 : 90;
   start.setUTCDate(start.getUTCDate() - days + 1);
-  return {
-    startDate: start.toISOString(),
-    endDate: end.toISOString(),
-  };
+  return { startDate: start.toISOString(), endDate: end.toISOString() };
 }
 
 function value(data: TechnicalAnalysis | null, key: string, digits = 4): string {
   const raw = data?.indicators[key];
   return typeof raw === "number" && Number.isFinite(raw) ? raw.toLocaleString(undefined, { maximumFractionDigits: digits }) : "—";
 }
-
-function indicatorClass(trend: string | undefined): string {
-  return trend === "BULLISH" ? "live" : trend === "BEARISH" ? "unavailable" : "closed";
-}
-
+function indicatorClass(trend: string | undefined): string { return trend === "BULLISH" ? "live" : trend === "BEARISH" ? "unavailable" : "closed"; }
 function formatTimestamp(timestamp: string | undefined): string {
   if (!timestamp) return "—";
   const parsed = new Date(timestamp);
-  return Number.isNaN(parsed.getTime())
-    ? timestamp
-    : parsed.toLocaleString(undefined, { timeZone: "UTC", hour12: false }) + " UTC";
+  return Number.isNaN(parsed.getTime()) ? timestamp : parsed.toLocaleString(undefined, { timeZone: "UTC", hour12: false }) + " UTC";
 }
-
 function validateAnalysisResponse(data: TechnicalAnalysis, requestedSymbol: string, requestedTimeframe: string): TechnicalAnalysis {
   if (data.symbol !== requestedSymbol) throw new Error(`The API returned analysis for ${data.symbol} instead of ${requestedSymbol}.`);
   if (data.timeframe !== requestedTimeframe) throw new Error(`The API returned timeframe ${data.timeframe} instead of ${requestedTimeframe}.`);
@@ -74,6 +58,9 @@ export default function TechnicalAnalysisPage({ user, onLogout, setPage }: { use
   const [error, setError] = useState<string | null>(null);
   const requestSequence = useRef(0);
   const inFlightKey = useRef<string | null>(null);
+  const hasDataRef = useRef(false);
+
+  useEffect(() => { hasDataRef.current = Boolean(data); }, [data]);
 
   const range = useMemo(() => buildRange(rangePreset, new Date(), customStart, customEnd), [rangePreset, customStart, customEnd]);
   const rangeInvalid = rangePreset === "custom" && ((!customStart && !!customEnd) || (!!customStart && !customEnd) || (!!customStart && !!customEnd && customStart > customEnd));
@@ -84,26 +71,21 @@ export default function TechnicalAnalysisPage({ user, onLogout, setPage }: { use
       setError(customStart > customEnd ? "The range start must be on or before the range end." : "Select both a range start and range end before loading historical data.");
       return;
     }
-
     if (!force && inFlightKey.current === requestKey) return;
     const sequence = ++requestSequence.current;
     inFlightKey.current = requestKey;
     try {
       setError(null);
-      if (!data) setLoading(true);
+      if (!hasDataRef.current) setLoading(true);
       if (force) setRefreshing(true);
-
       const response = await getTechnicalAnalysis(symbol, timeframe, 250, range);
       const validated = validateAnalysisResponse(response, symbol, timeframe);
       if (sequence === requestSequence.current) setData(validated);
     } catch (err) {
       if (sequence !== requestSequence.current) return;
-      if (err instanceof ApiError && err.status === 401) {
-        onLogout();
-        return;
-      }
+      if (err instanceof ApiError && err.status === 401) { onLogout(); return; }
       setError(err instanceof Error ? err.message : "Unable to retrieve technical-analysis data.");
-      if (!data) setData(null);
+      if (!hasDataRef.current) setData(null);
     } finally {
       if (sequence === requestSequence.current) {
         setLoading(false);
@@ -111,12 +93,9 @@ export default function TechnicalAnalysisPage({ user, onLogout, setPage }: { use
         inFlightKey.current = null;
       }
     }
-  }, [customEnd, customStart, data, onLogout, range, rangeInvalid, requestKey, symbol, timeframe]);
+  }, [customEnd, customStart, onLogout, range, rangeInvalid, requestKey, symbol, timeframe]);
 
-  useEffect(() => {
-    void load();
-  }, [load]);
-
+  useEffect(() => { void load(); }, [load]);
   useEffect(() => {
     if (!autoRefresh || rangeInvalid) return;
     const timer = window.setInterval(() => void load(true), ANALYSIS_REFRESH_MS);
