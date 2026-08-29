@@ -16,7 +16,6 @@ interface TechnicalChartProps {
 }
 
 const CHART_HEIGHT = 520;
-
 type VisibleLogicalRange = { from: number; to: number };
 
 export default function TechnicalChart({ data, height = CHART_HEIGHT }: TechnicalChartProps) {
@@ -24,7 +23,6 @@ export default function TechnicalChart({ data, height = CHART_HEIGHT }: Technica
   const chartRef = useRef<IChartApi | null>(null);
   const candleSeriesRef = useRef<ISeriesApi<"Candlestick"> | null>(null);
   const volumeSeriesRef = useRef<ISeriesApi<"Histogram"> | null>(null);
-  const hasInitialDataRef = useRef(false);
   const [showVolume, setShowVolume] = useState(true);
   const [showOverlays, setShowOverlays] = useState(true);
 
@@ -111,7 +109,6 @@ export default function TechnicalChart({ data, height = CHART_HEIGHT }: Technica
       chartRef.current = null;
       candleSeriesRef.current = null;
       volumeSeriesRef.current = null;
-      hasInitialDataRef.current = false;
     };
   }, [height]);
 
@@ -143,12 +140,8 @@ export default function TechnicalChart({ data, height = CHART_HEIGHT }: Technica
       scaleMargins: showVolume ? { top: 0.82, bottom: 0 } : { top: 1, bottom: 0 },
     });
 
-    if (previousRange) {
-      chart.timeScale().setVisibleLogicalRange(previousRange);
-    } else {
-      chart.timeScale().fitContent();
-    }
-    hasInitialDataRef.current = true;
+    if (previousRange) chart.timeScale().setVisibleLogicalRange(previousRange);
+    else chart.timeScale().fitContent();
   }, [transformed.dataset, showOverlays, showVolume]);
 
   function resetView(): void {
