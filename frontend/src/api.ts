@@ -20,11 +20,7 @@ export interface TechnicalAnalysis {
   candles: Candle[];
   indicators: Record<string, number | string | null>;
 }
-
-export interface TechnicalAnalysisRange {
-  startDate?: string;
-  endDate?: string;
-}
+export interface TechnicalAnalysisRange { startDate?: string; endDate?: string; }
 
 export class ApiError extends Error {
   readonly status: number;
@@ -53,13 +49,13 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   const headers = new Headers(init.headers);
   if (init.body && !headers.has("Content-Type")) headers.set("Content-Type", "application/json");
   if (init.method && init.method !== "GET") { const csrf = getStoredCsrf() ?? getCookie("mr_csrf"); if (csrf) headers.set("X-CSRF-Token", csrf); }
-  const controller = new AbortController(); let timeoutId: number | undefined; let removeAbortListener: (() => void) | undefined;
+  const controller = new AbortController(); let timeoutId: ReturnType<typeof setTimeout> | undefined; let removeAbortListener: (() => void) | undefined;
   if (init.signal) { if (init.signal.aborted) controller.abort(init.signal.reason); else { const abort = () => controller.abort(init.signal?.reason); init.signal.addEventListener("abort", abort, { once: true }); removeAbortListener = () => init.signal?.removeEventListener("abort", abort); } }
-  timeoutId = window.setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  timeoutId = globalThis.setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
   let response: Response;
   try { response = await fetch(`${API_BASE}${path}`, { ...init, headers, credentials: "include", signal: controller.signal }); }
   catch (error) { if (error instanceof DOMException && error.name === "AbortError") throw new ApiError(`The application server did not respond within ${REQUEST_TIMEOUT_MS / 1000} seconds. Check the API deployment and try again.`, 0); throw new ApiError("Unable to reach the application server. Check your connection and try again.", 0); }
-  finally { if (timeoutId !== undefined) window.clearTimeout(timeoutId); removeAbortListener?.(); }
+  finally { if (timeoutId !== undefined) globalThis.clearTimeout(timeoutId); removeAbortListener?.(); }
   if (!response.ok) { let message = `Request failed: ${response.status}`; try { const body = await response.json() as { detail?: string }; if (body.detail) message = body.detail; } catch { /* non-json */ } throw new ApiError(message, response.status); }
   const responseCsrf = response.headers.get("X-CSRF-Token"); if (responseCsrf) storeCsrf(responseCsrf);
   if (response.status === 204) return undefined as T;
