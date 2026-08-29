@@ -12,7 +12,7 @@ permissions:
 jobs:
   verify-production-market-data:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 10
 
     env:
       MARKET_API_BASE: https://research-76vr.onrender.com
@@ -21,6 +21,8 @@ jobs:
       MARKET_ANALYSIS_LIMIT: 250
       GITHUB_OIDC_AUDIENCE: research-production-verifier
       TWELVE_DATA_API_KEY: ${{ secrets.TWELVE_DATA_API_KEY }}
+      ALPHA_VANTAGE_API_KEY: ${{ secrets.ALPHA_VANTAGE_API_KEY }}
+      FINNHUB_API_KEY: ${{ secrets.FINNHUB_API_KEY }}
 
     steps:
       - name: Checkout repository
