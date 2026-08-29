@@ -45,6 +45,10 @@ function toPriceLines(indicators: TechnicalAnalysis["indicators"]): ChartPriceLi
 }
 
 export function toChartDataset(data: TechnicalAnalysis): ChartDataset {
+  if (!Array.isArray(data.candles)) {
+    throw new Error("Technical-analysis candles must be an array.");
+  }
+
   const candles: ChartCandle[] = [];
   const volume: ChartVolumeBar[] = [];
   let previousTime: UTCTimestamp | null = null;
@@ -61,6 +65,10 @@ export function toChartDataset(data: TechnicalAnalysis): ChartDataset {
     const high = finiteNumber(candle.high, "high");
     const low = finiteNumber(candle.low, "low");
     const close = finiteNumber(candle.close, "close");
+
+    if (open <= 0 || high <= 0 || low <= 0 || close <= 0) {
+      throw new Error(`Candle prices must be positive at ${candle.timestamp}.`);
+    }
 
     if (high < Math.max(open, close) || low > Math.min(open, close) || low > high) {
       throw new Error(`Invalid OHLC relationship at ${candle.timestamp}.`);
