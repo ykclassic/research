@@ -34,6 +34,6 @@ describe("getTechnicalAnalysis", () => {
   it("surfaces API failures instead of supplying fallback market data", async () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify({ detail: "provider unavailable" }), { status: 503, headers: { "Content-Type": "application/json" } }));
 
-    await expect(getTechnicalAnalysis("BTC/USD", "1h")).rejects.toMatchObject<ApiError>({ status: 503, message: "provider unavailable" });
+    await expect(getTechnicalAnalysis("BTC/USD", "1h")).rejects.toMatchObject({ status: 503, message: "provider unavailable" });
   });
 });
