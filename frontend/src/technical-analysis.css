@@ -26,6 +26,7 @@
 .chart-toggle.active { color: var(--text, #e5e7eb); border-color: rgba(148,163,184,.38); background: rgba(148,163,184,.08); }
 .chart-toggle:focus-visible { outline: 2px solid currentColor; outline-offset: 2px; }
 .chart-hint { margin-left: auto; color: var(--muted, #8c96a8); font-size: .72rem; }
-.technical-chart { width: 100%; min-height: 360px; border: 1px solid rgba(148,163,184,.12); border-radius: 12px; overflow: hidden; }
+.technical-chart { width: 100%; min-height: 420px; border: 1px solid rgba(148,163,184,.12); border-radius: 12px; overflow: hidden; }
+.chart-provenance { display: flex; justify-content: space-between; gap: 16px; flex-wrap: wrap; margin-top: 9px; color: var(--muted, #8c96a8); font-size: .7rem; line-height: 1.5; }
 @media (max-width: 900px) { .ta-overview { grid-template-columns: 1fr; } .indicator-table { grid-template-columns: 1fr; } .ta-controls .refresh { margin-left: 0; } }
-@media (max-width: 640px) { .technical-chart-header { align-items: flex-start; flex-direction: column; } .technical-chart-header > div { flex-wrap: wrap; } .chart-hint { margin-left: 0; width: 100%; } }
+@media (max-width: 640px) { .technical-chart-header { align-items: flex-start; flex-direction: column; } .technical-chart-header > div { flex-wrap: wrap; } .chart-hint { margin-left: 0; width: 100%; } .chart-provenance { display: grid; gap: 5px; } }
