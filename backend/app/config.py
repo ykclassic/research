@@ -16,6 +16,8 @@ class Settings(BaseSettings):
     analysis_timeout_seconds: float = 10.0
 
     twelve_data_api_key: str = ""
+    alpha_vantage_api_key: str = ""
+    finnhub_api_key: str = ""
 
     # Supabase Auth
     supabase_url: str = ""
@@ -26,10 +28,6 @@ class Settings(BaseSettings):
     # CSRF signing secret. Set a long random value in production.
     csrf_secret: str = "development-only-change-me"
 
-    # GitHub Actions OIDC trust for server-to-server production verification.
-    # These are configuration values, not secrets. The workflow presents a
-    # short-lived GitHub-signed JWT; no long-lived verification credential is
-    # stored in GitHub Actions secrets.
     github_oidc_issuer: str = "https://token.actions.githubusercontent.com"
     github_oidc_jwks_url: str = "https://token.actions.githubusercontent.com/.well-known/jwks"
     github_oidc_audience: str = "research-production-verifier"
@@ -50,9 +48,7 @@ class Settings(BaseSettings):
             return self
 
         if self.csrf_secret == "development-only-change-me" or len(self.csrf_secret) < 32:
-            raise ValueError(
-                "Production requires a non-default CSRF_SECRET of at least 32 characters."
-            )
+            raise ValueError("Production requires a non-default CSRF_SECRET of at least 32 characters.")
 
         origins = [origin.strip() for origin in self.cors_origins.split(",") if origin.strip()]
         if not origins:
@@ -64,21 +60,14 @@ class Settings(BaseSettings):
             raise ValueError("Production requires TWELVE_DATA_API_KEY.")
         if not self.supabase_url.strip() or not self.supabase_publishable_key.strip():
             raise ValueError("Production requires Supabase URL and publishable key.")
-        if self.auth_password_reset_redirect_url.startswith(
-            ("http://localhost", "http://127.0.0.1")
-        ):
+        if self.auth_password_reset_redirect_url.startswith(("http://localhost", "http://127.0.0.1")):
             raise ValueError("Production password-reset redirect must not use localhost.")
 
         hosts = [host.strip() for host in self.trusted_hosts.split(",") if host.strip()]
         if not hosts:
             raise ValueError("Production requires at least one configured trusted host.")
-        if not any(
-            host not in {"localhost", "127.0.0.1", "testserver"}
-            for host in hosts
-        ):
-            raise ValueError(
-                "Production TRUSTED_HOSTS must include a non-localhost host."
-            )
+        if not any(host not in {"localhost", "127.0.0.1", "testserver"} for host in hosts):
+            raise ValueError("Production TRUSTED_HOSTS must include a non-localhost host.")
 
         if self.analysis_timeout_seconds <= 0:
             raise ValueError("Production analysis timeout must be greater than zero.")
