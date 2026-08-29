@@ -21,6 +21,11 @@ export interface TechnicalAnalysis {
   indicators: Record<string, number | string | null>;
 }
 
+export interface TechnicalAnalysisRange {
+  startDate?: string;
+  endDate?: string;
+}
+
 export class ApiError extends Error {
   readonly status: number;
   constructor(message: string, status: number) { super(message); this.name = "ApiError"; this.status = status; }
@@ -78,4 +83,14 @@ export async function renameWatchlist(id: string, name: string): Promise<Watchli
 export async function deleteWatchlist(id: string): Promise<void> { await authenticatedMutation<void>(`/api/watchlists/${encodeURIComponent(id)}`, { method: "DELETE" }); }
 export async function addWatchlistSymbol(id: string, symbol: string): Promise<WatchlistItem> { return authenticatedMutation<WatchlistItem>(`/api/watchlists/${encodeURIComponent(id)}/symbols`, { method: "POST", body: JSON.stringify({ symbol }) }); }
 export async function removeWatchlistSymbol(id: string, symbol: string): Promise<void> { await authenticatedMutation<void>(`/api/watchlists/${encodeURIComponent(id)}/symbols/${encodeURIComponent(symbol)}`, { method: "DELETE" }); }
-export async function getTechnicalAnalysis(symbol: string, timeframe = "1h", limit = 250): Promise<TechnicalAnalysis> { const params = new URLSearchParams({ timeframe, limit: String(limit) }); return request<TechnicalAnalysis>(`/api/analysis/${encodeURIComponent(symbol)}?${params}`); }
+export async function getTechnicalAnalysis(symbol: string, timeframe = "1h", limit = 250, range: TechnicalAnalysisRange = {}): Promise<TechnicalAnalysis> {
+  const params = new URLSearchParams({ timeframe });
+  if (range.startDate || range.endDate) {
+    if (!range.startDate || !range.endDate) throw new Error("A historical range requires both a start date and an end date.");
+    params.set("start", range.startDate);
+    params.set("end", range.endDate);
+  } else {
+    params.set("limit", String(limit));
+  }
+  return request<TechnicalAnalysis>(`/api/analysis/${encodeURIComponent(symbol)}?${params}`);
+}
