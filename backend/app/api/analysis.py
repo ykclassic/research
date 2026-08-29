@@ -88,16 +88,22 @@ async def get_analysis(
 
     try:
         mapping = normalize_symbol(symbol)
-        dataset = await asyncio.wait_for(
-            quote_service.provider.get_candles(
-                mapping.internal,
-                timeframe,
-                limit,
-                start_date=start,
-                end_date=end,
-            ),
-            timeout=settings.analysis_timeout_seconds,
-        )
+        if start is None:
+            dataset = await asyncio.wait_for(
+                quote_service.provider.get_candles(mapping.internal, timeframe, limit),
+                timeout=settings.analysis_timeout_seconds,
+            )
+        else:
+            dataset = await asyncio.wait_for(
+                quote_service.provider.get_candles(
+                    mapping.internal,
+                    timeframe,
+                    limit,
+                    start_date=start,
+                    end_date=end,
+                ),
+                timeout=settings.analysis_timeout_seconds,
+            )
         result = calculate_feature_set(dataset)
         candles = [CandleResponse.model_validate(candle) for candle in dataset.candles]
         completed = [candle for candle in candles if candle.is_complete]
