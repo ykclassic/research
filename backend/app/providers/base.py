@@ -20,6 +20,8 @@ class MarketDataProvider(ABC):
         internal_symbol: str,
         timeframe: Timeframe,
         outputsize: int = 250,
+        start_date: datetime | None = None,
+        end_date: datetime | None = None,
     ) -> OHLCVDataset:
         raise NotImplementedError
 

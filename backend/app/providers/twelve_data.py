@@ -17,6 +17,7 @@ from app.symbols import normalize_symbol
 class TwelveDataProvider(MarketDataProvider):
     name = "twelve_data"
     base_url = "https://api.twelvedata.com"
+    quote_interval = "1min"
 
     _intervals = {
         Timeframe.MINUTE_5: "5min",
@@ -38,25 +39,33 @@ class TwelveDataProvider(MarketDataProvider):
             parsed = parsed.replace(tzinfo=timezone.utc)
         return parsed.astimezone(timezone.utc)
 
+    @staticmethod
+    def _format_range_timestamp(value: datetime) -> str:
+        return value.astimezone(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+
     @classmethod
     def _parse_provider_quote_timestamp(cls, payload: dict) -> datetime | None:
-        """Extract Twelve Data's own quote-update timestamp when available."""
-        value = payload.get("last_update_at")
-        if value is None:
-            value = payload.get("timestamp")
-        if value is None:
-            return None
+        """Extract the provider's own quote timestamp; never substitute server time."""
+        for key in ("timestamp", "last_update_at", "datetime"):
+            value = payload.get(key)
+            if value is None:
+                continue
 
-        if isinstance(value, (int, float)):
-            return datetime.fromtimestamp(value, tz=timezone.utc)
+            if isinstance(value, (int, float)):
+                return datetime.fromtimestamp(value, tz=timezone.utc)
 
-        text = str(value).strip()
-        try:
-            if text.isdigit():
-                return datetime.fromtimestamp(float(text), tz=timezone.utc)
-            return cls._parse_timestamp(text)
-        except ValueError as exc:
-            raise ValueError(f"Provider returned invalid quote timestamp: {value}") from exc
+            text = str(value).strip()
+            try:
+                if text.isdigit():
+                    return datetime.fromtimestamp(float(text), tz=timezone.utc)
+                return cls._parse_timestamp(text)
+            except ValueError as exc:
+                raise ValueError(f"Provider returned invalid quote timestamp: {value}") from exc
+        return None
+
+    @staticmethod
+    def _quote_age_seconds(provider_timestamp: datetime, now: datetime) -> float:
+        return (now - provider_timestamp).total_seconds()
 
     async def get_quote(self, internal_symbol: str) -> Quote:
         mapping = normalize_symbol(internal_symbol)
@@ -70,7 +79,11 @@ class TwelveDataProvider(MarketDataProvider):
             )
 
         started = time.perf_counter()
-        params = {"symbol": mapping.twelve_data, "apikey": settings.twelve_data_api_key}
+        params = {
+            "symbol": mapping.twelve_data,
+            "interval": self.quote_interval,
+            "apikey": settings.twelve_data_api_key,
+        }
         last_error = "Unknown provider error"
 
         for attempt in range(settings.http_max_retries + 1):
@@ -105,12 +118,32 @@ class TwelveDataProvider(MarketDataProvider):
 
                 observed_at = datetime.now(timezone.utc)
                 provider_timestamp = self._parse_provider_quote_timestamp(payload)
+                if provider_timestamp is None:
+                    last_error = "Provider response did not contain an authoritative quote timestamp."
+                    if attempt < settings.http_max_retries:
+                        await asyncio.sleep(2**attempt)
+                        continue
+                    break
+
+                quote_age = self._quote_age_seconds(provider_timestamp, observed_at)
+                if quote_age < -60:
+                    last_error = f"Provider quote timestamp is {abs(quote_age):.2f}s in the future."
+                    if attempt < settings.http_max_retries:
+                        await asyncio.sleep(2**attempt)
+                        continue
+                    break
+                if quote_age > settings.stale_quote_seconds:
+                    last_error = f"Provider quote is stale: age={quote_age:.2f}s > {settings.stale_quote_seconds}s."
+                    if attempt < settings.http_max_retries:
+                        await asyncio.sleep(2**attempt)
+                        continue
+                    break
 
                 return Quote(
                     symbol=mapping.internal,
                     provider_symbol=mapping.twelve_data,
                     price=price,
-                    timestamp=provider_timestamp or observed_at,
+                    timestamp=provider_timestamp,
                     provider_timestamp=provider_timestamp,
                     observed_at=observed_at,
                     source=self.name,
@@ -138,19 +171,30 @@ class TwelveDataProvider(MarketDataProvider):
         internal_symbol: str,
         timeframe: Timeframe,
         outputsize: int = 250,
+        start_date: datetime | None = None,
+        end_date: datetime | None = None,
     ) -> OHLCVDataset:
         mapping = normalize_symbol(internal_symbol)
         if not settings.twelve_data_api_key:
             raise RuntimeError("TWELVE_DATA_API_KEY is not configured.")
+        if (start_date is None) != (end_date is None):
+            raise ValueError("Historical candle ranges require both start_date and end_date.")
+        if start_date is not None and end_date is not None and start_date >= end_date:
+            raise ValueError("Historical candle start_date must be before end_date.")
 
         interval = self._intervals[timeframe]
         requested_at = datetime.now(timezone.utc)
         params = {
             "symbol": mapping.twelve_data,
             "interval": interval,
-            "outputsize": str(min(max(outputsize, 50), 5000)),
             "apikey": settings.twelve_data_api_key,
         }
+        if start_date is not None and end_date is not None:
+            params["start_date"] = self._format_range_timestamp(start_date)
+            params["end_date"] = self._format_range_timestamp(end_date)
+        else:
+            params["outputsize"] = str(min(max(outputsize, 50), 5000))
+
         last_error = "Unknown provider error"
         for attempt in range(settings.http_max_retries + 1):
             try:

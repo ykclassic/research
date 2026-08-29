@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import asyncio
-from datetime import datetime
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, ConfigDict, model_validator
@@ -63,22 +63,47 @@ class AnalysisResponse(BaseModel):
         return self
 
 
+def normalize_range_boundary(value: datetime | None, field_name: str) -> datetime | None:
+    if value is None:
+        return None
+    if value.tzinfo is None or value.utcoffset() is None:
+        raise HTTPException(status_code=422, detail=f"{field_name} must include a timezone.")
+    return value.astimezone(timezone.utc)
+
+
 @router.get("/{symbol:path}", response_model=AnalysisResponse)
 async def get_analysis(
     symbol: str,
     timeframe: Timeframe = Query(Timeframe.HOUR_1),
     limit: int = Query(250, ge=50, le=5000),
+    start: datetime | None = Query(None, description="Inclusive historical range start in ISO-8601 format."),
+    end: datetime | None = Query(None, description="Inclusive historical range end in ISO-8601 format."),
 ):
+    start = normalize_range_boundary(start, "start")
+    end = normalize_range_boundary(end, "end")
+    if (start is None) != (end is None):
+        raise HTTPException(status_code=422, detail="Both start and end are required for a historical range.")
+    if start is not None and end is not None and start >= end:
+        raise HTTPException(status_code=422, detail="Historical range start must be before end.")
+
     try:
         mapping = normalize_symbol(symbol)
-        dataset = await asyncio.wait_for(
-            quote_service.provider.get_candles(
-                mapping.internal,
-                timeframe,
-                limit,
-            ),
-            timeout=settings.analysis_timeout_seconds,
-        )
+        if start is None:
+            dataset = await asyncio.wait_for(
+                quote_service.provider.get_candles(mapping.internal, timeframe, limit),
+                timeout=settings.analysis_timeout_seconds,
+            )
+        else:
+            dataset = await asyncio.wait_for(
+                quote_service.provider.get_candles(
+                    mapping.internal,
+                    timeframe,
+                    limit,
+                    start_date=start,
+                    end_date=end,
+                ),
+                timeout=settings.analysis_timeout_seconds,
+            )
         result = calculate_feature_set(dataset)
         candles = [CandleResponse.model_validate(candle) for candle in dataset.candles]
         completed = [candle for candle in candles if candle.is_complete]

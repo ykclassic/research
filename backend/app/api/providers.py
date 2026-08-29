@@ -8,18 +8,8 @@ service = QuoteService()
 
 @router.get("/status")
 async def provider_status():
-    configured = await service.provider.health()
-    return {
-        "providers": [
-            {
-                "provider": service.provider.name,
-                "configured": configured,
-                "reachable": configured,
-                "message": (
-                    "Configured; live requests are available."
-                    if configured
-                    else "Not configured. Add TWELVE_DATA_API_KEY to the backend environment."
-                ),
-            }
-        ]
-    }
+    providers = await service.provider_status()
+    for provider in providers:
+        provider["reachable"] = None
+        provider["message"] = "Configured; reachability is verified by an actual provider request." if provider["configured"] else "Not configured."
+    return {"providers": providers}
