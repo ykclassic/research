@@ -22,6 +22,12 @@ MAX_PROVIDER_AGE_SECONDS = 120.0
 MAX_BACKEND_OBSERVATION_AGE_SECONDS = 15.0
 MIN_CURRENT_VS_CANDLE_PRICE_DELTA = 0.01
 CACHE_PROBE_DELAY_SECONDS = 1.25
+HTTP_CONNECT_TIMEOUT_SECONDS = 10.0
+HTTP_READ_TIMEOUT_SECONDS = 30.0
+HTTP_WRITE_TIMEOUT_SECONDS = 10.0
+HTTP_POOL_TIMEOUT_SECONDS = 10.0
+HTTP_READ_RETRIES = 2
+HTTP_RETRY_DELAYS_SECONDS = (1.0, 3.0)
 
 
 @dataclass(frozen=True)
@@ -57,17 +63,47 @@ def request_json(
     client: httpx.Client,
     url: str,
     *,
+    operation: str,
     params: dict[str, Any] | None = None,
     headers: dict[str, str] | None = None,
 ) -> httpx.Response:
-    response = client.get(url, params=params, headers=headers)
-    response.raise_for_status()
-    return response
+    """GET JSON with bounded retries for transient network/read timeouts.
+
+    Production verification must fail on persistent network failures, but a
+    single Render cold-start or provider read timeout should not make the
+    verification nondeterministically fail before the service can respond.
+    """
+    last_error: httpx.ReadTimeout | None = None
+    for attempt in range(HTTP_READ_RETRIES + 1):
+        try:
+            response = client.get(url, params=params, headers=headers)
+            response.raise_for_status()
+            return response
+        except httpx.ReadTimeout as exc:
+            last_error = exc
+            if attempt >= HTTP_READ_RETRIES:
+                raise httpx.ReadTimeout(
+                    f"{operation} read timed out after {HTTP_READ_RETRIES + 1} attempts"
+                ) from exc
+            time.sleep(HTTP_RETRY_DELAYS_SECONDS[attempt])
+        except httpx.ConnectTimeout as exc:
+            if attempt >= HTTP_READ_RETRIES:
+                raise httpx.ConnectTimeout(
+                    f"{operation} connect timed out after {HTTP_READ_RETRIES + 1} attempts"
+                ) from exc
+            time.sleep(HTTP_RETRY_DELAYS_SECONDS[attempt])
+
+    assert last_error is not None
+    raise last_error
 
 
 def verify_health(client: httpx.Client, base_url: str) -> CheckResult:
     started = time.perf_counter()
-    response = client.get(f"{base_url}/health")
+    response = request_json(
+        client,
+        f"{base_url}/health",
+        operation="production health check",
+    )
     elapsed_ms = (time.perf_counter() - started) * 1000
     require(response.status_code == 200, f"health returned HTTP {response.status_code}: {response.text}")
     payload = response.json()
@@ -90,6 +126,7 @@ def get_api_quote(
     return request_json(
         client,
         f"{base_url}/api/market/quote/{symbol}",
+        operation=f"deployed quote for {symbol}",
         params={"refresh": "true", "verification_nonce": nonce},
         headers={
             "Authorization": f"Bearer {oidc_token}",
@@ -107,6 +144,7 @@ def get_direct_twelve_data(
     response = request_json(
         client,
         "https://api.twelvedata.com/quote",
+        operation=f"direct Twelve Data quote for {symbol}",
         params={"symbol": symbol, "apikey": api_key},
         headers={"Cache-Control": "no-cache"},
     )
@@ -120,6 +158,7 @@ def get_independent_coin_gecko(client: httpx.Client) -> dict[str, Any]:
     response = request_json(
         client,
         "https://api.coingecko.com/api/v3/simple/price",
+        operation="CoinGecko independent verification",
         params={
             "ids": "bitcoin",
             "vs_currencies": "usd",
@@ -158,7 +197,12 @@ def main() -> int:
     symbol = args.symbol.upper()
     results: list[CheckResult] = []
 
-    timeout = httpx.Timeout(15.0, connect=10.0)
+    timeout = httpx.Timeout(
+        connect=HTTP_CONNECT_TIMEOUT_SECONDS,
+        read=HTTP_READ_TIMEOUT_SECONDS,
+        write=HTTP_WRITE_TIMEOUT_SECONDS,
+        pool=HTTP_POOL_TIMEOUT_SECONDS,
+    )
     with httpx.Client(timeout=timeout, follow_redirects=True) as client:
         try:
             results.append(verify_health(client, base_url))
@@ -228,6 +272,7 @@ def main() -> int:
             analysis_response = request_json(
                 client,
                 f"{base_url}/api/analysis/{symbol}",
+                operation=f"deployed analysis for {symbol} {args.timeframe}",
                 params={"timeframe": args.timeframe, "limit": args.limit, "verification_nonce": str(uuid.uuid4())},
                 headers={
                     "Authorization": f"Bearer {oidc_token}",
