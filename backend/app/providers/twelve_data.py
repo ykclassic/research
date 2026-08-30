@@ -70,7 +70,15 @@ class TwelveDataProvider(MarketDataProvider):
             )
 
         started = time.perf_counter()
-        params = {"symbol": mapping.twelve_data, "apikey": settings.twelve_data_api_key}
+        # The quote endpoint supports an interval parameter. Requesting the
+        # one-minute interval is required for the live quote path; omitting it
+        # can cause the provider to return a much older interval/close, which
+        # violates the production freshness SLA.
+        params = {
+            "symbol": mapping.twelve_data,
+            "interval": "1min",
+            "apikey": settings.twelve_data_api_key,
+        }
         last_error = "Unknown provider error"
 
         for attempt in range(settings.http_max_retries + 1):
