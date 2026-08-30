@@ -36,26 +36,22 @@ jobs:
 
       - name: Request short-lived GitHub OIDC token
         shell: bash
-        env:
-          OIDC_REQUEST_URL: ${{ env.ACTIONS_ID_TOKEN_REQUEST_URL }}
-          OIDC_REQUEST_TOKEN: ${{ env.ACTIONS_ID_TOKEN_REQUEST_TOKEN }}
-          OIDC_AUDIENCE: ${{ env.GITHUB_OIDC_AUDIENCE }}
         run: |
           set -euo pipefail
 
-          test -n "${OIDC_REQUEST_URL:-}" || {
+          test -n "${ACTIONS_ID_TOKEN_REQUEST_URL:-}" || {
             echo "FAIL: GitHub Actions OIDC request URL is unavailable."
             exit 1
           }
-          test -n "${OIDC_REQUEST_TOKEN:-}" || {
+          test -n "${ACTIONS_ID_TOKEN_REQUEST_TOKEN:-}" || {
             echo "FAIL: GitHub Actions OIDC request token is unavailable."
             exit 1
           }
 
           token_response="$(curl --fail-with-body --silent --show-error --get \
-            -H "Authorization: bearer ${OIDC_REQUEST_TOKEN}" \
-            --data-urlencode "audience=${OIDC_AUDIENCE}" \
-            "${OIDC_REQUEST_URL}")"
+            -H "Authorization: bearer ${ACTIONS_ID_TOKEN_REQUEST_TOKEN}" \
+            --data-urlencode "audience=${GITHUB_OIDC_AUDIENCE}" \
+            "${ACTIONS_ID_TOKEN_REQUEST_URL}")"
 
           token="$(python -c 'import json,sys; print(json.load(sys.stdin)["value"])' <<< "${token_response}")"
           test -n "${token}"
