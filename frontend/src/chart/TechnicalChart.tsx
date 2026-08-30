@@ -4,6 +4,7 @@ import {
   ColorType,
   HistogramSeries,
   LineSeries,
+  LineStyle,
   createChart,
   type IChartApi,
   type ISeriesApi,
@@ -18,6 +19,7 @@ interface TechnicalChartProps {
 
 const CHART_HEIGHT = 620;
 type PaneSeries = ISeriesApi<"Line"> | ISeriesApi<"Histogram">;
+type VisibleLogicalRange = { from: number; to: number };
 
 export default function TechnicalChart({ data, height = CHART_HEIGHT }: TechnicalChartProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -30,7 +32,16 @@ export default function TechnicalChart({ data, height = CHART_HEIGHT }: Technica
   const [showRsi, setShowRsi] = useState(true);
   const [showMacd, setShowMacd] = useState(true);
 
-  const dataset = useMemo(() => toChartDataset(data), [data]);
+  const transformed = useMemo(() => {
+    try {
+      return { dataset: toChartDataset(data), error: null as string | null };
+    } catch (error) {
+      return {
+        dataset: null,
+        error: error instanceof Error ? error.message : "The API returned malformed chart data.",
+      };
+    }
+  }, [data]);
 
   useEffect(() => {
     const container = containerRef.current;
@@ -112,7 +123,10 @@ export default function TechnicalChart({ data, height = CHART_HEIGHT }: Technica
     const chart = chartRef.current;
     const candles = candleSeriesRef.current;
     const volume = volumeSeriesRef.current;
-    if (!chart || !candles || !volume) return;
+    if (!chart || !candles || !volume || !transformed.dataset) return;
+
+    const previousRange = chart.timeScale().getVisibleLogicalRange() as VisibleLogicalRange | null;
+    const dataset = transformed.dataset;
 
     candles.setData(dataset.candles);
     volume.setData(dataset.volume);
@@ -125,8 +139,21 @@ export default function TechnicalChart({ data, height = CHART_HEIGHT }: Technica
           title: line.title,
           axisLabelVisible: true,
           lineWidth: 1,
+          lineStyle: LineStyle.Dotted,
         });
       }
+    }
+
+    const livePrice = data.current_quote?.price;
+    if (typeof livePrice === "number" && Number.isFinite(livePrice) && livePrice > 0) {
+      candles.createPriceLine({
+        price: livePrice,
+        title: "LIVE",
+        axisLabelVisible: true,
+        lineWidth: 2,
+        lineStyle: LineStyle.Dashed,
+        color: "#f5c451",
+      });
     }
 
     for (const series of paneSeriesRef.current) chart.removeSeries(series);
@@ -189,11 +216,22 @@ export default function TechnicalChart({ data, height = CHART_HEIGHT }: Technica
     chart.priceScale("volume").applyOptions({
       scaleMargins: showVolume ? { top: 0.82, bottom: 0 } : { top: 1, bottom: 0 },
     });
-    chart.timeScale().fitContent();
-  }, [dataset, showOverlays, showVolume, showRsi, showMacd]);
+
+    if (previousRange) chart.timeScale().setVisibleLogicalRange(previousRange);
+    else chart.timeScale().fitContent();
+  }, [data.current_quote?.price, transformed.dataset, showOverlays, showVolume, showRsi, showMacd]);
 
   function resetView(): void {
     chartRef.current?.timeScale().fitContent();
+  }
+
+  if (transformed.error) {
+    return (
+      <div className="technical-chart-error" role="alert">
+        <strong>Chart data validation failed.</strong>
+        <span>{transformed.error}</span>
+      </div>
+    );
   }
 
   return (
@@ -201,9 +239,9 @@ export default function TechnicalChart({ data, height = CHART_HEIGHT }: Technica
       <div className="technical-chart-header">
         <div>
           <strong>{data.symbol}</strong>
-          <span>{data.timeframe} · {dataset.candles.length} completed candles</span>
+          <span>{data.timeframe} · {transformed.dataset?.candles.length ?? 0} completed candles</span>
         </div>
-        <span>Lightweight Charts</span>
+        <span>{data.source} · API data · LIVE quote separate</span>
       </div>
       <div className="technical-chart-toolbar" role="toolbar" aria-label="Chart controls">
         <button type="button" className={showVolume ? "chart-toggle active" : "chart-toggle"} onClick={() => setShowVolume(value => !value)} aria-pressed={showVolume}>
@@ -221,14 +259,14 @@ export default function TechnicalChart({ data, height = CHART_HEIGHT }: Technica
         <button type="button" className="chart-toggle" onClick={resetView}>
           Reset view
         </button>
-        <span className="chart-hint">Scroll to zoom · drag to pan · crosshair follows pointer</span>
+        <span className="chart-hint">Scroll/pinch to zoom · drag to pan · crosshair follows pointer</span>
       </div>
       <div
         ref={containerRef}
         className="technical-chart"
         style={{ height }}
         role="img"
-        aria-label={`${data.symbol} ${data.timeframe} candlestick, volume, RSI and MACD chart`}
+        aria-label={`${data.symbol} ${data.timeframe} candlestick, volume, RSI and MACD chart with separate live quote marker`}
       />
     </div>
   );
