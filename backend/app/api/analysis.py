@@ -8,8 +8,10 @@ from pydantic import BaseModel, ConfigDict, model_validator
 
 from app.api.auth import get_current_user_or_github_actions
 from app.config import settings
+from app.models import Quote
 from app.models.market import Timeframe
 from app.services.feature_engine import calculate_feature_set
+from app.services.indicator_series import calculate_indicator_panes
 from app.services.quote_service import QuoteService
 from app.symbols import normalize_symbol
 
@@ -33,6 +35,20 @@ class CandleResponse(BaseModel):
     is_complete: bool
 
 
+class IndicatorPoint(BaseModel):
+    timestamp: datetime
+    value: float | None = None
+
+
+class IndicatorPane(BaseModel):
+    id: str
+    title: str
+    unit: str
+    min: float | None = None
+    max: float | None = None
+    points: list[IndicatorPoint]
+
+
 class AnalysisResponse(BaseModel):
     symbol: str
     timeframe: Timeframe
@@ -41,7 +57,9 @@ class AnalysisResponse(BaseModel):
     latest_candle_timestamp: datetime
     candle_count: int
     candles: list[CandleResponse]
+    current_quote: Quote
     indicators: dict[str, float | str | None]
+    indicator_panes: list[IndicatorPane]
 
     @model_validator(mode="after")
     def validate_timestamp_consistency(self) -> AnalysisResponse:
@@ -60,6 +78,14 @@ class AnalysisResponse(BaseModel):
                 "Analysis candle_count must equal the number of completed candles."
             )
 
+        if self.current_quote.symbol != self.symbol:
+            raise ValueError("Current quote symbol must match analysis symbol.")
+        if self.current_quote.status.value == "LIVE" and self.current_quote.price is None:
+            raise ValueError("A LIVE current quote must contain a price.")
+
+        timestamps = [point.timestamp for pane in self.indicator_panes for point in pane.points]
+        if any(current <= previous for previous, current in zip(timestamps, timestamps[1:])):
+            raise ValueError("Indicator-pane timestamps must be strictly increasing within the response.")
         return self
 
 
@@ -71,11 +97,10 @@ async def get_analysis(
 ):
     try:
         mapping = normalize_symbol(symbol)
-        dataset = await asyncio.wait_for(
-            quote_service.provider.get_candles(
-                mapping.internal,
-                timeframe,
-                limit,
+        dataset, current_quote = await asyncio.wait_for(
+            asyncio.gather(
+                quote_service.provider.get_candles(mapping.internal, timeframe, limit),
+                quote_service.get_quote(mapping.internal, force_refresh=True),
             ),
             timeout=settings.analysis_timeout_seconds,
         )
@@ -87,6 +112,7 @@ async def get_analysis(
 
         latest_completed_timestamp = completed[-1].timestamp
         candle_count = len(completed)
+        indicator_panes = calculate_indicator_panes(completed)
 
         return AnalysisResponse(
             symbol=result.symbol,
@@ -96,7 +122,9 @@ async def get_analysis(
             latest_candle_timestamp=latest_completed_timestamp,
             candle_count=candle_count,
             candles=candles,
+            current_quote=current_quote,
             indicators=result.indicators,
+            indicator_panes=indicator_panes,
         )
     except HTTPException:
         raise
