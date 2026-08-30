@@ -83,9 +83,12 @@ class AnalysisResponse(BaseModel):
         if self.current_quote.status.value == "LIVE" and self.current_quote.price is None:
             raise ValueError("A LIVE current quote must contain a price.")
 
-        timestamps = [point.timestamp for pane in self.indicator_panes for point in pane.points]
-        if any(current <= previous for previous, current in zip(timestamps, timestamps[1:])):
-            raise ValueError("Indicator-pane timestamps must be strictly increasing within the response.")
+        for pane in self.indicator_panes:
+            timestamps = [point.timestamp for point in pane.points]
+            if any(current <= previous for previous, current in zip(timestamps, timestamps[1:])):
+                raise ValueError(
+                    f"Indicator-pane timestamps must be strictly increasing for {pane.id}."
+                )
         return self
 
 
