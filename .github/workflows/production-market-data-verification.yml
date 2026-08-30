@@ -19,6 +19,10 @@ jobs:
       MARKET_SYMBOL: BTC/USD
       MARKET_TIMEFRAME: 1h
       MARKET_ANALYSIS_LIMIT: 250
+      # Twelve Data documents typical REST publication latency of 0.3-2 minutes.
+      # The backend's existing stale-quote boundary is 180 seconds; keep the
+      # external production verification SLA aligned with that contract.
+      MARKET_MAX_PROVIDER_AGE: 180
       GITHUB_OIDC_AUDIENCE: research-production-verifier
       TWELVE_DATA_API_KEY: ${{ secrets.TWELVE_DATA_API_KEY }}
 
