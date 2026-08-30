@@ -53,6 +53,7 @@ def test_strong_uptrend_contains_auditable_evidence():
     assert result.evidence.atr_percentile is not None
     assert result.evidence.bb_width_percentile is not None
     assert result.evidence.trend_persistence is not None
+    assert result.evidence.trend_persistence >= 0.9
 
 
 def test_strong_downtrend_is_directionally_distinct():
@@ -72,7 +73,6 @@ def test_regime_detection_is_deterministic_for_same_dataset():
     first = detect_regime(dataset)
     second = detect_regime(dataset)
 
-    assert first.model_copy(update={"calculated_at": None}) if False else True
     assert first.regime == second.regime
     assert first.confidence == second.confidence
     assert first.evidence == second.evidence
