@@ -18,6 +18,8 @@ export interface ChartPriceLine {
   id: string;
   title: string;
   price: number;
+  lineStyle?: number;
+  lineWidth?: number;
 }
 
 export interface ChartIndicatorPoint {
