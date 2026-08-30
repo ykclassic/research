@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
 
 from app.api.auth import get_current_user_or_github_actions
+from app.config import settings
 from app.models import QuoteStatus
 from app.services.quote_service import QuoteService
 from app.services.scoring import score_quote
@@ -23,6 +24,14 @@ async def get_quote(symbol: str, response: Response, refresh: bool = False):
     response.headers["X-Market-Data-Source"] = quote.source or "unknown"
     response.headers["X-Market-Data-Cache"] = "HIT" if quote.cache_hit else "MISS"
     response.headers["X-Market-Data-Refresh"] = "true" if refresh else "false"
+    response.headers["X-Market-Data-Freshness-SLA-Seconds"] = str(
+        settings.stale_quote_seconds
+    )
+    if quote.provider_timestamp is not None and quote.observed_at is not None:
+        provider_age_seconds = (
+            quote.observed_at - quote.provider_timestamp
+        ).total_seconds()
+        response.headers["X-Market-Data-Provider-Age-Seconds"] = f"{provider_age_seconds:.3f}"
 
     return {
         "quote": quote.model_dump(mode="json"),
@@ -58,6 +67,7 @@ async def market_status():
         "quote_provider": service.provider.name,
         "cache_seconds": service.cache.__class__.__name__,
         "configured": await service.provider.health(),
+        "freshness_sla_seconds": settings.stale_quote_seconds,
     }
 
 
