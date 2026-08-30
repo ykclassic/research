@@ -21,8 +21,6 @@ jobs:
       MARKET_ANALYSIS_LIMIT: 250
       GITHUB_OIDC_AUDIENCE: research-production-verifier
       TWELVE_DATA_API_KEY: ${{ secrets.TWELVE_DATA_API_KEY }}
-      ALPHA_VANTAGE_API_KEY: ${{ secrets.ALPHA_VANTAGE_API_KEY }}
-      FINNHUB_API_KEY: ${{ secrets.FINNHUB_API_KEY }}
 
     steps:
       - name: Checkout repository
@@ -38,14 +36,63 @@ jobs:
 
       - name: Request short-lived GitHub OIDC token
         shell: bash
+        env:
+          OIDC_REQUEST_URL: ${{ env.ACTIONS_ID_TOKEN_REQUEST_URL }}
+          OIDC_REQUEST_TOKEN: ${{ env.ACTIONS_ID_TOKEN_REQUEST_TOKEN }}
+          OIDC_AUDIENCE: ${{ env.GITHUB_OIDC_AUDIENCE }}
         run: |
           set -euo pipefail
-          token_response="$(curl --fail-with-body --silent --show-error \
-            -H "Authorization: bearer ${ACTIONS_ID_TOKEN_REQUEST_TOKEN}" \
-            "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=${GITHUB_OIDC_AUDIENCE}")"
-          token="$(python -c 'import json,sys; print(json.load(sys.stdin)["value"])' <<< "$token_response")"
-          test -n "$token"
-          echo "GITHUB_OIDC_TOKEN=$token" >> "$GITHUB_ENV"
+
+          test -n "${OIDC_REQUEST_URL:-}" || {
+            echo "FAIL: GitHub Actions OIDC request URL is unavailable."
+            exit 1
+          }
+          test -n "${OIDC_REQUEST_TOKEN:-}" || {
+            echo "FAIL: GitHub Actions OIDC request token is unavailable."
+            exit 1
+          }
+
+          token_response="$(curl --fail-with-body --silent --show-error --get \
+            -H "Authorization: bearer ${OIDC_REQUEST_TOKEN}" \
+            --data-urlencode "audience=${OIDC_AUDIENCE}" \
+            "${OIDC_REQUEST_URL}")"
+
+          token="$(python -c 'import json,sys; print(json.load(sys.stdin)["value"])' <<< "${token_response}")"
+          test -n "${token}"
+          printf 'GITHUB_OIDC_TOKEN=%s\n' "${token}" >> "${GITHUB_ENV}"
+
+      - name: Verify OIDC configuration without exposing token
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import base64
+          import json
+          import os
+
+          token = os.environ["GITHUB_OIDC_TOKEN"]
+          payload = token.split(".")[1]
+          payload += "=" * (-len(payload) % 4)
+          claims = json.loads(base64.urlsafe_b64decode(payload))
+
+          expected = {
+              "repository": "ykclassic/research",
+              "ref": "refs/heads/main",
+              "workflow_ref": "ykclassic/research/.github/workflows/production-market-data-verification.yml@refs/heads/main",
+              "event_name": {"schedule", "workflow_dispatch"},
+              "aud": "research-production-verifier",
+          }
+
+          assert claims.get("repository") == expected["repository"], claims.get("repository")
+          assert claims.get("ref") == expected["ref"], claims.get("ref")
+          assert claims.get("workflow_ref") == expected["workflow_ref"], claims.get("workflow_ref")
+          assert claims.get("event_name") in expected["event_name"], claims.get("event_name")
+          assert claims.get("aud") == expected["aud"], claims.get("aud")
+
+          print("OIDC claims validated:")
+          for key in ("repository", "ref", "workflow_ref", "event_name", "aud"):
+              print(f"  {key}={claims[key]}")
+          PY
 
       - name: Verify deployed market-data path
         run: python backend/scripts/verify_production_market_data.py
