@@ -11,7 +11,7 @@ Extend the verified Phase 4.4 chart shell into a controlled research workspace w
    - The backend forwards those boundaries to the canonical Twelve Data time-series provider.
    - `start` and `end` must be supplied together and `start < end`.
    - The browser never downloads a larger dataset and locally filters it.
-   - Twelve Data's documented contract supports `start_date` + `end_date` for bounded historical time series and omits `outputsize` when both are supplied. citeturn0search0turn0search1
+   - Twelve Data's documented contract supports `start_date` + `end_date` for bounded historical time series and omits `outputsize` when both are supplied.
 
 2. **Workspace range controls**
    - Recent API window
