@@ -18,9 +18,11 @@ DEFAULT_TIMEFRAME = "1h"
 DEFAULT_ANALYSIS_LIMIT = 250
 DIRECT_PROVIDER_TOLERANCE = 0.001
 INDEPENDENT_SOURCE_TOLERANCE = 0.005
-MAX_PROVIDER_AGE_SECONDS = 120.0
+MAX_PROVIDER_AGE_SECONDS = 180.0
 MAX_BACKEND_OBSERVATION_AGE_SECONDS = 15.0
 MAX_INDEPENDENT_SOURCE_AGE_SECONDS = 180.0
+MAX_CLOCK_SKEW_SECONDS = 5.0
+MAX_PROVIDER_TIMESTAMP_DELTA_SECONDS = 180.0
 MIN_CURRENT_VS_CANDLE_PRICE_DELTA = 0.01
 CACHE_PROBE_DELAY_SECONDS = 1.25
 REQUEST_TIMEOUT_SECONDS = 30.0
@@ -180,7 +182,11 @@ def main() -> int:
         type=float,
         default=INDEPENDENT_SOURCE_TOLERANCE,
     )
-    parser.add_argument("--max-provider-age", type=float, default=MAX_PROVIDER_AGE_SECONDS)
+    parser.add_argument(
+        "--max-provider-age",
+        type=float,
+        default=float(os.getenv("MARKET_PROVIDER_MAX_AGE_SECONDS", MAX_PROVIDER_AGE_SECONDS)),
+    )
     parser.add_argument(
         "--max-observation-age",
         type=float,
@@ -192,6 +198,8 @@ def main() -> int:
         default=MAX_INDEPENDENT_SOURCE_AGE_SECONDS,
     )
     args = parser.parse_args()
+
+    require(args.max_provider_age > 0, "Provider freshness SLA must be greater than zero.")
 
     oidc_token = os.getenv("GITHUB_OIDC_TOKEN")
     twelve_data_key = os.getenv("TWELVE_DATA_API_KEY")
@@ -252,6 +260,19 @@ def main() -> int:
                 first_response.headers.get("X-Market-Data-Cache") == "MISS",
                 "Refresh request was not a backend cache miss/bypass",
             )
+            freshness_header = first_response.headers.get(
+                "X-Market-Data-Freshness-SLA-Seconds"
+            )
+            require(
+                freshness_header is not None,
+                "API did not expose its provider freshness SLA",
+            )
+            deployed_sla = float(freshness_header)
+            require(
+                abs(deployed_sla - args.max_provider_age) <= 0.001,
+                f"Verifier SLA {args.max_provider_age:.3f}s does not match deployed API SLA "
+                f"{deployed_sla:.3f}s",
+            )
             results.append(
                 CheckResult(
                     "Deployed API owns the returned price",
@@ -272,19 +293,32 @@ def main() -> int:
             observation_age = (now - observed_at).total_seconds()
             provider_age = (now - provider_time).total_seconds()
             require(
-                -2 <= observation_age <= args.max_observation_age,
+                -MAX_CLOCK_SKEW_SECONDS <= observation_age <= args.max_observation_age,
                 f"Backend observation age is {observation_age:.2f}s",
             )
             require(
-                -120 <= provider_age <= args.max_provider_age,
+                -MAX_CLOCK_SKEW_SECONDS <= provider_age <= args.max_provider_age,
                 f"Provider quote age is {provider_age:.2f}s",
+            )
+            provider_age_header = first_response.headers.get(
+                "X-Market-Data-Provider-Age-Seconds"
+            )
+            require(
+                provider_age_header is not None,
+                "API did not expose provider quote age",
+            )
+            header_age = float(provider_age_header)
+            require(
+                abs(header_age - (observed_at - provider_time).total_seconds()) <= 1.0,
+                "API provider-age header disagrees with quote timestamps",
             )
 
             results.append(
                 CheckResult(
                     "Fresh timestamps",
                     True,
-                    f"provider_timestamp={provider_time.isoformat()} age={provider_age:.2f}s; "
+                    f"provider_timestamp={provider_time.isoformat()} age={provider_age:.2f}s "
+                    f"<= SLA {args.max_provider_age:.2f}s; "
                     f"observed_at={observed_at.isoformat()} age={observation_age:.2f}s",
                 )
             )
@@ -318,11 +352,12 @@ def main() -> int:
                 direct_provider_time = parse_datetime(str(direct_timestamp_raw))
             direct_provider_age = (utc_now() - direct_provider_time).total_seconds()
             require(
-                -120 <= direct_provider_age <= args.max_provider_age,
+                -MAX_CLOCK_SKEW_SECONDS <= direct_provider_age <= args.max_provider_age,
                 f"Direct Twelve Data quote age is {direct_provider_age:.2f}s",
             )
             require(
-                abs((provider_time - direct_provider_time).total_seconds()) <= 120,
+                abs((provider_time - direct_provider_time).total_seconds())
+                <= MAX_PROVIDER_TIMESTAMP_DELTA_SECONDS,
                 "Deployed provider timestamp materially disagrees with direct Twelve Data timestamp",
             )
 
@@ -332,7 +367,7 @@ def main() -> int:
                     True,
                     f"API=${api_price:.8f}; direct Twelve Data=${direct_price:.8f}; "
                     f"error={provider_error:.6%} <= {args.provider_tolerance:.2%}; "
-                    f"direct_provider_age={direct_provider_age:.2f}s",
+                    f"direct_provider_age={direct_provider_age:.2f}s <= SLA {args.max_provider_age:.2f}s",
                 )
             )
 
@@ -353,7 +388,7 @@ def main() -> int:
                 f"API vs CoinGecko error {independent_error:.6%}",
             )
             require(
-                -5 <= independent_age <= args.max_independent_age,
+                -MAX_CLOCK_SKEW_SECONDS <= independent_age <= args.max_independent_age,
                 f"CoinGecko verification data is stale: {independent_age:.2f}s",
             )
             results.append(
