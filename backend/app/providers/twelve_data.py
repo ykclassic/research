@@ -17,6 +17,7 @@ from app.symbols import normalize_symbol
 class TwelveDataProvider(MarketDataProvider):
     name = "twelve_data"
     base_url = "https://api.twelvedata.com"
+    _clock_skew_seconds = 5.0
 
     _intervals = {
         Timeframe.MINUTE_5: "5min",
@@ -57,6 +58,33 @@ class TwelveDataProvider(MarketDataProvider):
             return cls._parse_timestamp(text)
         except ValueError as exc:
             raise ValueError(f"Provider returned invalid quote timestamp: {value}") from exc
+
+    @classmethod
+    def _quote_freshness(
+        cls,
+        provider_timestamp: datetime | None,
+        observed_at: datetime,
+    ) -> tuple[QuoteStatus, str | None]:
+        """Apply the production provider-freshness contract to a quote."""
+        if provider_timestamp is None:
+            return (
+                QuoteStatus.STALE,
+                "Provider timestamp unavailable; quote freshness cannot be proven.",
+            )
+
+        age_seconds = (observed_at - provider_timestamp).total_seconds()
+        if age_seconds < -cls._clock_skew_seconds:
+            return (
+                QuoteStatus.STALE,
+                f"Provider timestamp is {abs(age_seconds):.2f}s in the future; freshness cannot be trusted.",
+            )
+        if age_seconds > settings.stale_quote_seconds:
+            return (
+                QuoteStatus.STALE,
+                f"Provider quote age {age_seconds:.2f}s exceeds freshness SLA "
+                f"of {settings.stale_quote_seconds:.2f}s.",
+            )
+        return QuoteStatus.LIVE, None
 
     async def get_quote(self, internal_symbol: str) -> Quote:
         mapping = normalize_symbol(internal_symbol)
@@ -113,6 +141,10 @@ class TwelveDataProvider(MarketDataProvider):
 
                 observed_at = datetime.now(timezone.utc)
                 provider_timestamp = self._parse_provider_quote_timestamp(payload)
+                status, freshness_error = self._quote_freshness(
+                    provider_timestamp,
+                    observed_at,
+                )
 
                 return Quote(
                     symbol=mapping.internal,
@@ -122,9 +154,10 @@ class TwelveDataProvider(MarketDataProvider):
                     provider_timestamp=provider_timestamp,
                     observed_at=observed_at,
                     source=self.name,
-                    status=QuoteStatus.LIVE,
+                    status=status,
                     latency_ms=int((time.perf_counter() - started) * 1000),
                     cache_hit=False,
+                    error=freshness_error,
                 )
             except (httpx.HTTPError, ValueError) as exc:
                 last_error = str(exc)
