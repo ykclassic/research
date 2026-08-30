@@ -6,6 +6,7 @@ from fastapi.testclient import TestClient
 from app.api.auth import get_current_user_or_github_actions
 from app.api.analysis import quote_service
 from app.main import app
+from app.models import Quote, QuoteStatus
 from app.models.market import Candle, OHLCVDataset, TechnicalAnalysisResult, Timeframe
 
 
@@ -44,9 +45,32 @@ def make_dataset(count: int = 260, *, incomplete_last: bool = False) -> OHLCVDat
     )
 
 
+def make_quote(price: float = 165.25) -> Quote:
+    observed = datetime(2026, 8, 30, 5, 55, tzinfo=timezone.utc)
+    return Quote(
+        symbol=SYMBOL,
+        provider_symbol="BTC/USD",
+        price=price,
+        currency="USD",
+        timestamp=observed,
+        provider_timestamp=observed,
+        observed_at=observed,
+        source="test_provider",
+        status=QuoteStatus.LIVE,
+        latency_ms=10,
+        cache_hit=False,
+    )
+
+
 @pytest.fixture()
-def authenticated_client():
+def authenticated_client(monkeypatch):
     app.dependency_overrides[get_current_user_or_github_actions] = lambda: USER
+
+    async def fake_get_quote(symbol):
+        assert symbol == SYMBOL
+        return make_quote()
+
+    monkeypatch.setattr(quote_service.provider, "get_quote", fake_get_quote)
     with TestClient(app) as client:
         yield client
     app.dependency_overrides.pop(get_current_user_or_github_actions, None)
@@ -84,7 +108,53 @@ def test_analysis_returns_canonical_feature_result(authenticated_client, monkeyp
     assert len(body["candles"]) == 260
     assert body["candles"][-1]["is_complete"] is True
     assert body["indicators"]["ema20"] is not None
+    assert body["current_quote"]["symbol"] == SYMBOL
+    assert body["current_quote"]["price"] == 165.25
+    assert body["current_quote"]["status"] == "LIVE"
+    assert body["current_quote"]["source"] == "test_provider"
     assert calls == {"symbol": SYMBOL, "timeframe": Timeframe.HOUR_1, "limit": 250}
+
+
+def test_analysis_exposes_current_quote_separately_from_latest_completed_candle(authenticated_client, monkeypatch):
+    dataset = make_dataset()
+
+    async def fake_get_candles(symbol, timeframe, limit):
+        return dataset
+
+    monkeypatch.setattr(quote_service.provider, "get_candles", fake_get_candles)
+    response = authenticated_client.get("/api/analysis/BTC%2FUSD")
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert "current_quote" in body
+    assert "price" in body["current_quote"]
+    assert body["latest_candle_timestamp"] == body["candles"][-1]["timestamp"]
+    assert body["current_quote"]["timestamp"] != body["latest_candle_timestamp"]
+    assert body["current_quote"]["price"] != body["candles"][-1]["close"]
+
+
+def test_analysis_exposes_historical_indicator_panes(authenticated_client, monkeypatch):
+    dataset = make_dataset()
+
+    async def fake_get_candles(symbol, timeframe, limit):
+        return dataset
+
+    monkeypatch.setattr(quote_service.provider, "get_candles", fake_get_candles)
+    response = authenticated_client.get("/api/analysis/BTC%2FUSD")
+
+    assert response.status_code == 200, response.text
+    panes = response.json()["indicator_panes"]
+    assert {pane["id"] for pane in panes} == {"rsi14", "macd", "macd_signal", "macd_histogram"}
+    for pane in panes:
+        assert pane["title"]
+        assert pane["unit"]
+        timestamps = [point["timestamp"] for point in pane["points"]]
+        assert timestamps == sorted(timestamps)
+        assert len(timestamps) > 0
+
+    rsi = next(pane for pane in panes if pane["id"] == "rsi14")
+    assert rsi["min"] == 0.0
+    assert rsi["max"] == 100.0
 
 
 def test_analysis_excludes_forming_candle_from_feature_calculation(authenticated_client, monkeypatch):
