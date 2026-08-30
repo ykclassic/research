@@ -17,13 +17,14 @@ interface TechnicalChartProps {
 }
 
 const CHART_HEIGHT = 620;
+type PaneSeries = ISeriesApi<"Line"> | ISeriesApi<"Histogram">;
 
 export default function TechnicalChart({ data, height = CHART_HEIGHT }: TechnicalChartProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const chartRef = useRef<IChartApi | null>(null);
   const candleSeriesRef = useRef<ISeriesApi<"Candlestick"> | null>(null);
   const volumeSeriesRef = useRef<ISeriesApi<"Histogram"> | null>(null);
-  const paneSeriesRef = useRef<ISeriesApi<"Line">[]>([]);
+  const paneSeriesRef = useRef<PaneSeries[]>([]);
   const [showVolume, setShowVolume] = useState(true);
   const [showOverlays, setShowOverlays] = useState(true);
   const [showRsi, setShowRsi] = useState(true);
@@ -140,9 +141,12 @@ export default function TechnicalChart({ data, height = CHART_HEIGHT }: Technica
         lineWidth: 2,
         priceLineVisible: false,
         lastValueVisible: true,
-        autoscaleInfoProvider: () => ({ priceRange: { minValue: 0, maxValue: 100 } }),
       }, 1);
       series.setData(rsi.points);
+      series.priceScale().applyOptions({
+        autoScale: true,
+        scaleMargins: { top: 0.15, bottom: 0.15 },
+      });
       paneSeriesRef.current.push(series);
     }
 
@@ -177,7 +181,7 @@ export default function TechnicalChart({ data, height = CHART_HEIGHT }: Technica
           lastValueVisible: false,
         }, 2);
         series.setData(histogramPane.points);
-        paneSeriesRef.current.push(series as unknown as ISeriesApi<"Line">);
+        paneSeriesRef.current.push(series);
       }
     }
 
