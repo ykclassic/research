@@ -5,11 +5,25 @@ export type QuoteStatus =
   | "UNAVAILABLE"
   | "MARKET_CLOSED";
 
-export interface Quote { symbol: string; provider_symbol: string; price: number | null; currency: string | null; timestamp: string | null; source: string | null; status: QuoteStatus; market_open: boolean | null; latency_ms: number | null; error: string | null; }
+export interface Quote {
+  symbol: string;
+  provider_symbol: string;
+  price: number | null;
+  currency: string | null;
+  timestamp: string | null;
+  source: string | null;
+  status: QuoteStatus;
+  market_open: boolean | null;
+  latency_ms: number | null;
+  error: string | null;
+}
+
 export interface User { id: string; email: string; created_at: string; }
 export interface WatchlistItem { id: string; symbol: string; created_at: string; }
 export interface Watchlist { id: string; user_id: string; name: string; created_at: string; updated_at: string; watchlist_items: WatchlistItem[]; }
 export interface Candle { timestamp: string; open: number; high: number; low: number; close: number; volume: number | null; is_complete: boolean; }
+export interface IndicatorPoint { timestamp: string; value: number | null; }
+export interface IndicatorPane { id: string; title: string; unit: string; min: number | null; max: number | null; points: IndicatorPoint[]; }
 export interface TechnicalAnalysis {
   symbol: string;
   timeframe: string;
@@ -18,7 +32,9 @@ export interface TechnicalAnalysis {
   latest_candle_timestamp: string;
   candle_count: number;
   candles: Candle[];
+  current_quote: Quote;
   indicators: Record<string, number | string | null>;
+  indicator_panes: IndicatorPane[];
 }
 
 export class ApiError extends Error {

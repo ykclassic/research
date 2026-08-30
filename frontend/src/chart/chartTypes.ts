@@ -20,14 +20,31 @@ export interface ChartPriceLine {
   price: number;
 }
 
+export interface ChartIndicatorPoint {
+  time: Time;
+  value: number;
+}
+
+export interface ChartIndicatorPane {
+  id: string;
+  title: string;
+  unit: string;
+  min: number | null;
+  max: number | null;
+  points: ChartIndicatorPoint[];
+}
+
 export interface ChartDataset {
   candles: ChartCandle[];
   volume: ChartVolumeBar[];
   priceLines: ChartPriceLine[];
+  indicatorPanes: ChartIndicatorPane[];
 }
 
 export interface ChartViewOptions {
   showVolume: boolean;
   showOverlays: boolean;
+  showRsi: boolean;
+  showMacd: boolean;
   fitContentOnDataChange: boolean;
 }

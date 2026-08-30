@@ -3,6 +3,7 @@ import {
   CandlestickSeries,
   ColorType,
   HistogramSeries,
+  LineSeries,
   createChart,
   type IChartApi,
   type ISeriesApi,
@@ -15,15 +16,19 @@ interface TechnicalChartProps {
   height?: number;
 }
 
-const CHART_HEIGHT = 520;
+const CHART_HEIGHT = 620;
+type PaneSeries = ISeriesApi<"Line"> | ISeriesApi<"Histogram">;
 
 export default function TechnicalChart({ data, height = CHART_HEIGHT }: TechnicalChartProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const chartRef = useRef<IChartApi | null>(null);
   const candleSeriesRef = useRef<ISeriesApi<"Candlestick"> | null>(null);
   const volumeSeriesRef = useRef<ISeriesApi<"Histogram"> | null>(null);
+  const paneSeriesRef = useRef<PaneSeries[]>([]);
   const [showVolume, setShowVolume] = useState(true);
   const [showOverlays, setShowOverlays] = useState(true);
+  const [showRsi, setShowRsi] = useState(true);
+  const [showMacd, setShowMacd] = useState(true);
 
   const dataset = useMemo(() => toChartDataset(data), [data]);
 
@@ -99,6 +104,7 @@ export default function TechnicalChart({ data, height = CHART_HEIGHT }: Technica
       chartRef.current = null;
       candleSeriesRef.current = null;
       volumeSeriesRef.current = null;
+      paneSeriesRef.current = [];
     };
   }, [height]);
 
@@ -123,12 +129,68 @@ export default function TechnicalChart({ data, height = CHART_HEIGHT }: Technica
       }
     }
 
+    for (const series of paneSeriesRef.current) chart.removeSeries(series);
+    paneSeriesRef.current = [];
+
+    const rsi = dataset.indicatorPanes.find(pane => pane.id === "rsi14");
+    const macd = dataset.indicatorPanes.filter(pane => pane.id.startsWith("macd"));
+
+    if (showRsi && rsi) {
+      const series = chart.addSeries(LineSeries, {
+        title: rsi.title,
+        lineWidth: 2,
+        priceLineVisible: false,
+        lastValueVisible: true,
+      }, 1);
+      series.setData(rsi.points);
+      series.priceScale().applyOptions({
+        autoScale: true,
+        scaleMargins: { top: 0.15, bottom: 0.15 },
+      });
+      paneSeriesRef.current.push(series);
+    }
+
+    if (showMacd && macd.length > 0) {
+      const macdPane = macd.find(pane => pane.id === "macd");
+      const signalPane = macd.find(pane => pane.id === "macd_signal");
+      const histogramPane = macd.find(pane => pane.id === "macd_histogram");
+      if (macdPane) {
+        const series = chart.addSeries(LineSeries, {
+          title: macdPane.title,
+          lineWidth: 2,
+          priceLineVisible: false,
+          lastValueVisible: true,
+        }, 2);
+        series.setData(macdPane.points);
+        paneSeriesRef.current.push(series);
+      }
+      if (signalPane) {
+        const series = chart.addSeries(LineSeries, {
+          title: signalPane.title,
+          lineWidth: 1,
+          priceLineVisible: false,
+          lastValueVisible: true,
+        }, 2);
+        series.setData(signalPane.points);
+        paneSeriesRef.current.push(series);
+      }
+      if (histogramPane) {
+        const series = chart.addSeries(HistogramSeries, {
+          title: histogramPane.title,
+          priceLineVisible: false,
+          lastValueVisible: false,
+        }, 2);
+        series.setData(histogramPane.points);
+        paneSeriesRef.current.push(series);
+      }
+    }
+
     volume.applyOptions({ visible: showVolume });
     chart.priceScale("volume").applyOptions({
       scaleMargins: showVolume ? { top: 0.82, bottom: 0 } : { top: 1, bottom: 0 },
     });
     chart.timeScale().fitContent();
-  }, [dataset, showOverlays, showVolume]);
+  }, [dataset, showOverlays, showVolume, showRsi, showMacd]);
 
   function resetView(): void {
     chartRef.current?.timeScale().fitContent();
@@ -150,6 +212,12 @@ export default function TechnicalChart({ data, height = CHART_HEIGHT }: Technica
         <button type="button" className={showOverlays ? "chart-toggle active" : "chart-toggle"} onClick={() => setShowOverlays(value => !value)} aria-pressed={showOverlays}>
           Overlays
         </button>
+        <button type="button" className={showRsi ? "chart-toggle active" : "chart-toggle"} onClick={() => setShowRsi(value => !value)} aria-pressed={showRsi}>
+          RSI
+        </button>
+        <button type="button" className={showMacd ? "chart-toggle active" : "chart-toggle"} onClick={() => setShowMacd(value => !value)} aria-pressed={showMacd}>
+          MACD
+        </button>
         <button type="button" className="chart-toggle" onClick={resetView}>
           Reset view
         </button>
@@ -160,7 +228,7 @@ export default function TechnicalChart({ data, height = CHART_HEIGHT }: Technica
         className="technical-chart"
         style={{ height }}
         role="img"
-        aria-label={`${data.symbol} ${data.timeframe} candlestick and volume chart`}
+        aria-label={`${data.symbol} ${data.timeframe} candlestick, volume, RSI and MACD chart`}
       />
     </div>
   );

@@ -1,6 +1,6 @@
 import type { TechnicalAnalysis } from "../api";
 import type { UTCTimestamp } from "lightweight-charts";
-import type { ChartCandle, ChartDataset, ChartPriceLine, ChartVolumeBar } from "./chartTypes";
+import type { ChartCandle, ChartDataset, ChartIndicatorPane, ChartPriceLine, ChartVolumeBar } from "./chartTypes";
 
 function toTime(timestamp: string): UTCTimestamp {
   const milliseconds = Date.parse(timestamp);
@@ -41,6 +41,38 @@ function toPriceLines(indicators: TechnicalAnalysis["indicators"]): ChartPriceLi
     return typeof price === "number" && Number.isFinite(price)
       ? [{ id: key, title, price }]
       : [];
+  });
+}
+
+function toIndicatorPanes(data: TechnicalAnalysis): ChartIndicatorPane[] {
+  if (!Array.isArray(data.indicator_panes)) {
+    throw new Error("Technical-analysis indicator panes must be an array.");
+  }
+
+  return data.indicator_panes.map(pane => {
+    if (!pane.id || !pane.title || !pane.unit || !Array.isArray(pane.points)) {
+      throw new Error("Technical-analysis indicator pane has an invalid contract.");
+    }
+
+    const points = pane.points.map(point => ({
+      time: toTime(point.timestamp),
+      value: finiteNumber(point.value, `${pane.id}.value`),
+    }));
+
+    for (let index = 1; index < points.length; index += 1) {
+      if (points[index].time <= points[index - 1].time) {
+        throw new Error(`Indicator pane ${pane.id} is not strictly increasing by timestamp.`);
+      }
+    }
+
+    return {
+      id: pane.id,
+      title: pane.title,
+      unit: pane.unit,
+      min: pane.min,
+      max: pane.max,
+      points,
+    };
   });
 }
 
@@ -93,5 +125,6 @@ export function toChartDataset(data: TechnicalAnalysis): ChartDataset {
     candles,
     volume,
     priceLines: toPriceLines(data.indicators),
+    indicatorPanes: toIndicatorPanes(data),
   };
 }
