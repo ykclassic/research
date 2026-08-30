@@ -37,6 +37,11 @@ export interface TechnicalAnalysis {
   indicator_panes: IndicatorPane[];
 }
 
+export interface TechnicalAnalysisRange {
+  startDate?: string;
+  endDate?: string;
+}
+
 export class ApiError extends Error {
   readonly status: number;
   constructor(message: string, status: number) { super(message); this.name = "ApiError"; this.status = status; }
@@ -64,13 +69,13 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   const headers = new Headers(init.headers);
   if (init.body && !headers.has("Content-Type")) headers.set("Content-Type", "application/json");
   if (init.method && init.method !== "GET") { const csrf = getStoredCsrf() ?? getCookie("mr_csrf"); if (csrf) headers.set("X-CSRF-Token", csrf); }
-  const controller = new AbortController(); let timeoutId: number | undefined; let removeAbortListener: (() => void) | undefined;
+  const controller = new AbortController(); let timeoutId: ReturnType<typeof setTimeout> | undefined; let removeAbortListener: (() => void) | undefined;
   if (init.signal) { if (init.signal.aborted) controller.abort(init.signal.reason); else { const abort = () => controller.abort(init.signal?.reason); init.signal.addEventListener("abort", abort, { once: true }); removeAbortListener = () => init.signal?.removeEventListener("abort", abort); } }
-  timeoutId = window.setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  timeoutId = globalThis.setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
   let response: Response;
   try { response = await fetch(`${API_BASE}${path}`, { ...init, headers, credentials: "include", signal: controller.signal }); }
   catch (error) { if (error instanceof DOMException && error.name === "AbortError") throw new ApiError(`The application server did not respond within ${REQUEST_TIMEOUT_MS / 1000} seconds. Check the API deployment and try again.`, 0); throw new ApiError("Unable to reach the application server. Check your connection and try again.", 0); }
-  finally { if (timeoutId !== undefined) window.clearTimeout(timeoutId); removeAbortListener?.(); }
+  finally { if (timeoutId !== undefined) globalThis.clearTimeout(timeoutId); removeAbortListener?.(); }
   if (!response.ok) { let message = `Request failed: ${response.status}`; try { const body = await response.json() as { detail?: string }; if (body.detail) message = body.detail; } catch { /* non-json */ } throw new ApiError(message, response.status); }
   const responseCsrf = response.headers.get("X-CSRF-Token"); if (responseCsrf) storeCsrf(responseCsrf);
   if (response.status === 204) return undefined as T;
@@ -94,4 +99,14 @@ export async function renameWatchlist(id: string, name: string): Promise<Watchli
 export async function deleteWatchlist(id: string): Promise<void> { await authenticatedMutation<void>(`/api/watchlists/${encodeURIComponent(id)}`, { method: "DELETE" }); }
 export async function addWatchlistSymbol(id: string, symbol: string): Promise<WatchlistItem> { return authenticatedMutation<WatchlistItem>(`/api/watchlists/${encodeURIComponent(id)}/symbols`, { method: "POST", body: JSON.stringify({ symbol }) }); }
 export async function removeWatchlistSymbol(id: string, symbol: string): Promise<void> { await authenticatedMutation<void>(`/api/watchlists/${encodeURIComponent(id)}/symbols/${encodeURIComponent(symbol)}`, { method: "DELETE" }); }
-export async function getTechnicalAnalysis(symbol: string, timeframe = "1h", limit = 250): Promise<TechnicalAnalysis> { const params = new URLSearchParams({ timeframe, limit: String(limit) }); return request<TechnicalAnalysis>(`/api/analysis/${encodeURIComponent(symbol)}?${params}`); }
+export async function getTechnicalAnalysis(symbol: string, timeframe = "1h", limit = 250, range: TechnicalAnalysisRange = {}): Promise<TechnicalAnalysis> {
+  const params = new URLSearchParams({ timeframe });
+  if (range.startDate || range.endDate) {
+    if (!range.startDate || !range.endDate) throw new Error("A historical range requires both a start date and an end date.");
+    params.set("start", range.startDate);
+    params.set("end", range.endDate);
+  } else {
+    params.set("limit", String(limit));
+  }
+  return request<TechnicalAnalysis>(`/api/analysis/${encodeURIComponent(symbol)}?${params}`);
+}

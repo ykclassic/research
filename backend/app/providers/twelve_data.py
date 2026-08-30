@@ -58,6 +58,11 @@ class TwelveDataProvider(MarketDataProvider):
         except ValueError as exc:
             raise ValueError(f"Provider returned invalid quote timestamp: {value}") from exc
 
+    @staticmethod
+    def _format_range_timestamp(value: datetime) -> str:
+        """Send explicit UTC boundaries to Twelve Data without local-time ambiguity."""
+        return value.astimezone(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+
     async def get_quote(self, internal_symbol: str) -> Quote:
         mapping = normalize_symbol(internal_symbol)
         if not settings.twelve_data_api_key:
@@ -70,10 +75,6 @@ class TwelveDataProvider(MarketDataProvider):
             )
 
         started = time.perf_counter()
-        # The quote endpoint supports an interval parameter. Requesting the
-        # one-minute interval is required for the live quote path; omitting it
-        # can cause the provider to return a much older interval/close, which
-        # violates the production freshness SLA.
         params = {
             "symbol": mapping.twelve_data,
             "interval": "1min",
@@ -146,7 +147,19 @@ class TwelveDataProvider(MarketDataProvider):
         internal_symbol: str,
         timeframe: Timeframe,
         outputsize: int = 250,
+        start_date: datetime | None = None,
+        end_date: datetime | None = None,
     ) -> OHLCVDataset:
+        if (start_date is None) != (end_date is None):
+            raise ValueError("Historical candle ranges require both start_date and end_date.")
+        if start_date is not None and end_date is not None and start_date >= end_date:
+            raise ValueError("Historical candle start_date must be before end_date.")
+
+        try:
+            timeframe = Timeframe(timeframe)
+        except ValueError as exc:
+            raise ValueError(f"Unsupported timeframe: {timeframe}") from exc
+
         mapping = normalize_symbol(internal_symbol)
         if not settings.twelve_data_api_key:
             raise RuntimeError("TWELVE_DATA_API_KEY is not configured.")
@@ -156,9 +169,14 @@ class TwelveDataProvider(MarketDataProvider):
         params = {
             "symbol": mapping.twelve_data,
             "interval": interval,
-            "outputsize": str(min(max(outputsize, 50), 5000)),
             "apikey": settings.twelve_data_api_key,
         }
+        if start_date is not None and end_date is not None:
+            params["start_date"] = self._format_range_timestamp(start_date)
+            params["end_date"] = self._format_range_timestamp(end_date)
+        else:
+            params["outputsize"] = str(min(max(outputsize, 50), 5000))
+
         last_error = "Unknown provider error"
         for attempt in range(settings.http_max_retries + 1):
             try:
