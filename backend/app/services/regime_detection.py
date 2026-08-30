@@ -30,7 +30,10 @@ def _atr_series(candles: list[Candle], period: int = ATR_PERIOD) -> list[float |
     if len(candles) <= period:
         return result
 
-    ranges = [_true_range(previous, current) for previous, current in zip(candles[:-1], candles[1:])]
+    ranges = [
+        _true_range(previous, current)
+        for previous, current in zip(candles[:-1], candles[1:])
+    ]
     if len(ranges) < period:
         return result
 
@@ -59,6 +62,7 @@ def _bb_width_series(candles: list[Candle], period: int = BB_PERIOD) -> list[flo
 
 
 def _percentile(current: float | None, history: list[float | None]) -> float | None:
+    """Return a tie-safe empirical percentile in [0, 100]."""
     if current is None or not isfinite(current):
         return None
     values = [value for value in history if value is not None and isfinite(value)]
@@ -66,8 +70,9 @@ def _percentile(current: float | None, history: list[float | None]) -> float | N
         return None
     if len(values) == 1:
         return 50.0
-    rank = sum(value <= current for value in values) - 1
-    return 100.0 * rank / (len(values) - 1)
+    less = sum(value < current for value in values)
+    equal = sum(value == current for value in values)
+    return 100.0 * (less + 0.5 * equal) / len(values)
 
 
 def _trend_persistence(closes: list[float], direction: int) -> float:
@@ -141,7 +146,9 @@ def detect_regime(dataset: OHLCVDataset) -> MarketRegimeResult:
     """
     completed = list(dataset.completed_candles)
     if len(completed) < MINIMUM_CANDLES:
-        raise ValueError(f"At least {MINIMUM_CANDLES} completed candles are required for regime detection.")
+        raise ValueError(
+            f"At least {MINIMUM_CANDLES} completed candles are required for regime detection."
+        )
     if any(not candle.is_complete for candle in dataset.candles):
         raise ValueError("Regime detection requires completed candles only.")
 
@@ -158,8 +165,18 @@ def detect_regime(dataset: OHLCVDataset) -> MarketRegimeResult:
     bb_percentile = _percentile(bb_width, bb_series[-VOLATILITY_LOOKBACK:])
     slope = _ema_slope_pct(closes)
 
-    bullish = ema50 is not None and ema200 is not None and current > ema200 and ema50 > ema200
-    bearish = ema50 is not None and ema200 is not None and current < ema200 and ema50 < ema200
+    bullish = (
+        ema50 is not None
+        and ema200 is not None
+        and current > ema200
+        and ema50 > ema200
+    )
+    bearish = (
+        ema50 is not None
+        and ema200 is not None
+        and current < ema200
+        and ema50 < ema200
+    )
     direction = 1 if bullish else -1 if bearish else 0
     persistence = _trend_persistence(closes, direction) if direction else 0.0
     higher_highs, higher_lows, lower_highs, lower_lows = _structure_flags(completed)
