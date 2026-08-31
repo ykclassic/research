@@ -128,9 +128,15 @@ def detect_regime(dataset: OHLCVDataset) -> MarketRegimeResult:
 
     bullish_alignment = price_above_ema200 is True and ema50_above_ema200 is True
     bearish_alignment = price_above_ema200 is False and ema50_above_ema200 is False
+    directional_conflict = (
+        (direction == "UP" and not bullish_alignment)
+        or (direction == "DOWN" and not bearish_alignment)
+    )
 
     if not all(isinstance(value, float) for value in (adx, ema50, ema200, atr, bb_width)):
         regime, rule = MarketRegime.UNKNOWN, "required indicators unavailable"
+    elif directional_conflict:
+        regime, rule = MarketRegime.UNKNOWN, "direction conflicts with EMA structure"
     elif (
         adx >= ADX_STRONG
         and persistence >= PERSISTENCE_STRONG
@@ -152,21 +158,34 @@ def detect_regime(dataset: OHLCVDataset) -> MarketRegimeResult:
         and directional_ratio >= DIRECTIONAL_RATIO_WEAK
         and direction == "UP"
         and bullish_alignment
-        and adx < ADX_STRONG
     ) or (
         persistence >= PERSISTENCE_WEAK
         and directional_ratio >= DIRECTIONAL_RATIO_WEAK
         and direction == "DOWN"
         and bearish_alignment
-        and adx < ADX_STRONG
     ):
-        regime, rule = MarketRegime.WEAK_TREND, "ADX<25 + persistence>=0.60 + directional_move_ratio>=0.25 + aligned EMA structure"
-    elif (atr_percentile is not None and atr_percentile >= VOLATILITY_HIGH_PERCENTILE) or (bb_width_percentile is not None and bb_width_percentile >= VOLATILITY_HIGH_PERCENTILE):
-        regime, rule = MarketRegime.HIGH_VOLATILITY, "ATR percentile>=0.80 OR Bollinger-width percentile>=0.80"
-    elif (atr_percentile is not None and atr_percentile <= VOLATILITY_LOW_PERCENTILE) and (bb_width_percentile is not None and bb_width_percentile <= VOLATILITY_LOW_PERCENTILE):
+        regime, rule = MarketRegime.WEAK_TREND, "persistence>=0.60 + directional_move_ratio>=0.25 + aligned EMA structure without strong-trend confirmation"
+    elif (
+        atr_percentile is not None
+        and (
+            atr_percentile >= VOLATILITY_HIGH_PERCENTILE
+            or (
+                bb_width_percentile is not None
+                and bb_width_percentile >= VOLATILITY_HIGH_PERCENTILE
+                and atr_percentile >= 0.60
+            )
+        )
+    ):
+        regime, rule = MarketRegime.HIGH_VOLATILITY, "ATR percentile>=0.80 OR Bollinger-width percentile>=0.80 with ATR percentile>=0.60"
+    elif (
+        atr_percentile is not None
+        and bb_width_percentile is not None
+        and atr_percentile <= VOLATILITY_LOW_PERCENTILE
+        and bb_width_percentile <= VOLATILITY_LOW_PERCENTILE
+    ):
         regime, rule = MarketRegime.LOW_VOLATILITY, "ATR percentile<=0.20 AND Bollinger-width percentile<=0.20"
-    elif adx < ADX_RANGE and persistence < PERSISTENCE_WEAK:
-        regime, rule = MarketRegime.RANGE, "ADX<20 + trend persistence<0.60"
+    elif directional_ratio < DIRECTIONAL_RATIO_WEAK and persistence < PERSISTENCE_WEAK:
+        regime, rule = MarketRegime.RANGE, "directional_move_ratio<0.25 + trend persistence<0.60"
     else:
         regime, rule = MarketRegime.UNKNOWN, "no deterministic regime rule satisfied"
 
