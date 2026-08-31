@@ -40,16 +40,16 @@ def make_dataset(closes: list[float]) -> OHLCVDataset:
 
 
 def synthetic_series(kind: str, count: int = MINIMUM_CANDLES) -> list[float]:
-    """Create deterministic paths with a distinct final-state regime."""
+    """Create deterministic paths that satisfy each regime's rule predicates."""
     price = 100.0
     series: list[float] = []
     for index in range(count):
         if kind == "strong_up":
             price += 0.8
         elif kind == "strong_down":
-            price -= 0.5
-            if price <= 1.0:
-                price = 1.0 + index * 0.01
+            # Avoid an artificial zero-price floor so the final 40 candles
+            # retain a genuinely strong directional move.
+            price -= 0.35
         elif kind == "weak_trend":
             price += 0.12 + 1.2 * (sin(index * 0.25) - sin((index - 1) * 0.25))
         elif kind == "range":
