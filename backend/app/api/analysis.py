@@ -14,7 +14,7 @@ from app.models.regime import MarketRegimeResult
 from app.services.feature_engine import calculate_feature_set
 from app.services.indicator_series import calculate_indicator_panes
 from app.services.quote_service import QuoteService
-from app.services.regime_detection import detect_regime
+from app.services.regime_detection import MINIMUM_CANDLES, detect_regime
 from app.symbols import normalize_symbol
 
 router = APIRouter(
@@ -62,7 +62,7 @@ class AnalysisResponse(BaseModel):
     current_quote: Quote
     indicators: dict[str, float | str | None]
     indicator_panes: list[IndicatorPane]
-    regime: MarketRegimeResult
+    regime: MarketRegimeResult | None = None
 
     @model_validator(mode="after")
     def validate_timestamp_consistency(self) -> AnalysisResponse:
@@ -81,16 +81,17 @@ class AnalysisResponse(BaseModel):
                 "Analysis candle_count must equal the number of completed candles."
             )
 
-        if self.regime.latest_completed_candle_timestamp != expected_latest:
-            raise ValueError(
-                "Regime timestamp must equal the latest completed analysis candle timestamp."
-            )
-        if self.regime.symbol != self.symbol:
-            raise ValueError("Regime symbol must match analysis symbol.")
-        if self.regime.timeframe != self.timeframe:
-            raise ValueError("Regime timeframe must match analysis timeframe.")
-        if self.regime.source != self.source:
-            raise ValueError("Regime source must match analysis source.")
+        if self.regime is not None:
+            if self.regime.latest_completed_candle_timestamp != expected_latest:
+                raise ValueError(
+                    "Regime timestamp must equal the latest completed analysis candle timestamp."
+                )
+            if self.regime.symbol != self.symbol:
+                raise ValueError("Regime symbol must match analysis symbol.")
+            if self.regime.timeframe != self.timeframe:
+                raise ValueError("Regime timeframe must match analysis timeframe.")
+            if self.regime.source != self.source:
+                raise ValueError("Regime source must match analysis source.")
 
         if self.current_quote.symbol != self.symbol:
             raise ValueError("Current quote symbol must match analysis symbol.")
@@ -173,10 +174,18 @@ async def get_analysis(
         latest_completed_timestamp = completed[-1].timestamp
         candle_count = len(completed)
         indicator_panes = calculate_indicator_panes(completed)
-        regime_dataset = dataset.model_copy(update={"candles": tuple(
-            candle for candle in dataset.candles if candle.is_complete
-        )})
-        regime = detect_regime(regime_dataset)
+        regime_dataset = dataset.model_copy(
+            update={
+                "candles": tuple(
+                    candle for candle in dataset.candles if candle.is_complete
+                )
+            }
+        )
+        regime = (
+            detect_regime(regime_dataset)
+            if candle_count >= MINIMUM_CANDLES
+            else None
+        )
 
         return AnalysisResponse(
             symbol=result.symbol,
