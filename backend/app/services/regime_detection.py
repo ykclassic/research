@@ -9,6 +9,7 @@ from app.services.technical_analysis import calculate_indicators
 
 MINIMUM_CANDLES = 220
 ADX_STRONG = 25.0
+ADX_RANGE = 20.0
 PERSISTENCE_STRONG = 0.70
 PERSISTENCE_WEAK = 0.60
 DIRECTIONAL_RATIO_STRONG = 0.55
@@ -18,10 +19,12 @@ VOLATILITY_LOW_PERCENTILE = 0.20
 
 
 def _percentile_rank(values: list[float], value: float) -> float:
-    """Return an inclusive empirical percentile in [0, 1]."""
+    """Return a mid-rank empirical percentile in [0, 1]."""
     if not values:
         return 0.5
-    return sum(candidate <= value for candidate in values) / len(values)
+    less = sum(candidate < value for candidate in values)
+    equal = sum(candidate == value for candidate in values)
+    return (less + 0.5 * equal) / len(values)
 
 
 def _atr_percent_series(closes: list[float], highs: list[float], lows: list[float]) -> list[float]:
@@ -93,8 +96,8 @@ def detect_regime(dataset: OHLCVDataset) -> MarketRegimeResult:
     lows = [c.low for c in completed]
     current = closes[-1]
     direction, persistence, directional_ratio = _trend_metrics(closes)
-    atr = indicators["atr14"]
     adx = indicators["adx14"]
+    atr = indicators["atr14"]
     ema50 = indicators["ema50"]
     ema200 = indicators["ema200"]
     bb_width = indicators["bb_width"]
@@ -104,12 +107,14 @@ def detect_regime(dataset: OHLCVDataset) -> MarketRegimeResult:
     atr_percent = 100.0 * atr / current if isinstance(atr, float) and current else None
     atr_percentile = _percentile_rank(atr_series, atr_percent) if atr_percent is not None else None
     bb_width_percentile = _percentile_rank(bb_series, bb_width) if isinstance(bb_width, float) else None
+    price_above_ema200 = current > ema200 if isinstance(ema200, float) else None
+    ema50_above_ema200 = ema50 > ema200 if isinstance(ema50, float) and isinstance(ema200, float) else None
     evidence = RegimeEvidence(
         price=current,
         ema_50=ema50,
         ema_200=ema200,
-        price_above_ema_200=current > ema200 if isinstance(ema200, float) else None,
-        ema_50_above_ema_200=ema50 > ema200 if isinstance(ema50, float) and isinstance(ema200, float) else None,
+        price_above_ema_200=price_above_ema200,
+        ema_50_above_ema_200=ema50_above_ema200,
         adx=adx,
         atr=atr,
         atr_percent=atr_percent,
@@ -121,18 +126,46 @@ def detect_regime(dataset: OHLCVDataset) -> MarketRegimeResult:
         directional_move_ratio=round(directional_ratio, 6),
     )
 
+    bullish_alignment = price_above_ema200 is True and ema50_above_ema200 is True
+    bearish_alignment = price_above_ema200 is False and ema50_above_ema200 is False
+
     if not all(isinstance(value, float) for value in (adx, ema50, ema200, atr, bb_width)):
         regime, rule = MarketRegime.UNKNOWN, "required indicators unavailable"
-    elif adx >= ADX_STRONG and persistence >= PERSISTENCE_STRONG and directional_ratio >= DIRECTIONAL_RATIO_STRONG and direction in {"UP", "DOWN"}:
-        regime = MarketRegime.STRONG_TREND_UP if direction == "UP" else MarketRegime.STRONG_TREND_DOWN
-        rule = "ADX>=25 + persistence>=0.70 + directional_move_ratio>=0.55"
-    elif adx < ADX_STRONG and persistence >= PERSISTENCE_WEAK and directional_ratio >= DIRECTIONAL_RATIO_WEAK and direction in {"UP", "DOWN"}:
-        regime, rule = MarketRegime.WEAK_TREND, "ADX<25 + persistence>=0.60 + directional_move_ratio>=0.25"
+    elif (
+        adx >= ADX_STRONG
+        and persistence >= PERSISTENCE_STRONG
+        and directional_ratio >= DIRECTIONAL_RATIO_STRONG
+        and direction == "UP"
+        and bullish_alignment
+    ):
+        regime, rule = MarketRegime.STRONG_TREND_UP, "ADX>=25 + persistence>=0.70 + directional_move_ratio>=0.55 + bullish EMA alignment"
+    elif (
+        adx >= ADX_STRONG
+        and persistence >= PERSISTENCE_STRONG
+        and directional_ratio >= DIRECTIONAL_RATIO_STRONG
+        and direction == "DOWN"
+        and bearish_alignment
+    ):
+        regime, rule = MarketRegime.STRONG_TREND_DOWN, "ADX>=25 + persistence>=0.70 + directional_move_ratio>=0.55 + bearish EMA alignment"
+    elif (
+        persistence >= PERSISTENCE_WEAK
+        and directional_ratio >= DIRECTIONAL_RATIO_WEAK
+        and direction == "UP"
+        and bullish_alignment
+        and adx < ADX_STRONG
+    ) or (
+        persistence >= PERSISTENCE_WEAK
+        and directional_ratio >= DIRECTIONAL_RATIO_WEAK
+        and direction == "DOWN"
+        and bearish_alignment
+        and adx < ADX_STRONG
+    ):
+        regime, rule = MarketRegime.WEAK_TREND, "ADX<25 + persistence>=0.60 + directional_move_ratio>=0.25 + aligned EMA structure"
     elif (atr_percentile is not None and atr_percentile >= VOLATILITY_HIGH_PERCENTILE) or (bb_width_percentile is not None and bb_width_percentile >= VOLATILITY_HIGH_PERCENTILE):
         regime, rule = MarketRegime.HIGH_VOLATILITY, "ATR percentile>=0.80 OR Bollinger-width percentile>=0.80"
     elif (atr_percentile is not None and atr_percentile <= VOLATILITY_LOW_PERCENTILE) and (bb_width_percentile is not None and bb_width_percentile <= VOLATILITY_LOW_PERCENTILE):
         regime, rule = MarketRegime.LOW_VOLATILITY, "ATR percentile<=0.20 AND Bollinger-width percentile<=0.20"
-    elif adx < 20.0 and persistence < PERSISTENCE_WEAK:
+    elif adx < ADX_RANGE and persistence < PERSISTENCE_WEAK:
         regime, rule = MarketRegime.RANGE, "ADX<20 + trend persistence<0.60"
     else:
         regime, rule = MarketRegime.UNKNOWN, "no deterministic regime rule satisfied"
