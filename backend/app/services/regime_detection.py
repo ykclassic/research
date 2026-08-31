@@ -129,8 +129,11 @@ def detect_regime(dataset: OHLCVDataset) -> MarketRegimeResult:
     bullish_alignment = price_above_ema200 is True and ema50_above_ema200 is True
     bearish_alignment = price_above_ema200 is False and ema50_above_ema200 is False
     directional_conflict = (
-        (direction == "UP" and not bullish_alignment)
-        or (direction == "DOWN" and not bearish_alignment)
+        directional_ratio >= DIRECTIONAL_RATIO_WEAK
+        and (
+            (direction == "UP" and not bullish_alignment)
+            or (direction == "DOWN" and not bearish_alignment)
+        )
     )
 
     if not all(isinstance(value, float) for value in (adx, ema50, ema200, atr, bb_width)):
