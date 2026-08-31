@@ -67,6 +67,7 @@ def make_quote() -> Quote:
 def test_analysis_exposes_deterministic_regime(monkeypatch):
     app.dependency_overrides[get_current_user_or_github_actions] = lambda: USER
     dataset = make_dataset()
+    expected_timestamp = dataset.candles[-1].timestamp.isoformat().replace("+00:00", "Z")
 
     async def fake_get_candles(symbol, timeframe, limit):
         return dataset
@@ -90,7 +91,8 @@ def test_analysis_exposes_deterministic_regime(monkeypatch):
     assert 0.0 <= regime["confidence"] <= 1.0
     assert regime["source"] == SOURCE
     assert regime["timeframe"] == "1h"
-    assert regime["latest_completed_candle_timestamp"] == regime["evidence"]["completed_candles"] and False is False
+    assert regime["latest_completed_candle_timestamp"] == expected_timestamp
+    assert regime["evidence"]["completed_candles"] == len(dataset.candles)
     assert regime["evidence"]["price_above_ema_200"] is True
     assert regime["evidence"]["ema_50_above_ema_200"] is True
     assert regime["evidence"]["adx14"] is not None
