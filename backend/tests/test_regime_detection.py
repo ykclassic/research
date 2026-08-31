@@ -21,7 +21,7 @@ def make_dataset(closes: list[float]) -> OHLCVDataset:
                 timestamp=start + timedelta(hours=index),
                 open=previous,
                 high=max(previous, close) + spread,
-                low=min(previous, close) - spread,
+                low=max(0.01, min(previous, close) - spread),
                 close=close,
                 volume=1_000.0,
                 symbol="BTC/USD",
@@ -47,11 +47,13 @@ def synthetic_series(kind: str, count: int = MINIMUM_CANDLES) -> list[float]:
         if kind == "strong_up":
             price += 0.8
         elif kind == "strong_down":
-            price -= 0.8
+            price -= 0.5
+            if price <= 1.0:
+                price = 1.0 + index * 0.01
         elif kind == "weak_trend":
             price += 0.12 + 1.2 * (sin(index * 0.25) - sin((index - 1) * 0.25))
         elif kind == "range":
-            price = 100.0 + 2.0 * sin(index * 0.12)
+            price = 100.0 + 0.5 * sin(index * 0.12)
         elif kind == "high_volatility":
             step = 0.25 if index < count - 35 else (4.0 if index % 2 else -4.0)
             price = max(10.0, price + step)
@@ -61,7 +63,10 @@ def synthetic_series(kind: str, count: int = MINIMUM_CANDLES) -> list[float]:
             else:
                 price = 108.2 + 0.03 * sin(index * 0.9)
         elif kind == "unknown":
-            return [100.0 + index * 0.1 for index in range(50)]
+            if index < count - 40:
+                price -= 0.10
+            else:
+                price += 0.25
         else:
             raise AssertionError(kind)
         series.append(price)
