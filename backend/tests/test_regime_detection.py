@@ -41,8 +41,8 @@ def make_dataset(closes: list[float]) -> OHLCVDataset:
 
 def synthetic_series(kind: str, count: int = MINIMUM_CANDLES) -> list[float]:
     """Create deterministic paths with a distinct final-state regime."""
-    baseline = []
     price = 100.0
+    series: list[float] = []
     for index in range(count):
         if kind == "strong_up":
             price += 0.8
@@ -57,15 +57,15 @@ def synthetic_series(kind: str, count: int = MINIMUM_CANDLES) -> list[float]:
             price = max(10.0, price + step)
         elif kind == "low_volatility":
             if index < count - 35:
-                price += 0.25
+                price += 0.04
             else:
-                price = 108.0 + 0.03 * sin(index * 0.9)
+                price = 108.2 + 0.03 * sin(index * 0.9)
         elif kind == "unknown":
             return [100.0 + index * 0.1 for index in range(50)]
         else:
             raise AssertionError(kind)
-        baseline.append(price)
-    return baseline
+        series.append(price)
+    return series
 
 
 @pytest.mark.parametrize(
