@@ -69,7 +69,7 @@ def _trend_persistence(candles, period: int = PERSISTENCE_PERIOD) -> float:
         return 0.0
     changes = [
         candles[index].close - candles[index - 1].close
-        for index in range(len(candles) - period + 1, len(candles))
+        for index in range(len(candles) - period, len(candles))
     ]
     non_zero = [change for change in changes if change != 0]
     if not non_zero:
@@ -151,7 +151,7 @@ def _classify(evidence: RegimeEvidence) -> tuple[MarketRegime, float, tuple[str,
     if adx >= ADX_WEAK_THRESHOLD and persistence >= 0.55 and abs(direction) > 0:
         directional = "upside" if direction > 0 else "downside"
         return MarketRegime.WEAK_TREND, min(1.0, 0.45 + 0.25 * persistence), (
-            f"ADX supports a directional move without strong-trend confirmation.",
+            "ADX supports a directional move without strong-trend confirmation.",
             f"Recent price movement has a {directional} direction.",
         )
 
