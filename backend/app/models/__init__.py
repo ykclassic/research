@@ -4,6 +4,7 @@ from enum import Enum
 from pydantic import BaseModel, Field
 
 from app.models.market import Candle, OHLCVDataset, TechnicalAnalysisResult, Timeframe
+from app.models.regime import MarketRegime, MarketRegimeResult, RegimeEvidence
 
 
 class QuoteStatus(str, Enum):
@@ -39,10 +40,13 @@ class ProviderStatus(BaseModel):
 
 __all__ = [
     "Candle",
+    "MarketRegime",
+    "MarketRegimeResult",
     "OHLCVDataset",
     "ProviderStatus",
     "Quote",
     "QuoteStatus",
+    "RegimeEvidence",
     "TechnicalAnalysisResult",
     "Timeframe",
 ]
