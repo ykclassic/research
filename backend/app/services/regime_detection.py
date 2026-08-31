@@ -184,8 +184,8 @@ def detect_regime(dataset: OHLCVDataset) -> MarketRegimeResult:
         and bearish_alignment
     ):
         regime, rule = MarketRegime.WEAK_TREND, "persistence>=0.50 + directional_move_ratio>=0.25 + aligned EMA structure without strong-trend confirmation"
-    elif directional_ratio < DIRECTIONAL_RATIO_WEAK and persistence < PERSISTENCE_WEAK:
-        regime, rule = MarketRegime.RANGE, "directional_move_ratio<0.25 + trend persistence<0.50"
+    elif directional_ratio < DIRECTIONAL_RATIO_WEAK:
+        regime, rule = MarketRegime.RANGE, "directional_move_ratio<0.25 after trend and volatility rules"
     else:
         regime, rule = MarketRegime.UNKNOWN, "no deterministic regime rule satisfied"
 
