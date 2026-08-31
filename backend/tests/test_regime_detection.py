@@ -66,7 +66,7 @@ def synthetic_series(kind: str, count: int = MINIMUM_CANDLES) -> list[float]:
             if index < count - 40:
                 price -= 0.10
             else:
-                price += 0.25
+                price += 0.01
         else:
             raise AssertionError(kind)
         series.append(price)
