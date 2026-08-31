@@ -11,7 +11,7 @@ MINIMUM_CANDLES = 220
 ADX_STRONG = 25.0
 ADX_RANGE = 20.0
 PERSISTENCE_STRONG = 0.70
-PERSISTENCE_WEAK = 0.60
+PERSISTENCE_WEAK = 0.50
 DIRECTIONAL_RATIO_STRONG = 0.55
 DIRECTIONAL_RATIO_WEAK = 0.25
 VOLATILITY_HIGH_PERCENTILE = 0.80
@@ -154,18 +154,6 @@ def detect_regime(dataset: OHLCVDataset) -> MarketRegimeResult:
     ):
         regime, rule = MarketRegime.STRONG_TREND_DOWN, "ADX>=25 + persistence>=0.70 + directional_move_ratio>=0.55 + bearish EMA alignment"
     elif (
-        persistence >= PERSISTENCE_WEAK
-        and directional_ratio >= DIRECTIONAL_RATIO_WEAK
-        and direction == "UP"
-        and bullish_alignment
-    ) or (
-        persistence >= PERSISTENCE_WEAK
-        and directional_ratio >= DIRECTIONAL_RATIO_WEAK
-        and direction == "DOWN"
-        and bearish_alignment
-    ):
-        regime, rule = MarketRegime.WEAK_TREND, "persistence>=0.60 + directional_move_ratio>=0.25 + aligned EMA structure without strong-trend confirmation"
-    elif (
         atr_percentile is not None
         and (
             atr_percentile >= VOLATILITY_HIGH_PERCENTILE
@@ -184,8 +172,20 @@ def detect_regime(dataset: OHLCVDataset) -> MarketRegimeResult:
         and bb_width_percentile <= VOLATILITY_LOW_PERCENTILE
     ):
         regime, rule = MarketRegime.LOW_VOLATILITY, "ATR percentile<=0.20 AND Bollinger-width percentile<=0.20"
+    elif (
+        persistence >= PERSISTENCE_WEAK
+        and directional_ratio >= DIRECTIONAL_RATIO_WEAK
+        and direction == "UP"
+        and bullish_alignment
+    ) or (
+        persistence >= PERSISTENCE_WEAK
+        and directional_ratio >= DIRECTIONAL_RATIO_WEAK
+        and direction == "DOWN"
+        and bearish_alignment
+    ):
+        regime, rule = MarketRegime.WEAK_TREND, "persistence>=0.50 + directional_move_ratio>=0.25 + aligned EMA structure without strong-trend confirmation"
     elif directional_ratio < DIRECTIONAL_RATIO_WEAK and persistence < PERSISTENCE_WEAK:
-        regime, rule = MarketRegime.RANGE, "directional_move_ratio<0.25 + trend persistence<0.60"
+        regime, rule = MarketRegime.RANGE, "directional_move_ratio<0.25 + trend persistence<0.50"
     else:
         regime, rule = MarketRegime.UNKNOWN, "no deterministic regime rule satisfied"
 
