@@ -37,6 +37,58 @@ export interface TechnicalAnalysis {
   indicator_panes: IndicatorPane[];
 }
 
+export type MarketRegime =
+  | "STRONG_TREND_UP"
+  | "STRONG_TREND_DOWN"
+  | "WEAK_TREND"
+  | "RANGE"
+  | "HIGH_VOLATILITY"
+  | "LOW_VOLATILITY"
+  | "UNKNOWN";
+
+export interface RegimeEvidence {
+  price: number;
+  ema_50: number | null;
+  ema_200: number | null;
+  price_above_ema_200: boolean | null;
+  ema_50_above_ema_200: boolean | null;
+  adx: number | null;
+  atr: number | null;
+  atr_percent: number | null;
+  atr_percentile: number | null;
+  bb_width: number | null;
+  bb_width_percentile: number | null;
+  trend_direction: string;
+  trend_persistence: number;
+  directional_move_ratio: number;
+}
+
+export interface RegimeThresholds {
+  adx_strong: number;
+  persistence_strong: number;
+  persistence_weak: number;
+  directional_ratio_strong: number;
+  directional_ratio_weak: number;
+  volatility_high_percentile: number;
+  volatility_low_percentile: number;
+}
+
+export interface RegimeResult {
+  symbol: string;
+  timeframe: string;
+  source: string;
+  calculated_at: string;
+  provider_timestamp: string | null;
+  latest_candle_timestamp: string;
+  candle_count: number;
+  regime: MarketRegime;
+  confidence: number;
+  evidence: RegimeEvidence;
+  thresholds: RegimeThresholds;
+  rule_id: string;
+  rule: string;
+}
+
 export interface TechnicalAnalysisRange {
   startDate?: string;
   endDate?: string;
@@ -109,4 +161,8 @@ export async function getTechnicalAnalysis(symbol: string, timeframe = "1h", lim
     params.set("limit", String(limit));
   }
   return request<TechnicalAnalysis>(`/api/analysis/${encodeURIComponent(symbol)}?${params}`);
+}
+export async function getMarketRegime(symbol: string, timeframe = "1h", limit = 250): Promise<RegimeResult> {
+  const params = new URLSearchParams({ timeframe, limit: String(limit) });
+  return request<RegimeResult>(`/api/regime/${encodeURIComponent(symbol)}?${params}`);
 }
