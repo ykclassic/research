@@ -1,0 +1,45 @@
+.regime-panel { display: flex; flex-direction: column; gap: 18px; }
+.regime-panel-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
+.regime-panel-head h3 { margin: 4px 0 5px; }
+.regime-panel-head > svg { flex: 0 0 auto; }
+.regime-loading { min-height: 72px; display: flex; align-items: center; gap: 10px; color: var(--muted, #8d96a8); }
+.regime-summary { display: grid; grid-template-columns: minmax(220px, 1fr) minmax(240px, 1.4fr); gap: 18px; align-items: center; }
+.regime-badge { min-height: 58px; display: flex; align-items: center; gap: 10px; padding: 12px 14px; border: 1px solid rgba(255,255,255,.10); border-radius: 10px; background: rgba(255,255,255,.025); }
+.regime-badge strong { font-size: 1rem; }
+.regime-badge > span:last-child { margin-left: auto; font: 600 .72rem/1 monospace; opacity: .7; }
+.regime-dot { width: 9px; height: 9px; border-radius: 50%; background: currentColor; box-shadow: 0 0 0 4px color-mix(in srgb, currentColor 14%, transparent); }
+.regime-strong-trend-up { color: #55d6a6; }
+.regime-strong-trend-down { color: #ff7185; }
+.regime-weak-trend { color: #e4b75b; }
+.regime-range { color: #8ca6ff; }
+.regime-high-volatility { color: #ff9d5c; }
+.regime-low-volatility { color: #6ec8d9; }
+.regime-unknown { color: #9ba3b5; }
+.regime-confidence { padding: 2px 0; }
+.regime-confidence-head { display: flex; justify-content: space-between; margin-bottom: 8px; }
+.regime-confidence-head span { color: var(--muted, #8d96a8); }
+.regime-confidence-track { height: 8px; overflow: hidden; border-radius: 999px; background: rgba(255,255,255,.08); }
+.regime-confidence-track span { display: block; height: 100%; border-radius: inherit; background: currentColor; }
+.regime-metrics, .regime-evidence, .threshold-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
+.regime-metrics > div, .regime-evidence > div, .threshold-grid > div { padding: 11px 12px; border: 1px solid rgba(255,255,255,.07); border-radius: 8px; background: rgba(255,255,255,.018); min-width: 0; }
+.regime-metrics span, .regime-evidence span, .threshold-grid span { display: block; color: var(--muted, #8d96a8); font-size: .72rem; margin-bottom: 5px; }
+.regime-metrics strong, .regime-evidence strong, .threshold-grid strong { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.regime-rule { display: grid; gap: 6px; padding: 13px 14px; border-left: 3px solid currentColor; background: rgba(255,255,255,.025); }
+.regime-rule span { color: var(--muted, #8d96a8); font-size: .75rem; }
+.regime-rule strong { line-height: 1.45; }
+.regime-thresholds { border-top: 1px solid rgba(255,255,255,.08); padding-top: 12px; }
+.regime-thresholds summary { cursor: pointer; color: var(--muted, #8d96a8); font-size: .8rem; }
+.threshold-grid { margin-top: 12px; grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.regime-provenance { display: flex; flex-wrap: wrap; gap: 8px 18px; padding-top: 4px; color: var(--muted, #8d96a8); font-size: .72rem; }
+.regime-provenance strong { color: inherit; font-weight: 600; }
+.regime-error { display: flex; align-items: center; justify-content: space-between; gap: 12px; color: #ff9aa8; }
+
+@media (max-width: 900px) {
+  .regime-summary { grid-template-columns: 1fr; }
+  .regime-metrics, .regime-evidence { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .threshold-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+@media (max-width: 560px) {
+  .regime-metrics, .regime-evidence, .threshold-grid { grid-template-columns: 1fr; }
+}
