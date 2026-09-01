@@ -15,7 +15,14 @@ PUBLICATION_TOLERANCE_SECONDS = int(os.getenv("REGIME_PUBLICATION_TOLERANCE", "1
 OIDC_TOKEN = os.getenv("GITHUB_OIDC_TOKEN", "")
 EXPECTED_SOURCE = os.getenv("REGIME_EXPECTED_SOURCE", "twelve_data")
 
-TIMEFRAME_SECONDS = {"5m": 300, "15m": 900, "30m": 1800, "1h": 3600, "4h": 14400, "1d": 86400}
+TIMEFRAME_SECONDS = {
+    "5m": 300,
+    "15m": 900,
+    "30m": 1800,
+    "1h": 3600,
+    "4h": 14400,
+    "1d": 86400,
+}
 
 
 def fail(message: str) -> None:
@@ -42,10 +49,18 @@ def get_json(path: str, *, authorization: str | None = None) -> tuple[int, dict]
     return 0, {}
 
 
-def parse_timestamp(value: str) -> datetime:
-    parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+def parse_timestamp(value: object, field_name: str) -> datetime:
+    if not isinstance(value, str) or not value.strip():
+        fail(f"{field_name} is missing or null; production regime freshness metadata is mandatory")
+
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError as exc:
+        fail(f"{field_name} is not a valid ISO-8601 timestamp: {value!r}")
+        raise AssertionError from exc
+
     if parsed.tzinfo is None or parsed.utcoffset() is None:
-        fail(f"Timestamp is not timezone-aware: {value}")
+        fail(f"{field_name} is not timezone-aware: {value}")
     return parsed.astimezone(timezone.utc)
 
 
@@ -71,7 +86,20 @@ def main() -> int:
         fail(f"Authenticated regime API failed: HTTP {status}; body={body}")
     print(f"[PASS] API reachable: HTTP 200; endpoint={BASE_URL}{path}")
 
-    required = {"symbol", "timeframe", "source", "provider_timestamp", "latest_candle_timestamp", "candle_count", "regime", "confidence", "evidence", "thresholds", "rule_id", "rule"}
+    required = {
+        "symbol",
+        "timeframe",
+        "source",
+        "provider_timestamp",
+        "latest_candle_timestamp",
+        "candle_count",
+        "regime",
+        "confidence",
+        "evidence",
+        "thresholds",
+        "rule_id",
+        "rule",
+    }
     missing = sorted(required - body.keys())
     if missing:
         fail(f"Regime contract missing fields: {missing}")
@@ -82,8 +110,10 @@ def main() -> int:
         fail(f"Regime source is {body['source']!r}; expected {EXPECTED_SOURCE!r}")
     print(f"[PASS] API integration: deterministic regime result is sourced from {body['source']}")
 
-    provider_timestamp = parse_timestamp(body["provider_timestamp"])
-    latest_candle_timestamp = parse_timestamp(body["latest_candle_timestamp"])
+    provider_timestamp = parse_timestamp(body["provider_timestamp"], "provider_timestamp")
+    latest_candle_timestamp = parse_timestamp(
+        body["latest_candle_timestamp"], "latest_candle_timestamp"
+    )
     now = datetime.now(timezone.utc)
     provider_age = (now - provider_timestamp).total_seconds()
     max_age = TIMEFRAME_SECONDS[TIMEFRAME] + PUBLICATION_TOLERANCE_SECONDS
@@ -93,19 +123,41 @@ def main() -> int:
         fail(f"Regime provider data is stale: age={provider_age:.2f}s > SLA {max_age}s")
     if latest_candle_timestamp > provider_timestamp:
         fail("Latest completed candle timestamp is newer than provider timestamp")
-    print(f"[PASS] Provider freshness: age={provider_age:.2f}s <= SLA {max_age}s ({TIMEFRAME} interval + {PUBLICATION_TOLERANCE_SECONDS}s tolerance)")
+    print(
+        f"[PASS] Provider freshness: age={provider_age:.2f}s <= SLA {max_age}s "
+        f"({TIMEFRAME} interval + {PUBLICATION_TOLERANCE_SECONDS}s tolerance)"
+    )
 
     if body["candle_count"] < 220:
         fail(f"Insufficient completed candles: {body['candle_count']}")
     if body["confidence"] < 0 or body["confidence"] > 1:
         fail(f"Confidence outside [0,1]: {body['confidence']}")
-    if body["regime"] not in {"STRONG_TREND_UP", "STRONG_TREND_DOWN", "WEAK_TREND", "RANGE", "HIGH_VOLATILITY", "LOW_VOLATILITY", "UNKNOWN"}:
+    if body["regime"] not in {
+        "STRONG_TREND_UP",
+        "STRONG_TREND_DOWN",
+        "WEAK_TREND",
+        "RANGE",
+        "HIGH_VOLATILITY",
+        "LOW_VOLATILITY",
+        "UNKNOWN",
+    }:
         fail(f"Invalid regime label: {body['regime']}")
-    print(f"[PASS] Regime contract: label={body['regime']}; confidence={body['confidence']:.6f}; candles={body['candle_count']}")
+    print(
+        f"[PASS] Regime contract: label={body['regime']}; "
+        f"confidence={body['confidence']:.6f}; candles={body['candle_count']}"
+    )
 
     evidence = body["evidence"]
     thresholds = body["thresholds"]
-    for field in ("adx", "atr", "atr_percentile", "bb_width", "bb_width_percentile", "trend_persistence", "directional_move_ratio"):
+    for field in (
+        "adx",
+        "atr",
+        "atr_percentile",
+        "bb_width",
+        "bb_width_percentile",
+        "trend_persistence",
+        "directional_move_ratio",
+    ):
         if evidence.get(field) is not None and not isinstance(evidence[field], (int, float)):
             fail(f"Evidence field {field} is not numeric")
     if thresholds != {
@@ -118,7 +170,10 @@ def main() -> int:
         "volatility_low_percentile": 0.20,
     }:
         fail(f"Unexpected production threshold contract: {thresholds}")
-    print(f"[PASS] Evidence contract: rule={body['rule_id']}; all reported thresholds are explicit and version-stable")
+    print(
+        f"[PASS] Evidence contract: rule={body['rule_id']}; "
+        "all reported thresholds are explicit and version-stable"
+    )
 
     print("=" * 72)
     print("PASS: 6 production regime verification checks completed successfully.")
