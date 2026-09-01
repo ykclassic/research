@@ -154,12 +154,20 @@ def detect_regime(dataset: OHLCVDataset, thresholds: RegimeThresholds = DEFAULT_
     else:
         regime, rule_id, rule = MarketRegime.UNKNOWN, "R8", "no deterministic regime rule satisfied"
 
+    # Twelve Data's time-series endpoint does not expose a separate fetch/update
+    # timestamp. When the dataset has no provider metadata, the latest candle
+    # timestamp is the authoritative timestamp of the freshest provider-sourced
+    # observation used by the regime engine. This prevents the API contract from
+    # silently emitting null freshness metadata and lets production verification
+    # enforce a timeframe-aware freshness SLA.
+    provider_timestamp = dataset.provider_timestamp or completed[-1].timestamp
+
     return MarketRegimeResult(
         symbol=dataset.symbol,
         timeframe=dataset.timeframe,
         source=dataset.source,
         calculated_at=datetime.now(timezone.utc),
-        provider_timestamp=dataset.provider_timestamp,
+        provider_timestamp=provider_timestamp,
         latest_candle_timestamp=completed[-1].timestamp,
         candle_count=len(completed),
         regime=regime,
