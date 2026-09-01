@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Activity, AlertTriangle, BarChart3, RefreshCw, ShieldCheck } from "lucide-react";
-import { ApiError, getTechnicalAnalysis, TechnicalAnalysis, TechnicalAnalysisRange, User } from "./api";
+import { ApiError, getMarketRegime, getTechnicalAnalysis, MarketRegime, RegimeResult, TechnicalAnalysis, TechnicalAnalysisRange, User } from "./api";
+import RegimePanel, { validateRegimeResponse } from "./RegimePanel";
 import TechnicalChart from "./chart/TechnicalChart";
 
 const SYMBOLS = ["BTC/USD", "ETH/USD", "SOL/USD", "EUR/USD", "GBP/USD", "USD/JPY", "NVDA", "AAPL", "MSFT", "SPY"];
@@ -96,9 +97,12 @@ export default function TechnicalAnalysisPage({
   const [customEnd, setCustomEnd] = useState("");
   const [autoRefresh, setAutoRefresh] = useState(true);
   const [data, setData] = useState<TechnicalAnalysis | null>(null);
+  const [regime, setRegime] = useState<RegimeResult | null>(null);
   const [loading, setLoading] = useState(true);
+  const [regimeLoading, setRegimeLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [regimeError, setRegimeError] = useState<string | null>(null);
   const requestSequence = useRef(0);
   const inFlightKey = useRef<string | null>(null);
   const hasDataRef = useRef(false);
@@ -134,23 +138,42 @@ export default function TechnicalAnalysisPage({
     inFlightKey.current = requestKey;
     try {
       setError(null);
+      setRegimeError(null);
       if (!hasDataRef.current) setLoading(true);
+      setRegimeLoading(true);
       if (force) setRefreshing(true);
 
-      const response = await getTechnicalAnalysis(symbol, timeframe, 250, range);
-      const validated = validateAnalysisResponse(response, symbol, timeframe);
-      if (sequence === requestSequence.current) setData(validated);
+      const [analysisResult, regimeResult] = await Promise.allSettled([
+        getTechnicalAnalysis(symbol, timeframe, 250, range),
+        getMarketRegime(symbol, timeframe, 250),
+      ]);
+
+      if (sequence !== requestSequence.current) return;
+
+      if (analysisResult.status === "fulfilled") {
+        setData(validateAnalysisResponse(analysisResult.value, symbol, timeframe));
+      } else {
+        const reason = analysisResult.reason;
+        if (reason instanceof ApiError && reason.status === 401) { onLogout(); return; }
+        setError(reason instanceof Error ? reason.message : "Unable to retrieve technical-analysis data.");
+        if (!hasDataRef.current) setData(null);
+      }
+
+      if (regimeResult.status === "fulfilled") {
+        setRegime(validateRegimeResponse(regimeResult.value, symbol, timeframe));
+      } else {
+        const reason = regimeResult.reason;
+        if (reason instanceof ApiError && reason.status === 401) { onLogout(); return; }
+        setRegime(null);
+        setRegimeError(reason instanceof Error ? reason.message : "Unable to retrieve market-regime evidence.");
+      }
     } catch (err) {
       if (sequence !== requestSequence.current) return;
-      if (err instanceof ApiError && err.status === 401) {
-        onLogout();
-        return;
-      }
-      setError(err instanceof Error ? err.message : "Unable to retrieve technical-analysis data.");
-      if (!hasDataRef.current) setData(null);
+      setError(err instanceof Error ? err.message : "Unable to retrieve research data.");
     } finally {
       if (sequence === requestSequence.current) {
         setLoading(false);
+        setRegimeLoading(false);
         setRefreshing(false);
         inFlightKey.current = null;
       }
@@ -201,9 +224,9 @@ export default function TechnicalAnalysisPage({
       <main>
         <section className="hero">
           <div>
-            <div className="eyebrow">Phase 4.5 · Research chart workspace</div>
-            <h2>Historical ranges and refresh state remain API-controlled.</h2>
-            <p>The browser requests the selected range from the canonical backend. It never locally filters, fabricates, or substitutes market data. The live quote remains separate from the last completed candle.</p>
+            <div className="eyebrow">Phase 5.4 · Research presentation</div>
+            <h2>Technical evidence and market regime are presented from the canonical API.</h2>
+            <p>The browser requests the selected market data and deterministic regime result from the backend. It does not calculate, classify, fabricate, or substitute market research locally.</p>
           </div>
           <div className="hero-stat"><BarChart3 size={20}/><strong>{data?.candle_count ?? 0}</strong><span>completed candles</span></div>
         </section>
@@ -223,7 +246,7 @@ export default function TechnicalAnalysisPage({
         {rangeInvalid && <div className="error" role="alert"><AlertTriangle size={17}/>{customStart > customEnd ? "The range start must be on or before the range end." : "Select both a range start and range end."}</div>}
         {error && !rangeInvalid && <div className="error" role="alert"><AlertTriangle size={17}/>{error}<button className="refresh" onClick={() => void load(true)} disabled={refreshing}>Retry</button></div>}
 
-        {loading ? <div className="panel empty" role="status">Loading historical candles and indicators from the canonical API…</div> : !data && !error ? <div className="panel empty">No analysis is currently available.</div> : data && <>
+        {loading ? <div className="panel empty" role="status">Loading historical candles and research evidence from the canonical API…</div> : !data && !error ? <div className="panel empty">No analysis is currently available.</div> : data && <>
           <section className="ta-overview">
             <div className="panel">
               <div className="panel-head"><div><h3>{data.symbol} · {data.timeframe}</h3><span>Historical source: {data.source} · latest completed candle {formatTimestamp(data.latest_candle_timestamp)}</span></div><ShieldCheck size={20}/></div>
@@ -243,6 +266,8 @@ export default function TechnicalAnalysisPage({
             </div>
           </section>
 
+          <RegimePanel data={regime} loading={regimeLoading} error={regimeError} onRetry={() => void load(true)} />
+
           <section className="panel chart-panel">
             <div className="panel-head"><div><h3>Market chart</h3><span>Canonical API OHLCV. The dashed LIVE marker is the independent current quote; the candle series contains completed historical observations only.</span></div></div>
             <TechnicalChart data={data}/>
@@ -252,7 +277,7 @@ export default function TechnicalAnalysisPage({
 
           <section className="panel"><div className="panel-head"><div><h3>Recent candles</h3><span>Provider-sourced OHLCV observations · forming candles are excluded from chart and indicator calculations.</span></div></div><div className="candle-table"><div className="candle-head"><span>Timestamp</span><span>Open</span><span>High</span><span>Low</span><span>Close</span><span>Volume</span></div>{data.candles.slice(-12).reverse().map(c => <div className="candle-row" key={c.timestamp}><span>{c.timestamp}{c.is_complete ? "" : " · forming"}</span><span>{c.open}</span><span>{c.high}</span><span>{c.low}</span><span>{c.close}</span><span>{c.volume ?? "—"}</span></div>)}</div></section>
         </>}
-        <footer>Technical analysis is informational research output. It is not financial advice or a trading recommendation.</footer>
+        <footer>Technical analysis and market-regime output are informational research. They are not financial advice or a trading recommendation.</footer>
       </main>
     </div>
   );
