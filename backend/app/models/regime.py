@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 from enum import Enum
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from app.models.market import Timeframe
 
@@ -31,12 +31,15 @@ class RegimeThresholds(BaseModel):
     volatility_high_percentile: float = Field(default=0.80, ge=0, le=1)
     volatility_low_percentile: float = Field(default=0.20, ge=0, le=1)
 
-    @field_validator("directional_ratio_strong")
-    @classmethod
-    def strong_ratio_exceeds_weak(cls, value: float) -> float:
-        if value <= 0.25:
-            raise ValueError("directional_ratio_strong must exceed directional_ratio_weak (0.25).")
-        return value
+    @model_validator(mode="after")
+    def validate_ordering(self) -> RegimeThresholds:
+        if self.persistence_strong <= self.persistence_weak:
+            raise ValueError("persistence_strong must exceed persistence_weak.")
+        if self.directional_ratio_strong <= self.directional_ratio_weak:
+            raise ValueError("directional_ratio_strong must exceed directional_ratio_weak.")
+        if self.volatility_high_percentile <= self.volatility_low_percentile:
+            raise ValueError("volatility_high_percentile must exceed volatility_low_percentile.")
+        return self
 
 
 class RegimeEvidence(BaseModel):
@@ -69,6 +72,7 @@ class MarketRegimeResult(BaseModel):
     timeframe: Timeframe
     source: str
     calculated_at: datetime
+    provider_timestamp: datetime | None
     latest_candle_timestamp: datetime
     candle_count: int = Field(ge=1)
     regime: MarketRegime
