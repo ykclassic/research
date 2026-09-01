@@ -34,7 +34,7 @@ class Settings(BaseSettings):
     github_oidc_jwks_url: str = "https://token.actions.githubusercontent.com/.well-known/jwks"
     github_oidc_audience: str = "research-production-verifier"
     github_oidc_repository: str = "ykclassic/research"
-    github_oidc_workflow: str = ".github/workflows/production-market-data-verification.yml"
+    github_oidc_workflow: str = ".github/workflows/production-regime-verification.yml"
     github_oidc_ref: str = "refs/heads/main"
 
     model_config = SettingsConfigDict(
