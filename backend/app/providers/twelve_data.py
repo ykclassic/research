@@ -221,11 +221,22 @@ class TwelveDataProvider(MarketDataProvider):
                     except (KeyError, TypeError, ValueError) as exc:
                         raise ValueError("Provider returned malformed candle data.") from exc
 
+                if not candles:
+                    raise ValueError("Provider returned no historical candles.")
+
+                # Twelve Data's time_series response has no separate fetch/update
+                # timestamp. For research freshness, the freshest provider-owned
+                # observation is therefore the newest candle timestamp. This is
+                # deliberately different from requested_at, which only records
+                # when our application made the request.
+                provider_timestamp = candles[-1].timestamp
+
                 dataset = OHLCVDataset(
                     symbol=mapping.internal,
                     timeframe=timeframe,
                     source=self.name,
                     requested_at=requested_at,
+                    provider_timestamp=provider_timestamp,
                     candles=tuple(candles),
                 )
                 return validate_ohlcv_dataset(dataset)
