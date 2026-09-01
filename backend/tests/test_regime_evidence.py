@@ -12,7 +12,6 @@ from app.models.regime import MarketRegime, RegimeThresholds
 from app.services import regime_detection
 from app.services.regime_detection import detect_regime
 
-
 SYMBOL = "BTC/USD"
 SOURCE = "synthetic"
 
@@ -46,8 +45,17 @@ def make_dataset(count: int = 220) -> OHLCVDataset:
     )
 
 
-def patch_evidence(monkeypatch, *, direction="UP", persistence=0.80, ratio=0.60, adx=30.0,
-                   atr_percentile=0.50, bb_percentile=0.50, bullish=True):
+def patch_evidence(
+    monkeypatch,
+    *,
+    direction="UP",
+    persistence=0.80,
+    ratio=0.60,
+    adx=30.0,
+    atr_percentile=0.50,
+    bb_percentile=0.50,
+    bullish=True,
+):
     monkeypatch.setattr(regime_detection, "_trend_metrics", lambda closes: (direction, persistence, ratio))
     monkeypatch.setattr(regime_detection, "_atr_percent_series", lambda candles: [0.01] * 100 + [0.02])
     monkeypatch.setattr(regime_detection, "_bb_width_series", lambda closes: [0.01] * 100 + [0.02])
@@ -62,26 +70,24 @@ def patch_evidence(monkeypatch, *, direction="UP", persistence=0.80, ratio=0.60,
             "bb_width": 0.02,
         },
     )
-
-    # Percentile helpers are patched separately because the production helper
-    # derives percentile from its observations.
     calls = iter([atr_percentile, bb_percentile])
     monkeypatch.setattr(regime_detection, "_percentile_rank", lambda values, current: next(calls))
 
 
 def test_evidence_contains_thresholds_and_provenance(monkeypatch):
-    patch_evidence(monkeypatch, direction="UP", persistence=0.80, ratio=0.60, adx=30.0, bullish=True)
-    result = detect_regime(make_dataset())
+    dataset = make_dataset()
+    patch_evidence(monkeypatch)
+    result = detect_regime(dataset)
 
     assert result.regime is MarketRegime.STRONG_TREND_UP
-    assert result.confidence == pytest.approx(result.confidence)
     assert 0.0 <= result.confidence <= 1.0
     assert result.rule_id == "R2"
     assert result.thresholds == RegimeThresholds()
     assert result.evidence.adx == 30.0
     assert result.evidence.trend_persistence == pytest.approx(0.80)
     assert result.evidence.directional_move_ratio == pytest.approx(0.60)
-    assert result.latest_candle_timestamp == make_dataset().latest_candle.timestamp
+    assert result.provider_timestamp == dataset.provider_timestamp
+    assert result.latest_candle_timestamp == dataset.latest_candle.timestamp
 
 
 def test_strong_trend_thresholds_are_inclusive(monkeypatch):
@@ -100,24 +106,42 @@ def test_range_threshold_is_strictly_below_weak_directional_ratio(monkeypatch):
 
 
 def test_high_volatility_threshold_is_inclusive(monkeypatch):
-    patch_evidence(monkeypatch, direction="FLAT", persistence=0.50, ratio=0.10, adx=10.0,
-                   atr_percentile=0.80, bb_percentile=0.50, bullish=False)
+    patch_evidence(
+        monkeypatch,
+        direction="FLAT",
+        persistence=0.50,
+        ratio=0.10,
+        adx=10.0,
+        atr_percentile=0.80,
+        bb_percentile=0.50,
+        bullish=False,
+    )
     assert detect_regime(make_dataset()).regime is MarketRegime.HIGH_VOLATILITY
 
 
 def test_low_volatility_threshold_is_inclusive(monkeypatch):
-    patch_evidence(monkeypatch, direction="FLAT", persistence=0.50, ratio=0.10, adx=10.0,
-                   atr_percentile=0.20, bb_percentile=0.20, bullish=False)
+    patch_evidence(
+        monkeypatch,
+        direction="FLAT",
+        persistence=0.50,
+        ratio=0.10,
+        adx=10.0,
+        atr_percentile=0.20,
+        bb_percentile=0.20,
+        bullish=False,
+    )
     assert detect_regime(make_dataset()).regime is MarketRegime.LOW_VOLATILITY
 
 
 def test_unknown_is_explicit_for_directional_ema_conflict(monkeypatch):
     patch_evidence(monkeypatch, direction="UP", persistence=0.80, ratio=0.60, adx=30.0, bullish=False)
-    assert detect_regime(make_dataset()).regime is MarketRegime.UNKNOWN
-    assert detect_regime(make_dataset()).rule_id == "R1"
+    result = detect_regime(make_dataset())
+    assert result.regime is MarketRegime.UNKNOWN
+    assert result.rule_id == "R1"
+    assert result.confidence == 0.0
 
 
-def test_forming_candle_is_rejected_even_when_enough_completed_history_exists(monkeypatch):
+def test_forming_candle_is_rejected_even_when_enough_completed_history_exists():
     dataset = make_dataset()
     candles = list(dataset.candles)
     candles[-1] = candles[-1].model_copy(update={"is_complete": False})
@@ -127,7 +151,7 @@ def test_forming_candle_is_rejected_even_when_enough_completed_history_exists(mo
 
 
 @pytest.fixture()
-def authenticated_client(monkeypatch):
+def authenticated_client():
     app.dependency_overrides[get_current_user_or_github_actions] = lambda: {"id": "u1"}
     with TestClient(app) as client:
         yield client
@@ -160,6 +184,7 @@ def test_regime_api_returns_deterministic_evidence(authenticated_client, monkeyp
     assert body["regime"] == "STRONG_TREND_UP"
     assert 0.0 <= body["confidence"] <= 1.0
     assert body["source"] == SOURCE
+    assert body["provider_timestamp"]
     assert body["candle_count"] == 220
     assert body["rule_id"] == "R2"
     assert body["thresholds"]["adx_strong"] == 25.0
