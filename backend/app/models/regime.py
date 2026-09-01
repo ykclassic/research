@@ -1,0 +1,79 @@
+from __future__ import annotations
+
+from datetime import datetime
+from enum import Enum
+
+from pydantic import BaseModel, ConfigDict, Field, field_validator
+
+from app.models.market import Timeframe
+
+
+class MarketRegime(str, Enum):
+    STRONG_TREND_UP = "STRONG_TREND_UP"
+    STRONG_TREND_DOWN = "STRONG_TREND_DOWN"
+    WEAK_TREND = "WEAK_TREND"
+    RANGE = "RANGE"
+    HIGH_VOLATILITY = "HIGH_VOLATILITY"
+    LOW_VOLATILITY = "LOW_VOLATILITY"
+    UNKNOWN = "UNKNOWN"
+
+
+class RegimeThresholds(BaseModel):
+    """Versioned numerical boundaries used by the deterministic classifier."""
+
+    model_config = ConfigDict(frozen=True)
+
+    adx_strong: float = Field(default=25.0, ge=0)
+    persistence_strong: float = Field(default=0.70, ge=0, le=1)
+    persistence_weak: float = Field(default=0.50, ge=0, le=1)
+    directional_ratio_strong: float = Field(default=0.55, ge=0, le=1)
+    directional_ratio_weak: float = Field(default=0.25, ge=0, le=1)
+    volatility_high_percentile: float = Field(default=0.80, ge=0, le=1)
+    volatility_low_percentile: float = Field(default=0.20, ge=0, le=1)
+
+    @field_validator("directional_ratio_strong")
+    @classmethod
+    def strong_ratio_exceeds_weak(cls, value: float) -> float:
+        if value <= 0.25:
+            raise ValueError("directional_ratio_strong must exceed directional_ratio_weak (0.25).")
+        return value
+
+
+class RegimeEvidence(BaseModel):
+    """Auditable inputs supporting a regime classification."""
+
+    model_config = ConfigDict(frozen=True)
+
+    price: float = Field(gt=0)
+    ema_50: float | None
+    ema_200: float | None
+    price_above_ema_200: bool | None
+    ema_50_above_ema_200: bool | None
+    adx: float | None = Field(default=None, ge=0)
+    atr: float | None = Field(default=None, ge=0)
+    atr_percent: float | None
+    atr_percentile: float | None = Field(default=None, ge=0, le=1)
+    bb_width: float | None = Field(default=None, ge=0)
+    bb_width_percentile: float | None = Field(default=None, ge=0, le=1)
+    trend_direction: str
+    trend_persistence: float = Field(ge=0, le=1)
+    directional_move_ratio: float = Field(ge=0, le=1)
+
+
+class MarketRegimeResult(BaseModel):
+    """Canonical deterministic regime result with provenance and rule evidence."""
+
+    model_config = ConfigDict(frozen=True)
+
+    symbol: str
+    timeframe: Timeframe
+    source: str
+    calculated_at: datetime
+    latest_candle_timestamp: datetime
+    candle_count: int = Field(ge=1)
+    regime: MarketRegime
+    confidence: float = Field(ge=0, le=1)
+    evidence: RegimeEvidence
+    thresholds: RegimeThresholds
+    rule_id: str
+    rule: str
