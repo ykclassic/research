@@ -1,0 +1,74 @@
+name: Production Regime Verification
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "37 */6 * * *"
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  verify-production-regime:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    env:
+      REGIME_API_BASE: https://research-76vr.onrender.com
+      REGIME_SYMBOL: BTC/USD
+      REGIME_TIMEFRAME: 1h
+      REGIME_LIMIT: 250
+      REGIME_PUBLICATION_TOLERANCE: 180
+      REGIME_EXPECTED_SOURCE: twelve_data
+      GITHUB_OIDC_AUDIENCE: research-production-verifier
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install backend dependencies
+        run: python -m pip install -r backend/requirements.txt
+
+      - name: Request short-lived GitHub OIDC token
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${ACTIONS_ID_TOKEN_REQUEST_URL:-}"
+          test -n "${ACTIONS_ID_TOKEN_REQUEST_TOKEN:-}"
+          token_response="$(curl --fail-with-body --silent --show-error --get \
+            -H "Authorization: bearer ${ACTIONS_ID_TOKEN_REQUEST_TOKEN}" \
+            --data-urlencode "audience=${GITHUB_OIDC_AUDIENCE}" \
+            "${ACTIONS_ID_TOKEN_REQUEST_URL}")"
+          token="$(python -c 'import json,sys; print(json.load(sys.stdin)["value"])' <<< "${token_response}")"
+          test -n "${token}"
+          printf 'GITHUB_OIDC_TOKEN=%s\n' "${token}" >> "${GITHUB_ENV}"
+
+      - name: Verify OIDC claims without exposing token
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import base64
+          import json
+          import os
+
+          token = os.environ["GITHUB_OIDC_TOKEN"]
+          payload = token.split(".")[1]
+          payload += "=" * (-len(payload) % 4)
+          claims = json.loads(base64.urlsafe_b64decode(payload))
+          assert claims.get("repository") == "ykclassic/research"
+          assert claims.get("ref") == "refs/heads/main"
+          assert claims.get("workflow_ref") == "ykclassic/research/.github/workflows/production-regime-verification.yml@refs/heads/main"
+          assert claims.get("event_name") in {"schedule", "workflow_dispatch"}
+          assert claims.get("aud") == "research-production-verifier"
+          print("OIDC claims validated for trusted production regime verification workflow.")
+          PY
+
+      - name: Verify deployed regime API
+        run: python backend/scripts/verify_production_regime.py
