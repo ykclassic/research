@@ -29,13 +29,7 @@ def _atr_percent_series(candles: list[Candle]) -> list[float]:
                 ranges.append(candle.high - candle.low)
             else:
                 previous = window[position - 1]
-                ranges.append(
-                    max(
-                        candle.high - candle.low,
-                        abs(candle.high - previous.close),
-                        abs(candle.low - previous.close),
-                    )
-                )
+                ranges.append(max(candle.high - candle.low, abs(candle.high - previous.close), abs(candle.low - previous.close)))
         atr = sum(ranges) / len(ranges)
         if window[-1].close > 0:
             values.append(100.0 * atr / window[-1].close)
@@ -58,16 +52,13 @@ def _trend_metrics(closes: list[float]) -> tuple[str, float, float]:
     sample = closes[-WINDOW:]
     if len(sample) < 2:
         return "UNKNOWN", 0.0, 0.0
-
     changes = [current - previous for previous, current in zip(sample[:-1], sample[1:])]
     up = sum(change > 0 for change in changes)
     down = sum(change < 0 for change in changes)
     direction = "UP" if up > down else "DOWN" if down > up else "FLAT"
     persistence = max(up, down) / len(changes)
     absolute_move = sum(abs(change) for change in changes)
-    directional_ratio = (
-        abs(sample[-1] - sample[0]) / absolute_move if absolute_move else 0.0
-    )
+    directional_ratio = abs(sample[-1] - sample[0]) / absolute_move if absolute_move else 0.0
     return direction, persistence, min(1.0, directional_ratio)
 
 
@@ -79,18 +70,14 @@ def _confidence(regime: MarketRegime, evidence: RegimeEvidence, thresholds: Regi
     """Return a bounded confidence score derived only from deterministic evidence."""
     if regime is MarketRegime.UNKNOWN:
         return 0.0
-
     components: list[float] = []
     if evidence.adx is not None:
         components.append(_clip(evidence.adx / max(1.0, thresholds.adx_strong)))
-    components.append(evidence.trend_persistence)
-    components.append(evidence.directional_move_ratio)
-
+    components.extend((evidence.trend_persistence, evidence.directional_move_ratio))
     if evidence.atr_percentile is not None:
         components.append(evidence.atr_percentile if regime is MarketRegime.HIGH_VOLATILITY else 1.0 - evidence.atr_percentile if regime is MarketRegime.LOW_VOLATILITY else 0.5)
     if evidence.bb_width_percentile is not None:
         components.append(evidence.bb_width_percentile if regime is MarketRegime.HIGH_VOLATILITY else 1.0 - evidence.bb_width_percentile if regime is MarketRegime.LOW_VOLATILITY else 0.5)
-
     score = sum(components) / len(components)
     if regime is MarketRegime.RANGE:
         score = 1.0 - evidence.directional_move_ratio
@@ -100,11 +87,7 @@ def _confidence(regime: MarketRegime, evidence: RegimeEvidence, thresholds: Regi
 
 
 def detect_regime(dataset: OHLCVDataset, thresholds: RegimeThresholds = DEFAULT_THRESHOLDS) -> MarketRegimeResult:
-    """Classify completed candles using deterministic, auditable rules.
-
-    The classifier performs no provider I/O and never consumes a forming candle.
-    Thresholds are returned with every result so classifications are reproducible.
-    """
+    """Classify completed candles using deterministic, auditable rules."""
     if not dataset.latest_candle.is_complete:
         raise ValueError("Regime detection requires completed candles only.")
     completed = list(dataset.completed_candles)
@@ -154,37 +137,17 @@ def detect_regime(dataset: OHLCVDataset, thresholds: RegimeThresholds = DEFAULT_
 
     if not indicators_available:
         regime, rule_id, rule = MarketRegime.UNKNOWN, "R0", "required indicators unavailable"
-    elif directional_ratio >= thresholds.directional_ratio_weak and (
-        (direction == "UP" and not bullish) or (direction == "DOWN" and not bearish)
-    ):
+    elif directional_ratio >= thresholds.directional_ratio_weak and ((direction == "UP" and not bullish) or (direction == "DOWN" and not bearish)):
         regime, rule_id, rule = MarketRegime.UNKNOWN, "R1", "direction conflicts with EMA structure"
-    elif (
-        adx >= thresholds.adx_strong and persistence >= thresholds.persistence_strong
-        and directional_ratio >= thresholds.directional_ratio_strong and direction == "UP" and bullish
-    ):
+    elif adx >= thresholds.adx_strong and persistence >= thresholds.persistence_strong and directional_ratio >= thresholds.directional_ratio_strong and direction == "UP" and bullish:
         regime, rule_id, rule = MarketRegime.STRONG_TREND_UP, "R2", "ADX>=25 + persistence>=0.70 + directional_move_ratio>=0.55 + bullish EMA alignment"
-    elif (
-        adx >= thresholds.adx_strong and persistence >= thresholds.persistence_strong
-        and directional_ratio >= thresholds.directional_ratio_strong and direction == "DOWN" and bearish
-    ):
+    elif adx >= thresholds.adx_strong and persistence >= thresholds.persistence_strong and directional_ratio >= thresholds.directional_ratio_strong and direction == "DOWN" and bearish:
         regime, rule_id, rule = MarketRegime.STRONG_TREND_DOWN, "R3", "ADX>=25 + persistence>=0.70 + directional_move_ratio>=0.55 + bearish EMA alignment"
-    elif (
-        atr_percentile is not None and (
-            atr_percentile >= thresholds.volatility_high_percentile
-            or (bb_width_percentile is not None and bb_width_percentile >= thresholds.volatility_high_percentile and atr_percentile >= 0.60)
-        )
-    ):
+    elif atr_percentile is not None and (atr_percentile >= thresholds.volatility_high_percentile or (bb_width_percentile is not None and bb_width_percentile >= thresholds.volatility_high_percentile and atr_percentile >= 0.60)):
         regime, rule_id, rule = MarketRegime.HIGH_VOLATILITY, "R4", "ATR percentile>=0.80 OR Bollinger-width percentile>=0.80 with ATR percentile>=0.60"
-    elif (
-        atr_percentile is not None and bb_width_percentile is not None
-        and atr_percentile <= thresholds.volatility_low_percentile
-        and bb_width_percentile <= thresholds.volatility_low_percentile
-    ):
+    elif atr_percentile is not None and bb_width_percentile is not None and atr_percentile <= thresholds.volatility_low_percentile and bb_width_percentile <= thresholds.volatility_low_percentile:
         regime, rule_id, rule = MarketRegime.LOW_VOLATILITY, "R5", "ATR percentile<=0.20 AND Bollinger-width percentile<=0.20"
-    elif (
-        persistence >= thresholds.persistence_weak and directional_ratio >= thresholds.directional_ratio_weak
-        and ((direction == "UP" and bullish) or (direction == "DOWN" and bearish))
-    ):
+    elif persistence >= thresholds.persistence_weak and directional_ratio >= thresholds.directional_ratio_weak and ((direction == "UP" and bullish) or (direction == "DOWN" and bearish)):
         regime, rule_id, rule = MarketRegime.WEAK_TREND, "R6", "persistence>=0.50 + directional_move_ratio>=0.25 + aligned EMA structure"
     elif directional_ratio < thresholds.directional_ratio_weak:
         regime, rule_id, rule = MarketRegime.RANGE, "R7", "directional_move_ratio<0.25 after trend and volatility rules"
@@ -196,6 +159,7 @@ def detect_regime(dataset: OHLCVDataset, thresholds: RegimeThresholds = DEFAULT_
         timeframe=dataset.timeframe,
         source=dataset.source,
         calculated_at=datetime.now(timezone.utc),
+        provider_timestamp=dataset.provider_timestamp,
         latest_candle_timestamp=completed[-1].timestamp,
         candle_count=len(completed),
         regime=regime,
