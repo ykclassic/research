@@ -4,7 +4,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.api.auth import get_current_user_or_github_actions
-from app.api.regime import quote_service
+from app.api.regime import _completed_dataset, quote_service
 from app.main import app
 from app.models import Timeframe
 from app.models.market import Candle, OHLCVDataset
@@ -150,6 +150,30 @@ def test_forming_candle_is_rejected_even_when_enough_completed_history_exists():
         detect_regime(invalid)
 
 
+def test_completed_dataset_drops_only_trailing_forming_candle():
+    dataset = make_dataset(221)
+    candles = list(dataset.candles)
+    candles[-1] = candles[-1].model_copy(update={"is_complete": False})
+    source = dataset.model_copy(update={"candles": tuple(candles)})
+
+    completed = _completed_dataset(source)
+
+    assert len(completed.candles) == 220
+    assert all(candle.is_complete for candle in completed.candles)
+    assert completed.latest_candle.timestamp == candles[-2].timestamp
+    assert completed.provider_timestamp == dataset.provider_timestamp
+
+
+def test_completed_dataset_rejects_incomplete_non_trailing_candle():
+    dataset = make_dataset(221)
+    candles = list(dataset.candles)
+    candles[100] = candles[100].model_copy(update={"is_complete": False})
+    source = dataset.model_copy(update={"candles": tuple(candles)})
+
+    with pytest.raises(ValueError, match="outside the latest candle"):
+        _completed_dataset(source)
+
+
 @pytest.fixture()
 def authenticated_client():
     app.dependency_overrides[get_current_user_or_github_actions] = lambda: {"id": "u1"}
@@ -190,6 +214,50 @@ def test_regime_api_returns_deterministic_evidence(authenticated_client, monkeyp
     assert body["thresholds"]["adx_strong"] == 25.0
     assert body["evidence"]["trend_persistence"] == 0.8
     assert body["evidence"]["directional_move_ratio"] == 0.6
+
+
+def test_regime_api_accepts_provider_dataset_with_trailing_forming_candle(authenticated_client, monkeypatch):
+    dataset = make_dataset(221)
+    candles = list(dataset.candles)
+    candles[-1] = candles[-1].model_copy(update={"is_complete": False})
+    provider_dataset = dataset.model_copy(update={"candles": tuple(candles)})
+
+    async def fake_get_candles(symbol, timeframe, limit):
+        return provider_dataset
+
+    monkeypatch.setattr(quote_service.provider, "get_candles", fake_get_candles)
+    monkeypatch.setattr(regime_detection, "_trend_metrics", lambda closes: ("UP", 0.80, 0.60))
+    monkeypatch.setattr(regime_detection, "_atr_percent_series", lambda candles: [0.01] * 100 + [0.02])
+    monkeypatch.setattr(regime_detection, "_bb_width_series", lambda closes: [0.01] * 100 + [0.02])
+    monkeypatch.setattr(regime_detection, "_percentile_rank", lambda values, current: 0.50)
+    monkeypatch.setattr(
+        regime_detection,
+        "calculate_indicators",
+        lambda candles: {"adx14": 30.0, "atr14": 2.0, "ema50": 110.0, "ema200": 100.0, "bb_width": 0.02},
+    )
+
+    response = authenticated_client.get("/api/regime/BTC%2FUSD", params={"timeframe": "1h", "limit": 250})
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["regime"] == "STRONG_TREND_UP"
+    assert body["candle_count"] == 220
+    assert body["latest_candle_timestamp"] == candles[-2].timestamp.isoformat().replace("+00:00", "Z")
+
+
+def test_regime_api_rejects_provider_incomplete_historical_candle(authenticated_client, monkeypatch):
+    dataset = make_dataset(221)
+    candles = list(dataset.candles)
+    candles[100] = candles[100].model_copy(update={"is_complete": False})
+    provider_dataset = dataset.model_copy(update={"candles": tuple(candles)})
+
+    async def fake_get_candles(symbol, timeframe, limit):
+        return provider_dataset
+
+    monkeypatch.setattr(quote_service.provider, "get_candles", fake_get_candles)
+
+    response = authenticated_client.get("/api/regime/BTC%2FUSD", params={"timeframe": "1h", "limit": 250})
+    assert response.status_code == 503
+    assert response.json()["detail"] == "Provider returned incomplete candles outside the latest candle."
 
 
 def test_regime_api_requires_authentication():
