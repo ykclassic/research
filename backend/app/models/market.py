@@ -32,7 +32,14 @@ class Timeframe(str, Enum):
 
     @property
     def seconds(self) -> int:
-        return {Timeframe.MINUTE_5: 300, Timeframe.MINUTE_15: 900, Timeframe.MINUTE_30: 1800, Timeframe.HOUR_1: 3600, Timeframe.HOUR_4: 14400, Timeframe.DAY_1: 86400}[self]
+        return {
+            Timeframe.MINUTE_5: 300,
+            Timeframe.MINUTE_15: 900,
+            Timeframe.MINUTE_30: 1800,
+            Timeframe.HOUR_1: 3600,
+            Timeframe.HOUR_4: 14400,
+            Timeframe.DAY_1: 86400,
+        }[self]
 
 
 class Candle(BaseModel):
@@ -64,7 +71,11 @@ class Candle(BaseModel):
 
     @model_validator(mode="after")
     def validate_price_range(self) -> Candle:
-        if self.high < max(self.open, self.close) or self.low > min(self.open, self.close) or self.high < self.low:
+        if (
+            self.high < max(self.open, self.close)
+            or self.low > min(self.open, self.close)
+            or self.high < self.low
+        ):
             raise ValueError("Candle OHLC price range is invalid.")
         return self
 
@@ -110,8 +121,15 @@ class OHLCVDataset(BaseModel):
     @model_validator(mode="after")
     def validate_candle_identity(self) -> OHLCVDataset:
         for candle in self.candles:
-            if candle.symbol != self.symbol or candle.timeframe != self.timeframe or candle.source != self.source:
-                raise ValueError("Every candle must match the dataset identity.")
+            if (
+                candle.symbol != self.symbol
+                or candle.timeframe != self.timeframe
+                or candle.source != self.source
+            ):
+                raise ValueError(
+                    "Every candle must match the dataset identity: "
+                    "symbol, timeframe, and source."
+                )
         return self
 
     @property
