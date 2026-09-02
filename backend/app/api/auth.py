@@ -79,24 +79,8 @@ def _csrf_token(access_token: str) -> str:
 def _set_auth_cookies(response: Response, access_token: str) -> str:
     csrf_token = _csrf_token(access_token)
     secure = _cookie_secure()
-    response.set_cookie(
-        SESSION_COOKIE,
-        access_token,
-        max_age=settings.auth_session_seconds,
-        httponly=True,
-        secure=secure,
-        samesite="none" if secure else "lax",
-        path="/",
-    )
-    response.set_cookie(
-        CSRF_COOKIE,
-        csrf_token,
-        max_age=settings.auth_session_seconds,
-        httponly=False,
-        secure=secure,
-        samesite="none" if secure else "lax",
-        path="/",
-    )
+    response.set_cookie(SESSION_COOKIE, access_token, max_age=settings.auth_session_seconds, httponly=True, secure=secure, samesite="none" if secure else "lax", path="/")
+    response.set_cookie(CSRF_COOKIE, csrf_token, max_age=settings.auth_session_seconds, httponly=False, secure=secure, samesite="none" if secure else "lax", path="/")
     response.headers[CSRF_HEADER] = csrf_token
     return csrf_token
 
@@ -107,11 +91,7 @@ def _clear_auth_cookies(response: Response) -> None:
 
 
 def _configured_origins() -> set[str]:
-    return {
-        origin.strip().rstrip("/")
-        for origin in settings.cors_origins.split(",")
-        if origin.strip()
-    }
+    return {origin.strip().rstrip("/") for origin in settings.cors_origins.split(",") if origin.strip()}
 
 
 def _require_csrf(
@@ -122,31 +102,19 @@ def _require_csrf(
 ) -> None:
     if not csrf_header:
         raise HTTPException(status_code=403, detail="CSRF validation failed.")
-
     if settings.app_env.lower() in {"production", "prod"}:
         normalized_origin = origin.rstrip("/") if origin else None
         if normalized_origin not in _configured_origins():
             raise HTTPException(status_code=403, detail="CSRF origin validation failed.")
-
-    cookie_valid = bool(
-        csrf_cookie
-        and secrets.compare_digest(csrf_cookie, csrf_header)
-    )
-    signed_valid = bool(
-        access_token
-        and secrets.compare_digest(_csrf_token(access_token), csrf_header)
-    )
+    cookie_valid = bool(csrf_cookie and secrets.compare_digest(csrf_cookie, csrf_header))
+    signed_valid = bool(access_token and secrets.compare_digest(_csrf_token(access_token), csrf_header))
     if not (cookie_valid or signed_valid):
         raise HTTPException(status_code=403, detail="CSRF validation failed.")
 
 
 def _map_user(payload: dict[str, Any]) -> UserResponse:
     user = payload.get("user", payload)
-    return UserResponse(
-        id=str(user["id"]),
-        email=user["email"],
-        created_at=user.get("created_at"),
-    )
+    return UserResponse(id=str(user["id"]), email=user["email"], created_at=user.get("created_at"))
 
 
 def _auth_error(exc: AuthServiceError) -> HTTPException:
@@ -164,13 +132,15 @@ def _auth_error(exc: AuthServiceError) -> HTTPException:
 
 
 def _validate_github_oidc_claims(claims: dict[str, Any]) -> None:
-    expected_workflow_ref = f"{settings.github_oidc_repository}/{settings.github_oidc_workflow}@{settings.github_oidc_ref}"
-
+    expected_workflow_refs = {
+        f"{settings.github_oidc_repository}/{workflow}@{settings.github_oidc_ref}"
+        for workflow in settings.trusted_oidc_workflows
+    }
     if claims.get("repository") != settings.github_oidc_repository:
         raise HTTPException(status_code=403, detail="GitHub OIDC repository is not trusted.")
     if claims.get("ref") != settings.github_oidc_ref:
         raise HTTPException(status_code=403, detail="GitHub OIDC ref is not trusted.")
-    if claims.get("workflow_ref") != expected_workflow_ref:
+    if claims.get("workflow_ref") not in expected_workflow_refs:
         raise HTTPException(status_code=403, detail="GitHub OIDC workflow is not trusted.")
     if claims.get("event_name") not in GITHUB_OIDC_EVENTS:
         raise HTTPException(status_code=403, detail="GitHub OIDC event is not trusted.")
@@ -209,25 +179,28 @@ def get_current_user_or_github_actions(
     authorization: Annotated[str | None, Header(alias="Authorization")] = None,
     access_token: Annotated[str | None, Cookie(alias=SESSION_COOKIE)] = None,
 ) -> UserResponse | None:
-    """Authenticate either a normal Supabase session or trusted GitHub Actions OIDC.
-
-    The OIDC path is intentionally limited to market/analysis read endpoints by
-    the routers that depend on this function. It does not grant access to auth,
-    watchlist mutation, or administrative endpoints.
-    """
     if authorization:
         scheme, _, token = authorization.partition(" ")
         if scheme.lower() != "bearer" or not token.strip():
             raise HTTPException(status_code=401, detail="Invalid Authorization header.")
         _verify_github_oidc_token(token.strip())
         return None
-
     return get_current_user(access_token)
+
+
+def require_github_actions(
+    authorization: Annotated[str | None, Header(alias="Authorization")] = None,
+) -> None:
+    if not authorization:
+        raise HTTPException(status_code=401, detail="GitHub Actions OIDC authentication required.")
+    scheme, _, token = authorization.partition(" ")
+    if scheme.lower() != "bearer" or not token.strip():
+        raise HTTPException(status_code=401, detail="Invalid Authorization header.")
+    _verify_github_oidc_token(token.strip())
 
 
 @router.post("/register", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
 async def register(credentials: Credentials) -> UserResponse:
-    """Create an account without creating an authenticated application session."""
     try:
         payload = sign_up(credentials.email.strip().lower(), credentials.password)
     except AuthServiceError as exc:
@@ -253,11 +226,7 @@ async def login(credentials: Credentials, response: Response) -> UserResponse:
 
 
 @router.get("/csrf")
-async def csrf(
-    response: Response,
-    access_token: Annotated[str | None, Cookie(alias=SESSION_COOKIE)] = None,
-) -> MessageResponse:
-    """Return the CSRF token associated with the current authenticated session."""
+async def csrf(response: Response, access_token: Annotated[str | None, Cookie(alias=SESSION_COOKIE)] = None) -> MessageResponse:
     if not access_token:
         raise HTTPException(status_code=401, detail="Authentication required.")
     token = _set_auth_cookies(response, access_token)
@@ -267,7 +236,6 @@ async def csrf(
 
 @router.post("/password-reset/request", response_model=MessageResponse)
 async def password_reset_request(payload: PasswordResetRequest) -> MessageResponse:
-    """Send a Supabase password-recovery email without disclosing account existence."""
     try:
         request_password_reset(payload.email.strip().lower())
     except AuthConfigurationError as exc:
@@ -293,16 +261,8 @@ async def me(user: Annotated[UserResponse, Depends(get_current_user)]) -> UserRe
     return user
 
 
-@router.post(
-    "/logout",
-    response_model=None,
-    status_code=status.HTTP_204_NO_CONTENT,
-    dependencies=[Depends(_require_csrf)],
-)
-async def logout(
-    response: Response,
-    access_token: Annotated[str | None, Cookie(alias=SESSION_COOKIE)] = None,
-) -> None:
+@router.post("/logout", response_model=None, status_code=status.HTTP_204_NO_CONTENT, dependencies=[Depends(_require_csrf)])
+async def logout(response: Response, access_token: Annotated[str | None, Cookie(alias=SESSION_COOKIE)] = None) -> None:
     if access_token:
         try:
             sign_out(access_token)
