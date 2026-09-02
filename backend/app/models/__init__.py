@@ -12,6 +12,13 @@ from app.models.market import (
     Timeframe,
 )
 from app.models.regime import MarketRegime, MarketRegimeResult, RegimeEvidence, RegimeThresholds
+from app.models.strategy import (
+    SignalDirection,
+    StrategyDefinition,
+    StrategyPortfolioResult,
+    StrategySignal,
+    StrategyStatus,
+)
 
 
 class QuoteStatus(str, Enum):
@@ -67,4 +74,9 @@ __all__ = [
     "MarketRegimeResult",
     "RegimeEvidence",
     "RegimeThresholds",
+    "SignalDirection",
+    "StrategyDefinition",
+    "StrategyPortfolioResult",
+    "StrategySignal",
+    "StrategyStatus",
 ]
