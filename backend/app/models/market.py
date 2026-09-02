@@ -19,6 +19,7 @@ class CompletenessStatus(str, Enum):
     PARTIAL = "PARTIAL"
     INVALID = "INVALID"
     UNKNOWN = "UNKNOWN"
+    NOT_APPLICABLE = "NOT_APPLICABLE"
 
 
 class Timeframe(str, Enum):
@@ -31,21 +32,11 @@ class Timeframe(str, Enum):
 
     @property
     def seconds(self) -> int:
-        return {
-            Timeframe.MINUTE_5: 300,
-            Timeframe.MINUTE_15: 900,
-            Timeframe.MINUTE_30: 1800,
-            Timeframe.HOUR_1: 3600,
-            Timeframe.HOUR_4: 14400,
-            Timeframe.DAY_1: 86400,
-        }[self]
+        return {Timeframe.MINUTE_5: 300, Timeframe.MINUTE_15: 900, Timeframe.MINUTE_30: 1800, Timeframe.HOUR_1: 3600, Timeframe.HOUR_4: 14400, Timeframe.DAY_1: 86400}[self]
 
 
 class Candle(BaseModel):
-    """Canonical, immutable OHLCV candle used by all research calculations."""
-
     model_config = ConfigDict(frozen=True)
-
     timestamp: datetime
     open: float = Field(gt=0)
     high: float = Field(gt=0)
@@ -73,20 +64,13 @@ class Candle(BaseModel):
 
     @model_validator(mode="after")
     def validate_price_range(self) -> Candle:
-        if self.high < max(self.open, self.close):
-            raise ValueError("Candle high must be >= open and close.")
-        if self.low > min(self.open, self.close):
-            raise ValueError("Candle low must be <= open and close.")
-        if self.high < self.low:
-            raise ValueError("Candle high must be >= low.")
+        if self.high < max(self.open, self.close) or self.low > min(self.open, self.close) or self.high < self.low:
+            raise ValueError("Candle OHLC price range is invalid.")
         return self
 
 
 class OHLCVDataset(BaseModel):
-    """Canonical historical dataset with explicit freshness/completeness/provenance."""
-
     model_config = ConfigDict(frozen=True)
-
     symbol: str
     timeframe: Timeframe
     source: str
@@ -126,12 +110,8 @@ class OHLCVDataset(BaseModel):
     @model_validator(mode="after")
     def validate_candle_identity(self) -> OHLCVDataset:
         for candle in self.candles:
-            if candle.symbol != self.symbol:
-                raise ValueError("Every candle must match the dataset symbol.")
-            if candle.timeframe != self.timeframe:
-                raise ValueError("Every candle must match the dataset timeframe.")
-            if candle.source != self.source:
-                raise ValueError("Every candle must match the dataset source.")
+            if candle.symbol != self.symbol or candle.timeframe != self.timeframe or candle.source != self.source:
+                raise ValueError("Every candle must match the dataset identity.")
         return self
 
     @property
@@ -151,10 +131,7 @@ class OHLCVDataset(BaseModel):
 
 
 class TechnicalAnalysisResult(BaseModel):
-    """Deterministic indicator output with dataset provenance."""
-
     model_config = ConfigDict(frozen=True)
-
     symbol: str
     timeframe: Timeframe
     source: str
