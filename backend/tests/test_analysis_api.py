@@ -66,8 +66,10 @@ def make_quote(price: float = 165.25) -> Quote:
 def authenticated_client(monkeypatch):
     app.dependency_overrides[get_current_user_or_github_actions] = lambda: USER
 
-    async def fake_get_quote(symbol):
+    async def fake_get_quote(symbol, force_refresh=False, excluded_providers=None):
         assert symbol == SYMBOL
+        assert force_refresh is True
+        assert excluded_providers is None
         return make_quote()
 
     monkeypatch.setattr(quote_service.provider, "get_quote", fake_get_quote)
