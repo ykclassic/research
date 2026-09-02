@@ -52,9 +52,7 @@ class FinnhubProvider(MarketDataProvider):
             raise RuntimeError("FINNHUB_API_KEY is not configured.")
         query = dict(params)
         query["token"] = settings.finnhub_api_key
-        async with httpx.AsyncClient(
-            timeout=httpx.Timeout(settings.provider_timeout_seconds)
-        ) as client:
+        async with httpx.AsyncClient(timeout=httpx.Timeout(settings.provider_timeout_seconds)) as client:
             response = await client.get(f"{self.base_url}/{path}", params=query)
         response.raise_for_status()
         payload = response.json()
@@ -75,11 +73,7 @@ class FinnhubProvider(MarketDataProvider):
             observed_at = datetime.now(timezone.utc)
             age = max(0.0, (observed_at - provider_timestamp).total_seconds())
             freshness = freshness_for_age(age, settings.stale_quote_seconds)
-            status = {
-                FreshnessStatus.FRESH: QuoteStatus.LIVE,
-                FreshnessStatus.DELAYED: QuoteStatus.DELAYED,
-                FreshnessStatus.STALE: QuoteStatus.STALE,
-            }[freshness]
+            status = {FreshnessStatus.FRESH: QuoteStatus.LIVE, FreshnessStatus.DELAYED: QuoteStatus.DELAYED, FreshnessStatus.STALE: QuoteStatus.STALE}[freshness]
             return Quote(
                 symbol=mapping.internal,
                 provider_symbol=provider_symbol,
@@ -118,65 +112,44 @@ class FinnhubProvider(MarketDataProvider):
         timeframe = Timeframe(timeframe)
         provider_symbol = self._provider_symbol(internal_symbol)
         now = datetime.now(timezone.utc)
-        start = int((start_date or (now.timestamp() - timeframe.seconds * outputsize)))
-        end = int((end_date or now).timestamp())
+        started = time.perf_counter()
+        start_ts = int(start_date.timestamp()) if start_date is not None else int(now.timestamp() - timeframe.seconds * outputsize)
+        end_ts = int(end_date.timestamp()) if end_date is not None else int(now.timestamp())
+        if start_ts >= end_ts:
+            raise ValueError("Historical candle start_date must be before end_date.")
+
         payload = await self._get(
-            {
-                "stock": "stock/candle",
-                "etf": "stock/candle",
-                "forex": "forex/candle",
-                "crypto": "crypto/candle",
-            }[mapping.asset_class],
-            {"symbol": provider_symbol, "resolution": self._resolutions[timeframe], "from": str(start), "to": str(end)},
+            {"stock": "stock/candle", "etf": "stock/candle", "forex": "forex/candle", "crypto": "crypto/candle"}[mapping.asset_class],
+            {"symbol": provider_symbol, "resolution": self._resolutions[timeframe], "from": str(start_ts), "to": str(end_ts)},
         )
         if payload.get("s") != "ok":
             raise ValueError(f"Finnhub candle response status: {payload.get('s')}")
         rows = zip(payload.get("t", []), payload.get("o", []), payload.get("h", []), payload.get("l", []), payload.get("c", []), payload.get("v", []))
         candles: list[Candle] = []
-        duration = timeframe.seconds
         for timestamp, open_, high, low, close, volume in rows:
             candle_time = datetime.fromtimestamp(float(timestamp), tz=timezone.utc)
-            candles.append(
-                Candle(
-                    timestamp=candle_time,
-                    open=float(open_),
-                    high=float(high),
-                    low=float(low),
-                    close=float(close),
-                    volume=float(volume) if volume is not None else None,
-                    symbol=mapping.internal,
-                    timeframe=timeframe,
-                    source=self.name,
-                    is_complete=candle_time.timestamp() + duration <= now.timestamp(),
-                )
-            )
+            candles.append(Candle(
+                timestamp=candle_time,
+                open=float(open_), high=float(high), low=float(low), close=float(close),
+                volume=float(volume) if volume is not None else None,
+                symbol=mapping.internal, timeframe=timeframe, source=self.name,
+                is_complete=candle_time.timestamp() + timeframe.seconds <= now.timestamp(),
+            ))
         if not candles:
             raise ValueError("Finnhub returned no candles.")
         candles.sort(key=lambda item: item.timestamp)
-        requested_at = now
+        candles = candles[-min(max(outputsize, 50), len(candles)):]
         provider_timestamp = candles[-1].timestamp
         age = max(0.0, (now - provider_timestamp).total_seconds())
         freshness = freshness_for_age(age, timeframe.seconds + settings.stale_quote_seconds)
         provisional = OHLCVDataset.model_construct(
-            symbol=mapping.internal,
-            timeframe=timeframe,
-            source=self.name,
-            requested_at=requested_at,
-            provider_timestamp=provider_timestamp,
-            candles=tuple(candles),
+            symbol=mapping.internal, timeframe=timeframe, source=self.name,
+            requested_at=now, provider_timestamp=provider_timestamp, candles=tuple(candles),
         )
-        return validate_ohlcv_dataset(
-            OHLCVDataset(
-                symbol=mapping.internal,
-                timeframe=timeframe,
-                source=self.name,
-                requested_at=requested_at,
-                provider_timestamp=provider_timestamp,
-                candles=tuple(candles),
-                request_latency_ms=0,
-                freshness_status=freshness,
-                freshness_age_seconds=age,
-                completeness_status=dataset_completeness(provisional),
-                provider_attempts=(self.name,),
-            )
-        )
+        return validate_ohlcv_dataset(OHLCVDataset(
+            symbol=mapping.internal, timeframe=timeframe, source=self.name,
+            requested_at=now, provider_timestamp=provider_timestamp, candles=tuple(candles),
+            request_latency_ms=int((time.perf_counter() - started) * 1000),
+            freshness_status=freshness, freshness_age_seconds=age,
+            completeness_status=dataset_completeness(provisional), provider_attempts=(self.name,),
+        ))
