@@ -6,7 +6,19 @@ from math import isfinite
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from app.models import CompletenessStatus, FreshnessStatus
+
+class FreshnessStatus(str, Enum):
+    FRESH = "FRESH"
+    DELAYED = "DELAYED"
+    STALE = "STALE"
+    UNKNOWN = "UNKNOWN"
+
+
+class CompletenessStatus(str, Enum):
+    COMPLETE = "COMPLETE"
+    PARTIAL = "PARTIAL"
+    INVALID = "INVALID"
+    UNKNOWN = "UNKNOWN"
 
 
 class Timeframe(str, Enum):
