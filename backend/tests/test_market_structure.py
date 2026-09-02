@@ -12,8 +12,10 @@ from app.services.market_structure import (
     _fvg,
     _inducement,
     _liquidity_and_sweeps,
+    _liquidity_extensions,
     _order_blocks,
     _structure_breaks,
+    _zone_events,
     analyze_market_structure,
 )
 
@@ -90,6 +92,15 @@ def test_liquidity_sweep_requires_wick_beyond_level_and_close_back_inside() -> N
     assert sweep.source_candles[-1] == rows[6].timestamp and sweep.time == rows[6].timestamp
 
 
+def test_liquidity_pool_and_stop_run_are_explicit_derived_events() -> None:
+    rows = list(_ohlc_dataset([(100, 101, 99, 100)] * 8).candles)
+    level = _event("EQUAL_HIGH", 105.0, 4, rows, 0.9, invalidation=105.0, source_indexes=(2, 4))
+    sweep = _event("LIQUIDITY_SWEEP_HIGH", 105.0, 6, rows, 0.8, invalidation=106.0, source_indexes=(2, 4, 6))
+    derived = _liquidity_extensions(rows, [level], [sweep])
+    assert [event.type for event in derived] == ["LIQUIDITY_POOL_HIGH", "STOP_RUN_HIGH"]
+    assert derived[0].time == rows[4].timestamp and derived[1].time == rows[6].timestamp
+
+
 def test_displacement_and_order_block_are_linked() -> None:
     candles = [(100, 101, 99, 100)] * 15
     candles[13] = (102, 103, 98, 99)
@@ -108,6 +119,14 @@ def test_fvg_detects_three_candle_gap_with_causal_provenance() -> None:
     assert event.type == "FVG_BULLISH"
     assert event.source_candles == tuple(rows[i].timestamp for i in (0, 1, 2))
     assert event.time == rows[2].timestamp
+
+
+def test_premium_discount_uses_latest_confirmed_swing_range() -> None:
+    rows = list(_dataset([100 + ((i % 3) - 1) for i in range(30)]).candles)
+    events = _zone_events(rows, [(10, "HIGH", 120.0)], [(8, "LOW", 100.0)])
+    assert len(events) == 1
+    assert events[0].type in {"PREMIUM", "DISCOUNT"}
+    assert events[0].source_candles == (rows[8].timestamp, rows[10].timestamp, rows[12].timestamp)
 
 
 def test_inducement_requires_directionally_matching_sweep_and_break() -> None:
