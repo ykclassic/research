@@ -2,6 +2,9 @@ name: Production Market Data Verification
 
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - main
   schedule:
     - cron: "17 */6 * * *"
 
@@ -64,7 +67,7 @@ jobs:
           assert claims.get("repository") == "ykclassic/research"
           assert claims.get("ref") == "refs/heads/main"
           assert claims.get("workflow_ref") == expected_workflow
-          assert claims.get("event_name") in {"schedule", "workflow_dispatch"}
+          assert claims.get("event_name") in {"push", "schedule", "workflow_dispatch"}
           assert claims.get("aud") == "research-production-verifier"
           print("OIDC claims validated:")
           for key in ("repository", "ref", "workflow_ref", "event_name", "aud"):
