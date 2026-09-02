@@ -3,7 +3,14 @@ from enum import Enum
 
 from pydantic import BaseModel, Field
 
-from app.models.market import Candle, OHLCVDataset, TechnicalAnalysisResult, Timeframe
+from app.models.market import (
+    Candle,
+    CompletenessStatus,
+    FreshnessStatus,
+    OHLCVDataset,
+    TechnicalAnalysisResult,
+    Timeframe,
+)
 from app.models.regime import MarketRegime, MarketRegimeResult, RegimeEvidence, RegimeThresholds
 
 
@@ -13,20 +20,6 @@ class QuoteStatus(str, Enum):
     STALE = "STALE"
     UNAVAILABLE = "UNAVAILABLE"
     MARKET_CLOSED = "MARKET_CLOSED"
-
-
-class FreshnessStatus(str, Enum):
-    FRESH = "FRESH"
-    DELAYED = "DELAYED"
-    STALE = "STALE"
-    UNKNOWN = "UNKNOWN"
-
-
-class CompletenessStatus(str, Enum):
-    COMPLETE = "COMPLETE"
-    PARTIAL = "PARTIAL"
-    INVALID = "INVALID"
-    UNKNOWN = "UNKNOWN"
 
 
 class Quote(BaseModel):
