@@ -7,6 +7,7 @@ from app.api.analysis import quote_service
 from app.api.auth import get_current_user_or_github_actions
 from app.config import settings
 from app.main import app
+from app.models import Quote, QuoteStatus
 from app.models.market import Candle, OHLCVDataset, Timeframe
 
 
@@ -40,6 +41,23 @@ def make_dataset(count: int = 250) -> OHLCVDataset:
     )
 
 
+def make_quote(price: float = 165.25) -> Quote:
+    observed = datetime(2026, 8, 30, 5, 55, tzinfo=timezone.utc)
+    return Quote(
+        symbol="BTC/USD",
+        provider_symbol="BTC/USD",
+        price=price,
+        currency="USD",
+        timestamp=observed,
+        provider_timestamp=observed,
+        observed_at=observed,
+        source="test_provider",
+        status=QuoteStatus.LIVE,
+        latency_ms=1,
+        cache_hit=False,
+    )
+
+
 def test_health_exposes_server_timing():
     with TestClient(app) as client:
         response = client.get("/health")
@@ -57,7 +75,11 @@ def test_analysis_provider_timeout_is_bounded(monkeypatch):
         await asyncio.sleep(0.05)
         return make_dataset()
 
+    async def fast_get_quote(symbol, force_refresh=False, excluded_providers=None):
+        return make_quote()
+
     monkeypatch.setattr(quote_service.provider, "get_candles", slow_get_candles)
+    monkeypatch.setattr(quote_service.provider, "get_quote", fast_get_quote)
     try:
         with TestClient(app) as client:
             response = client.get("/api/analysis/BTC%2FUSD")
@@ -66,7 +88,7 @@ def test_analysis_provider_timeout_is_bounded(monkeypatch):
         app.dependency_overrides.pop(get_current_user_or_github_actions, None)
 
     assert response.status_code == 503
-    assert response.json()["detail"] == "Market-data provider exceeded the analysis latency budget."
+    assert response.json()["detail"] == "Market-data providers exceeded the analysis latency budget and no cached analysis was available."
 
 
 def test_analysis_server_timing_is_present(monkeypatch):
@@ -75,7 +97,11 @@ def test_analysis_server_timing_is_present(monkeypatch):
     async def fast_get_candles(symbol, timeframe, limit):
         return make_dataset()
 
+    async def fast_get_quote(symbol, force_refresh=False, excluded_providers=None):
+        return make_quote()
+
     monkeypatch.setattr(quote_service.provider, "get_candles", fast_get_candles)
+    monkeypatch.setattr(quote_service.provider, "get_quote", fast_get_quote)
     try:
         with TestClient(app) as client:
             response = client.get("/api/analysis/BTC%2FUSD", params={"limit": 250})
@@ -93,7 +119,11 @@ def test_analysis_response_remains_numerically_deterministic(monkeypatch):
     async def fast_get_candles(symbol, timeframe, limit):
         return make_dataset()
 
+    async def fast_get_quote(symbol, force_refresh=False, excluded_providers=None):
+        return make_quote()
+
     monkeypatch.setattr(quote_service.provider, "get_candles", fast_get_candles)
+    monkeypatch.setattr(quote_service.provider, "get_quote", fast_get_quote)
     try:
         with TestClient(app) as client:
             first = client.get("/api/analysis/BTC%2FUSD", params={"limit": 250}).json()
