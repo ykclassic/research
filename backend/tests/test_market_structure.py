@@ -140,13 +140,15 @@ def test_inducement_requires_directionally_matching_sweep_and_break() -> None:
 
 def test_status_semantics_distinguish_active_invalidated_and_broken() -> None:
     rows = list(_dataset([100 + ((i % 3) - 1) for i in range(30)]).candles)
-    active_fvg = _event("FVG_BULLISH", 105.0, 20, rows, 0.8, invalidation=104.0)
+    active_fvg = _event("FVG_BULLISH", 105.0, 20, rows, 0.8, invalidation=95.0)
+    invalidated_fvg = _event("FVG_BULLISH", 105.0, 20, rows, 0.8, invalidation=101.0)
     broken_pool = _event("LIQUIDITY_POOL_HIGH", 110.0, 20, rows, 0.8, invalidation=110.0)
     sweep = _event("LIQUIDITY_SWEEP_HIGH", 110.0, 22, rows, 0.8, invalidation=112.0)
-    statuses = _apply_snapshot_statuses([active_fvg, broken_pool, sweep], rows)
+    statuses = _apply_snapshot_statuses([active_fvg, invalidated_fvg, broken_pool, sweep], rows)
     assert statuses[0].status is StructureStatus.ACTIVE
-    assert statuses[1].status is StructureStatus.BROKEN
-    assert statuses[2].status is StructureStatus.CONFIRMED
+    assert statuses[1].status is StructureStatus.INVALIDATED
+    assert statuses[2].status is StructureStatus.BROKEN
+    assert statuses[3].status is StructureStatus.CONFIRMED
 
 
 def test_event_factory_rejects_future_source_candles() -> None:
