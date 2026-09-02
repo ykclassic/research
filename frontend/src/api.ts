@@ -1,7 +1,6 @@
 export type QuoteStatus = "LIVE" | "DELAYED" | "STALE" | "UNAVAILABLE" | "MARKET_CLOSED";
 export type FreshnessStatus = "FRESH" | "DELAYED" | "STALE" | "UNKNOWN";
 export type CompletenessStatus = "COMPLETE" | "PARTIAL" | "INVALID" | "UNKNOWN" | "NOT_APPLICABLE";
-
 export interface Quote { symbol: string; provider_symbol: string; price: number | null; currency: string | null; timestamp: string | null; provider_timestamp?: string | null; observed_at?: string | null; source: string | null; status: QuoteStatus; market_open: boolean | null; latency_ms: number | null; cache_hit?: boolean; error: string | null; freshness_status?: FreshnessStatus; freshness_age_seconds?: number | null; completeness_status?: CompletenessStatus; fallback_used?: boolean; provider_attempts?: string[]; }
 export interface User { id: string; email: string; created_at: string; }
 export interface WatchlistItem { id: string; symbol: string; created_at: string; }
@@ -10,7 +9,7 @@ export interface Candle { timestamp: string; open: number; high: number; low: nu
 export interface IndicatorPoint { timestamp: string; value: number | null; }
 export interface IndicatorPane { id: string; title: string; unit: string; min: number | null; max: number | null; points: IndicatorPoint[]; }
 export interface AnalysisQuality { request_latency_ms: number | null; freshness_status: FreshnessStatus; freshness_age_seconds: number | null; candle_completeness: CompletenessStatus; provenance_provider: string; provider_attempts: string[]; fallback_used: boolean; cache_hit: boolean; research_eligible: boolean; }
-export interface TechnicalAnalysis { symbol: string; timeframe: string; source: string; calculated_at: string; latest_candle_timestamp: string; candle_count: number; candles: Candle[]; current_quote: Quote; indicators: Record<string, number | string | null>; indicator_panes: IndicatorPane[]; data_quality: AnalysisQuality; }
+export interface TechnicalAnalysis { symbol: string; timeframe: string; source: string; calculated_at: string; latest_candle_timestamp: string; candle_count: number; candles: Candle[]; current_quote: Quote; indicators: Record<string, number | string | null>; indicator_panes: IndicatorPane[]; data_quality?: AnalysisQuality; }
 export type MarketRegime = "STRONG_TREND_UP" | "STRONG_TREND_DOWN" | "WEAK_TREND" | "RANGE" | "HIGH_VOLATILITY" | "LOW_VOLATILITY" | "UNKNOWN";
 export interface RegimeEvidence { price: number; ema_50: number | null; ema_200: number | null; price_above_ema_200: boolean | null; ema_50_above_ema_200: boolean | null; adx: number | null; atr: number | null; atr_percent: number | null; atr_percentile: number | null; bb_width: number | null; bb_width_percentile: number | null; trend_direction: string; trend_persistence: number; directional_move_ratio: number; }
 export interface RegimeThresholds { adx_strong: number; persistence_strong: number; persistence_weak: number; directional_ratio_strong: number; directional_ratio_weak: number; volatility_high_percentile: number; volatility_low_percentile: number; }
