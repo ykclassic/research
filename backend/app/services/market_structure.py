@@ -29,16 +29,7 @@ def _strength(value: float, scale: float) -> float:
     return max(0.0, min(1.0, value / scale))
 
 
-def _event(
-    kind: str,
-    price: float,
-    detection_index: int,
-    candles: list[Candle],
-    strength: float,
-    status: StructureStatus = StructureStatus.CONFIRMED,
-    invalidation: float | None = None,
-    source_indexes: tuple[int, ...] | None = None,
-) -> StructureEvent:
+def _event(kind: str, price: float, detection_index: int, candles: list[Candle], strength: float, status: StructureStatus = StructureStatus.CONFIRMED, invalidation: float | None = None, source_indexes: tuple[int, ...] | None = None) -> StructureEvent:
     indexes = source_indexes or (detection_index,)
     return StructureEvent(
         type=kind,
@@ -88,13 +79,11 @@ def _structure_breaks(candles: list[Candle], highs: list[tuple[int, str, float]]
     trend: str | None = None
     for i in range(SWING_LEFT + SWING_RIGHT, len(candles)):
         for swing_i, _, price in highs:
-            if swing_i + SWING_RIGHT <= i:
-                if last_high is None or swing_i > last_high[0]:
-                    last_high = (swing_i, price)
+            if swing_i + SWING_RIGHT <= i and (last_high is None or swing_i > last_high[0]):
+                last_high = (swing_i, price)
         for swing_i, _, price in lows:
-            if swing_i + SWING_RIGHT <= i:
-                if last_low is None or swing_i > last_low[0]:
-                    last_low = (swing_i, price)
+            if swing_i + SWING_RIGHT <= i and (last_low is None or swing_i > last_low[0]):
+                last_low = (swing_i, price)
         atr = _atr(candles, i)
         if last_high and candles[i].close > last_high[1] and candles[i - 1].close <= last_high[1]:
             kind = "CHOCH_BULLISH" if trend == "BEARISH" else "BOS_BULLISH"
@@ -124,17 +113,29 @@ def _equal_levels(candles: list[Candle], highs: list[tuple[int, str, float]], lo
 def _liquidity_and_sweeps(candles: list[Candle], liquidity: list[StructureEvent]) -> list[StructureEvent]:
     events: list[StructureEvent] = []
     for level in liquidity:
-        level_price = level.price
-        for i in range(candles.index(next(c for c in candles if c.timestamp == level.source_candles[-1])) + 1, len(candles)):
+        anchor = next(i for i, c in enumerate(candles) if c.timestamp == level.source_candles[-1])
+        for i in range(anchor + 1, len(candles)):
             c = candles[i]
-            if level.type == "EQUAL_HIGH" and c.high > level_price and c.close < level_price:
-                strength = _strength(c.high - level_price, _atr(candles, i))
-                events.append(_event("LIQUIDITY_SWEEP_HIGH", level_price, i, candles, strength, invalidation=c.high, source_indexes=(i,)))
+            if level.type == "EQUAL_HIGH" and c.high > level.price and c.close < level.price:
+                events.append(_event("LIQUIDITY_SWEEP_HIGH", level.price, i, candles, _strength(c.high - level.price, _atr(candles, i)), invalidation=c.high, source_indexes=(i,)))
                 break
-            if level.type == "EQUAL_LOW" and c.low < level_price and c.close > level_price:
-                strength = _strength(level_price - c.low, _atr(candles, i))
-                events.append(_event("LIQUIDITY_SWEEP_LOW", level_price, i, candles, strength, invalidation=c.low, source_indexes=(i,)))
+            if level.type == "EQUAL_LOW" and c.low < level.price and c.close > level.price:
+                events.append(_event("LIQUIDITY_SWEEP_LOW", level.price, i, candles, _strength(level.price - c.low, _atr(candles, i)), invalidation=c.low, source_indexes=(i,)))
                 break
+    return events
+
+
+def _liquidity_extensions(candles: list[Candle], liquidity: list[StructureEvent], sweeps: list[StructureEvent]) -> list[StructureEvent]:
+    events: list[StructureEvent] = []
+    for level in liquidity:
+        pool_type = "LIQUIDITY_POOL_HIGH" if level.type == "EQUAL_HIGH" else "LIQUIDITY_POOL_LOW"
+        detection = next(i for i, c in enumerate(candles) if c.timestamp == level.time)
+        source_indexes = tuple(next(i for i, c in enumerate(candles) if c.timestamp == ts) for ts in level.source_candles)
+        events.append(_event(pool_type, level.price, detection, candles, level.strength, invalidation=level.invalidation, source_indexes=source_indexes))
+    for sweep in sweeps:
+        stop_type = "STOP_RUN_HIGH" if sweep.type == "LIQUIDITY_SWEEP_HIGH" else "STOP_RUN_LOW"
+        detection = next(i for i, c in enumerate(candles) if c.timestamp == sweep.time)
+        events.append(_event(stop_type, sweep.price, detection, candles, sweep.strength, invalidation=sweep.invalidation, source_indexes=(detection,)))
     return events
 
 
@@ -144,7 +145,8 @@ def _displacement(candles: list[Candle]) -> list[StructureEvent]:
         c = candles[i]
         body = abs(c.close - c.open)
         atr = _atr(candles, i)
-        close_location = (c.close - c.low) / max(c.high - c.low, 1e-12) if c.close >= c.open else (c.high - c.close) / max(c.high - c.low, 1e-12)
+        range_size = max(c.high - c.low, 1e-12)
+        close_location = (c.close - c.low) / range_size if c.close >= c.open else (c.high - c.close) / range_size
         if body >= DISPLACEMENT_ATR * atr and close_location >= 0.65:
             events.append(_event("DISPLACEMENT_BULLISH" if c.close > c.open else "DISPLACEMENT_BEARISH", c.close, i, candles, min(1.0, body / max(2.5 * atr, 1e-12)), invalidation=c.low if c.close > c.open else c.high))
     return events
@@ -191,8 +193,7 @@ def _zone_events(candles: list[Candle], highs: list[tuple[int, str, float]], low
         return []
     equilibrium = (high + low) / 2
     current = candles[detection].close
-    events = [_event("PREMIUM" if current > equilibrium else "DISCOUNT", current, detection, candles, min(1.0, abs(current - equilibrium) / max(high - low, 1e-12)), invalidation=equilibrium, source_indexes=(low_i, high_i, detection))]
-    return events
+    return [_event("PREMIUM" if current > equilibrium else "DISCOUNT", current, detection, candles, min(1.0, abs(current - equilibrium) / max(high - low, 1e-12)), invalidation=equilibrium, source_indexes=(low_i, high_i, detection))]
 
 
 def _inducement(candles: list[Candle], sweeps: list[StructureEvent], breaks: list[StructureEvent]) -> list[StructureEvent]:
@@ -220,13 +221,14 @@ def analyze_market_structure(dataset: OHLCVDataset) -> MarketStructureResult:
     break_events = _structure_breaks(candles, highs, lows)
     liquidity = _equal_levels(candles, highs, lows)
     sweeps = _liquidity_and_sweeps(candles, liquidity)
+    liquidity_extensions = _liquidity_extensions(candles, liquidity, sweeps)
     displacement = _displacement(candles)
     fvgs = _fvg(candles)
     order_blocks = _order_blocks(candles, displacement)
     zones = _zone_events(candles, highs, lows)
     inducement = _inducement(candles, sweeps, break_events)
 
-    events = tuple(sorted(swing_events + break_events + liquidity + sweeps + displacement + fvgs + order_blocks + zones + inducement, key=lambda e: (e.time, e.type, e.price)))
+    events = tuple(sorted(swing_events + break_events + liquidity + liquidity_extensions + sweeps + displacement + fvgs + order_blocks + zones + inducement, key=lambda e: (e.time, e.type, e.price)))
     return MarketStructureResult(
         symbol=dataset.symbol,
         timeframe=dataset.timeframe,
