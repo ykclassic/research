@@ -15,6 +15,20 @@ class QuoteStatus(str, Enum):
     MARKET_CLOSED = "MARKET_CLOSED"
 
 
+class FreshnessStatus(str, Enum):
+    FRESH = "FRESH"
+    DELAYED = "DELAYED"
+    STALE = "STALE"
+    UNKNOWN = "UNKNOWN"
+
+
+class CompletenessStatus(str, Enum):
+    COMPLETE = "COMPLETE"
+    PARTIAL = "PARTIAL"
+    INVALID = "INVALID"
+    UNKNOWN = "UNKNOWN"
+
+
 class Quote(BaseModel):
     symbol: str
     provider_symbol: str
@@ -29,17 +43,27 @@ class Quote(BaseModel):
     latency_ms: int | None = None
     cache_hit: bool = False
     error: str | None = None
+    freshness_status: FreshnessStatus = FreshnessStatus.UNKNOWN
+    freshness_age_seconds: float | None = Field(default=None, ge=0)
+    completeness_status: CompletenessStatus = CompletenessStatus.COMPLETE
+    fallback_used: bool = False
+    provider_attempts: tuple[str, ...] = ()
 
 
 class ProviderStatus(BaseModel):
     provider: str
     configured: bool
     reachable: bool | None = None
+    circuit_open: bool = False
+    consecutive_failures: int = 0
+    last_latency_ms: int | None = None
     message: str
 
 
 __all__ = [
     "Candle",
+    "CompletenessStatus",
+    "FreshnessStatus",
     "OHLCVDataset",
     "ProviderStatus",
     "Quote",
