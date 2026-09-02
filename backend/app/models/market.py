@@ -6,6 +6,8 @@ from math import isfinite
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from app.models import CompletenessStatus, FreshnessStatus
+
 
 class Timeframe(str, Enum):
     MINUTE_5 = "5m"
@@ -69,7 +71,7 @@ class Candle(BaseModel):
 
 
 class OHLCVDataset(BaseModel):
-    """Canonical historical dataset passed between market-data and research layers."""
+    """Canonical historical dataset with explicit freshness/completeness/provenance."""
 
     model_config = ConfigDict(frozen=True)
 
@@ -79,6 +81,14 @@ class OHLCVDataset(BaseModel):
     requested_at: datetime
     provider_timestamp: datetime | None = None
     candles: tuple[Candle, ...]
+    request_latency_ms: int | None = Field(default=None, ge=0)
+    freshness_status: FreshnessStatus = FreshnessStatus.UNKNOWN
+    freshness_age_seconds: float | None = Field(default=None, ge=0)
+    completeness_status: CompletenessStatus = CompletenessStatus.UNKNOWN
+    fallback_used: bool = False
+    provider_attempts: tuple[str, ...] = ()
+    cache_hit: bool = False
+    cache_age_seconds: float | None = Field(default=None, ge=0)
 
     @field_validator("requested_at", "provider_timestamp")
     @classmethod
