@@ -11,6 +11,7 @@ from app.models.market import (
     TechnicalAnalysisResult,
     Timeframe,
 )
+from app.models.market_structure import MarketStructureResult, StructureEvent, StructureStatus
 from app.models.regime import MarketRegime, MarketRegimeResult, RegimeEvidence, RegimeThresholds
 from app.models.strategy import (
     SignalDirection,
@@ -79,4 +80,7 @@ __all__ = [
     "StrategyPortfolioResult",
     "StrategySignal",
     "StrategyStatus",
+    "MarketStructureResult",
+    "StructureEvent",
+    "StructureStatus",
 ]
