@@ -5,7 +5,7 @@ from enum import Enum
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from app.models.market import Timeframe
+from app.models.market import CompletenessStatus, FreshnessStatus, Timeframe
 
 
 class MarketRegime(str, Enum):
@@ -19,10 +19,7 @@ class MarketRegime(str, Enum):
 
 
 class RegimeThresholds(BaseModel):
-    """Versioned numerical boundaries used by the deterministic classifier."""
-
     model_config = ConfigDict(frozen=True)
-
     adx_strong: float = Field(default=25.0, ge=0)
     persistence_strong: float = Field(default=0.70, ge=0, le=1)
     persistence_weak: float = Field(default=0.50, ge=0, le=1)
@@ -43,10 +40,7 @@ class RegimeThresholds(BaseModel):
 
 
 class RegimeEvidence(BaseModel):
-    """Auditable inputs supporting a regime classification."""
-
     model_config = ConfigDict(frozen=True)
-
     price: float = Field(gt=0)
     ema_50: float | None
     ema_200: float | None
@@ -64,10 +58,9 @@ class RegimeEvidence(BaseModel):
 
 
 class MarketRegimeResult(BaseModel):
-    """Canonical deterministic regime result with provenance and rule evidence."""
+    """Canonical deterministic regime result with market-data quality metadata."""
 
     model_config = ConfigDict(frozen=True)
-
     symbol: str
     timeframe: Timeframe
     source: str
@@ -81,3 +74,10 @@ class MarketRegimeResult(BaseModel):
     thresholds: RegimeThresholds
     rule_id: str
     rule: str
+    request_latency_ms: int | None = Field(default=None, ge=0)
+    freshness_status: FreshnessStatus = FreshnessStatus.UNKNOWN
+    freshness_age_seconds: float | None = Field(default=None, ge=0)
+    completeness_status: CompletenessStatus = CompletenessStatus.UNKNOWN
+    fallback_used: bool = False
+    provider_attempts: tuple[str, ...] = ()
+    cache_hit: bool = False

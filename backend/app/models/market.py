@@ -7,6 +7,21 @@ from math import isfinite
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
+class FreshnessStatus(str, Enum):
+    FRESH = "FRESH"
+    DELAYED = "DELAYED"
+    STALE = "STALE"
+    UNKNOWN = "UNKNOWN"
+
+
+class CompletenessStatus(str, Enum):
+    COMPLETE = "COMPLETE"
+    PARTIAL = "PARTIAL"
+    INVALID = "INVALID"
+    UNKNOWN = "UNKNOWN"
+    NOT_APPLICABLE = "NOT_APPLICABLE"
+
+
 class Timeframe(str, Enum):
     MINUTE_5 = "5m"
     MINUTE_15 = "15m"
@@ -17,21 +32,11 @@ class Timeframe(str, Enum):
 
     @property
     def seconds(self) -> int:
-        return {
-            Timeframe.MINUTE_5: 300,
-            Timeframe.MINUTE_15: 900,
-            Timeframe.MINUTE_30: 1800,
-            Timeframe.HOUR_1: 3600,
-            Timeframe.HOUR_4: 14400,
-            Timeframe.DAY_1: 86400,
-        }[self]
+        return {Timeframe.MINUTE_5: 300, Timeframe.MINUTE_15: 900, Timeframe.MINUTE_30: 1800, Timeframe.HOUR_1: 3600, Timeframe.HOUR_4: 14400, Timeframe.DAY_1: 86400}[self]
 
 
 class Candle(BaseModel):
-    """Canonical, immutable OHLCV candle used by all research calculations."""
-
     model_config = ConfigDict(frozen=True)
-
     timestamp: datetime
     open: float = Field(gt=0)
     high: float = Field(gt=0)
@@ -59,26 +64,27 @@ class Candle(BaseModel):
 
     @model_validator(mode="after")
     def validate_price_range(self) -> Candle:
-        if self.high < max(self.open, self.close):
-            raise ValueError("Candle high must be >= open and close.")
-        if self.low > min(self.open, self.close):
-            raise ValueError("Candle low must be <= open and close.")
-        if self.high < self.low:
-            raise ValueError("Candle high must be >= low.")
+        if self.high < max(self.open, self.close) or self.low > min(self.open, self.close) or self.high < self.low:
+            raise ValueError("Candle OHLC price range is invalid.")
         return self
 
 
 class OHLCVDataset(BaseModel):
-    """Canonical historical dataset passed between market-data and research layers."""
-
     model_config = ConfigDict(frozen=True)
-
     symbol: str
     timeframe: Timeframe
     source: str
     requested_at: datetime
     provider_timestamp: datetime | None = None
     candles: tuple[Candle, ...]
+    request_latency_ms: int | None = Field(default=None, ge=0)
+    freshness_status: FreshnessStatus = FreshnessStatus.UNKNOWN
+    freshness_age_seconds: float | None = Field(default=None, ge=0)
+    completeness_status: CompletenessStatus = CompletenessStatus.UNKNOWN
+    fallback_used: bool = False
+    provider_attempts: tuple[str, ...] = ()
+    cache_hit: bool = False
+    cache_age_seconds: float | None = Field(default=None, ge=0)
 
     @field_validator("requested_at", "provider_timestamp")
     @classmethod
@@ -104,12 +110,8 @@ class OHLCVDataset(BaseModel):
     @model_validator(mode="after")
     def validate_candle_identity(self) -> OHLCVDataset:
         for candle in self.candles:
-            if candle.symbol != self.symbol:
-                raise ValueError("Every candle must match the dataset symbol.")
-            if candle.timeframe != self.timeframe:
-                raise ValueError("Every candle must match the dataset timeframe.")
-            if candle.source != self.source:
-                raise ValueError("Every candle must match the dataset source.")
+            if candle.symbol != self.symbol or candle.timeframe != self.timeframe or candle.source != self.source:
+                raise ValueError("Every candle must match the dataset identity.")
         return self
 
     @property
@@ -129,10 +131,7 @@ class OHLCVDataset(BaseModel):
 
 
 class TechnicalAnalysisResult(BaseModel):
-    """Deterministic indicator output with dataset provenance."""
-
     model_config = ConfigDict(frozen=True)
-
     symbol: str
     timeframe: Timeframe
     source: str

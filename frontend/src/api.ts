@@ -1,168 +1,42 @@
-export type QuoteStatus =
-  | "LIVE"
-  | "DELAYED"
-  | "STALE"
-  | "UNAVAILABLE"
-  | "MARKET_CLOSED";
-
-export interface Quote {
-  symbol: string;
-  provider_symbol: string;
-  price: number | null;
-  currency: string | null;
-  timestamp: string | null;
-  source: string | null;
-  status: QuoteStatus;
-  market_open: boolean | null;
-  latency_ms: number | null;
-  error: string | null;
-}
-
+export type QuoteStatus = "LIVE" | "DELAYED" | "STALE" | "UNAVAILABLE" | "MARKET_CLOSED";
+export type FreshnessStatus = "FRESH" | "DELAYED" | "STALE" | "UNKNOWN";
+export type CompletenessStatus = "COMPLETE" | "PARTIAL" | "INVALID" | "UNKNOWN" | "NOT_APPLICABLE";
+export interface Quote { symbol: string; provider_symbol: string; price: number | null; currency: string | null; timestamp: string | null; provider_timestamp?: string | null; observed_at?: string | null; source: string | null; status: QuoteStatus; market_open: boolean | null; latency_ms: number | null; cache_hit?: boolean; error: string | null; freshness_status?: FreshnessStatus; freshness_age_seconds?: number | null; completeness_status?: CompletenessStatus; fallback_used?: boolean; provider_attempts?: string[]; }
 export interface User { id: string; email: string; created_at: string; }
 export interface WatchlistItem { id: string; symbol: string; created_at: string; }
 export interface Watchlist { id: string; user_id: string; name: string; created_at: string; updated_at: string; watchlist_items: WatchlistItem[]; }
 export interface Candle { timestamp: string; open: number; high: number; low: number; close: number; volume: number | null; is_complete: boolean; }
 export interface IndicatorPoint { timestamp: string; value: number | null; }
 export interface IndicatorPane { id: string; title: string; unit: string; min: number | null; max: number | null; points: IndicatorPoint[]; }
-export interface TechnicalAnalysis {
-  symbol: string;
-  timeframe: string;
-  source: string;
-  calculated_at: string;
-  latest_candle_timestamp: string;
-  candle_count: number;
-  candles: Candle[];
-  current_quote: Quote;
-  indicators: Record<string, number | string | null>;
-  indicator_panes: IndicatorPane[];
-}
-
-export type MarketRegime =
-  | "STRONG_TREND_UP"
-  | "STRONG_TREND_DOWN"
-  | "WEAK_TREND"
-  | "RANGE"
-  | "HIGH_VOLATILITY"
-  | "LOW_VOLATILITY"
-  | "UNKNOWN";
-
-export interface RegimeEvidence {
-  price: number;
-  ema_50: number | null;
-  ema_200: number | null;
-  price_above_ema_200: boolean | null;
-  ema_50_above_ema_200: boolean | null;
-  adx: number | null;
-  atr: number | null;
-  atr_percent: number | null;
-  atr_percentile: number | null;
-  bb_width: number | null;
-  bb_width_percentile: number | null;
-  trend_direction: string;
-  trend_persistence: number;
-  directional_move_ratio: number;
-}
-
-export interface RegimeThresholds {
-  adx_strong: number;
-  persistence_strong: number;
-  persistence_weak: number;
-  directional_ratio_strong: number;
-  directional_ratio_weak: number;
-  volatility_high_percentile: number;
-  volatility_low_percentile: number;
-}
-
-export interface RegimeResult {
-  symbol: string;
-  timeframe: string;
-  source: string;
-  calculated_at: string;
-  provider_timestamp: string | null;
-  latest_candle_timestamp: string;
-  candle_count: number;
-  regime: MarketRegime;
-  confidence: number;
-  evidence: RegimeEvidence;
-  thresholds: RegimeThresholds;
-  rule_id: string;
-  rule: string;
-}
-
-export interface TechnicalAnalysisRange {
-  startDate?: string;
-  endDate?: string;
-}
-
-export class ApiError extends Error {
-  readonly status: number;
-  constructor(message: string, status: number) { super(message); this.name = "ApiError"; this.status = status; }
-}
-
+export interface AnalysisQuality { request_latency_ms: number | null; freshness_status: FreshnessStatus; freshness_age_seconds: number | null; candle_completeness: CompletenessStatus; provenance_provider: string; provider_attempts: string[]; fallback_used: boolean; cache_hit: boolean; research_eligible: boolean; }
+export interface TechnicalAnalysis { symbol: string; timeframe: string; source: string; calculated_at: string; latest_candle_timestamp: string; candle_count: number; candles: Candle[]; current_quote: Quote; indicators: Record<string, number | string | null>; indicator_panes: IndicatorPane[]; data_quality?: AnalysisQuality; }
+export type MarketRegime = "STRONG_TREND_UP" | "STRONG_TREND_DOWN" | "WEAK_TREND" | "RANGE" | "HIGH_VOLATILITY" | "LOW_VOLATILITY" | "UNKNOWN";
+export interface RegimeEvidence { price: number; ema_50: number | null; ema_200: number | null; price_above_ema_200: boolean | null; ema_50_above_ema_200: boolean | null; adx: number | null; atr: number | null; atr_percent: number | null; atr_percentile: number | null; bb_width: number | null; bb_width_percentile: number | null; trend_direction: string; trend_persistence: number; directional_move_ratio: number; }
+export interface RegimeThresholds { adx_strong: number; persistence_strong: number; persistence_weak: number; directional_ratio_strong: number; directional_ratio_weak: number; volatility_high_percentile: number; volatility_low_percentile: number; }
+export interface RegimeResult { symbol: string; timeframe: string; source: string; calculated_at: string; provider_timestamp: string | null; latest_candle_timestamp: string; candle_count: number; regime: MarketRegime; confidence: number; evidence: RegimeEvidence; thresholds: RegimeThresholds; rule_id: string; rule: string; request_latency_ms?: number | null; freshness_status?: FreshnessStatus; freshness_age_seconds?: number | null; completeness_status?: CompletenessStatus; fallback_used?: boolean; provider_attempts?: string[]; cache_hit?: boolean; }
+export interface TechnicalAnalysisRange { startDate?: string; endDate?: string; }
+export class ApiError extends Error { readonly status: number; constructor(message: string, status: number) { super(message); this.name = "ApiError"; this.status = status; } }
 const API_BASE = (import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8000").replace(/\/$/, "");
 const REQUEST_TIMEOUT_MS = 12_000;
 const CSRF_STORAGE_KEY = "mr_csrf_token";
-
-function getCookie(name: string): string | null {
-  const encodedName = `${encodeURIComponent(name)}=`;
-  const cookie = document.cookie.split(";").map(item => item.trim()).find(item => item.startsWith(encodedName));
-  return cookie ? decodeURIComponent(cookie.slice(encodedName.length)) : null;
-}
+function getCookie(name: string): string | null { const encodedName = `${encodeURIComponent(name)}=`; const cookie = document.cookie.split(";").map(item => item.trim()).find(item => item.startsWith(encodedName)); return cookie ? decodeURIComponent(cookie.slice(encodedName.length)) : null; }
 function getStoredCsrf(): string | null { try { return window.sessionStorage.getItem(CSRF_STORAGE_KEY); } catch { return null; } }
-function storeCsrf(token: string | null): void { try { if (token) window.sessionStorage.setItem(CSRF_STORAGE_KEY, token); else window.sessionStorage.removeItem(CSRF_STORAGE_KEY); } catch { /* restricted storage */ } }
-async function requestCsrfToken(): Promise<string> {
-  const response = await fetch(`${API_BASE}/api/auth/csrf`, { method: "GET", credentials: "include" });
-  if (!response.ok) { let message = `Request failed: ${response.status}`; try { const body = await response.json() as { detail?: string }; if (body.detail) message = body.detail; } catch { /* non-json */ } throw new ApiError(message, response.status); }
-  const token = response.headers.get("X-CSRF-Token");
-  if (!token) throw new ApiError("The API did not return a CSRF token.", 503);
-  storeCsrf(token); return token;
-}
-async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
-  const headers = new Headers(init.headers);
-  if (init.body && !headers.has("Content-Type")) headers.set("Content-Type", "application/json");
-  if (init.method && init.method !== "GET") { const csrf = getStoredCsrf() ?? getCookie("mr_csrf"); if (csrf) headers.set("X-CSRF-Token", csrf); }
-  const controller = new AbortController(); let timeoutId: ReturnType<typeof setTimeout> | undefined; let removeAbortListener: (() => void) | undefined;
-  if (init.signal) { if (init.signal.aborted) controller.abort(init.signal.reason); else { const abort = () => controller.abort(init.signal?.reason); init.signal.addEventListener("abort", abort, { once: true }); removeAbortListener = () => init.signal?.removeEventListener("abort", abort); } }
-  timeoutId = globalThis.setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
-  let response: Response;
-  try { response = await fetch(`${API_BASE}${path}`, { ...init, headers, credentials: "include", signal: controller.signal }); }
-  catch (error) { if (error instanceof DOMException && error.name === "AbortError") throw new ApiError(`The application server did not respond within ${REQUEST_TIMEOUT_MS / 1000} seconds. Check the API deployment and try again.`, 0); throw new ApiError("Unable to reach the application server. Check your connection and try again.", 0); }
-  finally { if (timeoutId !== undefined) globalThis.clearTimeout(timeoutId); removeAbortListener?.(); }
-  if (!response.ok) { let message = `Request failed: ${response.status}`; try { const body = await response.json() as { detail?: string }; if (body.detail) message = body.detail; } catch { /* non-json */ } throw new ApiError(message, response.status); }
-  const responseCsrf = response.headers.get("X-CSRF-Token"); if (responseCsrf) storeCsrf(responseCsrf);
-  if (response.status === 204) return undefined as T;
-  return await response.json() as T;
-}
-async function authenticatedMutation<T>(path: string, init: RequestInit): Promise<T> {
-  if (!getStoredCsrf() && !getCookie("mr_csrf")) await requestCsrfToken();
-  try { return await request<T>(path, init); }
-  catch (error) { if (error instanceof ApiError && error.status === 403 && error.message === "CSRF validation failed.") { storeCsrf(null); await requestCsrfToken(); return request<T>(path, init); } throw error; }
-}
+function storeCsrf(token: string | null): void { try { if (token) window.sessionStorage.setItem(CSRF_STORAGE_KEY, token); else window.sessionStorage.removeItem(CSRF_STORAGE_KEY); } catch {} }
+async function requestCsrfToken(): Promise<string> { const response = await fetch(`${API_BASE}/api/auth/csrf`, { method: "GET", credentials: "include" }); if (!response.ok) { let message = `Request failed: ${response.status}`; try { const body = await response.json() as { detail?: string }; if (body.detail) message = body.detail; } catch {} throw new ApiError(message, response.status); } const token = response.headers.get("X-CSRF-Token"); if (!token) throw new ApiError("The API did not return a CSRF token.", 503); storeCsrf(token); return token; }
+async function request<T>(path: string, init: RequestInit = {}): Promise<T> { const headers = new Headers(init.headers); if (init.body && !headers.has("Content-Type")) headers.set("Content-Type", "application/json"); if (init.method && init.method !== "GET") { const csrf = getStoredCsrf() ?? getCookie("mr_csrf"); if (csrf) headers.set("X-CSRF-Token", csrf); } const controller = new AbortController(); let timeoutId: ReturnType<typeof setTimeout> | undefined; let removeAbortListener: (() => void) | undefined; if (init.signal) { if (init.signal.aborted) controller.abort(init.signal.reason); else { const abort = () => controller.abort(init.signal?.reason); init.signal.addEventListener("abort", abort, { once: true }); removeAbortListener = () => init.signal?.removeEventListener("abort", abort); } } timeoutId = globalThis.setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS); let response: Response; try { response = await fetch(`${API_BASE}${path}`, { ...init, headers, credentials: "include", signal: controller.signal }); } catch (error) { if (error instanceof DOMException && error.name === "AbortError") throw new ApiError(`The application server did not respond within ${REQUEST_TIMEOUT_MS / 1000} seconds. Check the API deployment and try again.`, 0); throw new ApiError("Unable to reach the application server. Check your connection and try again.", 0); } finally { if (timeoutId !== undefined) globalThis.clearTimeout(timeoutId); removeAbortListener?.(); } if (!response.ok) { let message = `Request failed: ${response.status}`; try { const body = await response.json() as { detail?: string }; if (body.detail) message = body.detail; } catch {} throw new ApiError(message, response.status); } const responseCsrf = response.headers.get("X-CSRF-Token"); if (responseCsrf) storeCsrf(responseCsrf); if (response.status === 204) return undefined as T; return await response.json() as T; }
+async function authenticatedMutation<T>(path: string, init: RequestInit): Promise<T> { if (!getStoredCsrf() && !getCookie("mr_csrf")) await requestCsrfToken(); try { return await request<T>(path, init); } catch (error) { if (error instanceof ApiError && error.status === 403 && error.message === "CSRF validation failed.") { storeCsrf(null); await requestCsrfToken(); return request<T>(path, init); } throw error; } }
 export async function register(email: string, password: string): Promise<User> { return request<User>("/api/auth/register", { method: "POST", body: JSON.stringify({ email, password }) }); }
 export async function login(email: string, password: string): Promise<User> { storeCsrf(null); const user = await request<User>("/api/auth/login", { method: "POST", body: JSON.stringify({ email, password }) }); await requestCsrfToken(); return user; }
-export async function requestPasswordReset(email: string): Promise<string> { const response = await request<{ message: string }>("/api/auth/password-reset/request", { method: "POST", body: JSON.stringify({ email }) }); return response.message; }
-export async function confirmPasswordReset(accessToken: string, password: string): Promise<string> { const response = await request<{ message: string }>("/api/auth/password-reset/confirm", { method: "POST", body: JSON.stringify({ access_token: accessToken, password }) }); return response.message; }
+export async function requestPasswordReset(email: string): Promise<string> { return (await request<{ message: string }>("/api/auth/password-reset/request", { method: "POST", body: JSON.stringify({ email }) })).message; }
+export async function confirmPasswordReset(accessToken: string, password: string): Promise<string> { return (await request<{ message: string }>("/api/auth/password-reset/confirm", { method: "POST", body: JSON.stringify({ access_token: accessToken, password }) })).message; }
 export async function getCurrentUser(): Promise<User> { return request<User>("/api/auth/me"); }
 export async function logout(): Promise<void> { await authenticatedMutation<void>("/api/auth/logout", { method: "POST" }); storeCsrf(null); }
-export async function getQuotes(symbols: string[], refresh = false): Promise<Quote[]> { const params = new URLSearchParams({ symbols: symbols.join(","), refresh: String(refresh) }); const body = await request<{ quotes: Quote[] }>(`/api/market/quotes?${params}`); return body.quotes; }
-export async function getWatchlists(): Promise<Watchlist[]> { const body = await request<{ watchlists: Watchlist[] }>("/api/watchlists"); return body.watchlists; }
+export async function getQuotes(symbols: string[], refresh = false): Promise<Quote[]> { const params = new URLSearchParams({ symbols: symbols.join(","), refresh: String(refresh) }); return (await request<{ quotes: Quote[] }>(`/api/market/quotes?${params}`)).quotes; }
+export async function getWatchlists(): Promise<Watchlist[]> { return (await request<{ watchlists: Watchlist[] }>("/api/watchlists")).watchlists; }
 export async function createWatchlist(name: string): Promise<Watchlist> { return authenticatedMutation<Watchlist>("/api/watchlists", { method: "POST", body: JSON.stringify({ name }) }); }
 export async function renameWatchlist(id: string, name: string): Promise<Watchlist> { return authenticatedMutation<Watchlist>(`/api/watchlists/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify({ name }) }); }
 export async function deleteWatchlist(id: string): Promise<void> { await authenticatedMutation<void>(`/api/watchlists/${encodeURIComponent(id)}`, { method: "DELETE" }); }
 export async function addWatchlistSymbol(id: string, symbol: string): Promise<WatchlistItem> { return authenticatedMutation<WatchlistItem>(`/api/watchlists/${encodeURIComponent(id)}/symbols`, { method: "POST", body: JSON.stringify({ symbol }) }); }
 export async function removeWatchlistSymbol(id: string, symbol: string): Promise<void> { await authenticatedMutation<void>(`/api/watchlists/${encodeURIComponent(id)}/symbols/${encodeURIComponent(symbol)}`, { method: "DELETE" }); }
-export async function getTechnicalAnalysis(symbol: string, timeframe = "1h", limit = 250, range: TechnicalAnalysisRange = {}): Promise<TechnicalAnalysis> {
-  const params = new URLSearchParams({ timeframe });
-  if (range.startDate || range.endDate) {
-    if (!range.startDate || !range.endDate) throw new Error("A historical range requires both a start date and an end date.");
-    params.set("start", range.startDate);
-    params.set("end", range.endDate);
-  } else {
-    params.set("limit", String(limit));
-  }
-  return request<TechnicalAnalysis>(`/api/analysis/${encodeURIComponent(symbol)}?${params}`);
-}
-export async function getMarketRegime(symbol: string, timeframe = "1h", limit = 250): Promise<RegimeResult> {
-  const params = new URLSearchParams({ timeframe, limit: String(limit) });
-  return request<RegimeResult>(`/api/regime/${encodeURIComponent(symbol)}?${params}`);
-}
+export async function getTechnicalAnalysis(symbol: string, timeframe = "1h", limit = 250, range: TechnicalAnalysisRange = {}): Promise<TechnicalAnalysis> { const params = new URLSearchParams({ timeframe }); if (range.startDate || range.endDate) { if (!range.startDate || !range.endDate) throw new Error("A historical range requires both a start date and an end date."); params.set("start", range.startDate); params.set("end", range.endDate); } else params.set("limit", String(limit)); return request<TechnicalAnalysis>(`/api/analysis/${encodeURIComponent(symbol)}?${params}`); }
+export async function getMarketRegime(symbol: string, timeframe = "1h", limit = 250): Promise<RegimeResult> { const params = new URLSearchParams({ timeframe, limit: String(limit) }); return request<RegimeResult>(`/api/regime/${encodeURIComponent(symbol)}?${params}`); }

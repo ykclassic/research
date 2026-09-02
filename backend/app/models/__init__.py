@@ -3,7 +3,14 @@ from enum import Enum
 
 from pydantic import BaseModel, Field
 
-from app.models.market import Candle, OHLCVDataset, TechnicalAnalysisResult, Timeframe
+from app.models.market import (
+    Candle,
+    CompletenessStatus,
+    FreshnessStatus,
+    OHLCVDataset,
+    TechnicalAnalysisResult,
+    Timeframe,
+)
 from app.models.regime import MarketRegime, MarketRegimeResult, RegimeEvidence, RegimeThresholds
 
 
@@ -29,17 +36,27 @@ class Quote(BaseModel):
     latency_ms: int | None = None
     cache_hit: bool = False
     error: str | None = None
+    freshness_status: FreshnessStatus = FreshnessStatus.UNKNOWN
+    freshness_age_seconds: float | None = Field(default=None, ge=0)
+    completeness_status: CompletenessStatus = CompletenessStatus.COMPLETE
+    fallback_used: bool = False
+    provider_attempts: tuple[str, ...] = ()
 
 
 class ProviderStatus(BaseModel):
     provider: str
     configured: bool
     reachable: bool | None = None
+    circuit_open: bool = False
+    consecutive_failures: int = 0
+    last_latency_ms: int | None = None
     message: str
 
 
 __all__ = [
     "Candle",
+    "CompletenessStatus",
+    "FreshnessStatus",
     "OHLCVDataset",
     "ProviderStatus",
     "Quote",
