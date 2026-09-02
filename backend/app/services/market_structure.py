@@ -30,32 +30,13 @@ def _strength(value: float, scale: float) -> float:
     return max(0.0, min(1.0, value / scale))
 
 
-def _event(
-    kind: str,
-    price: float,
-    detection_index: int,
-    candles: list[Candle],
-    strength: float,
-    *,
-    status: StructureStatus = StructureStatus.CONFIRMED,
-    invalidation: float | None = None,
-    source_indexes: tuple[int, ...] | None = None,
-) -> StructureEvent:
+def _event(kind: str, price: float, detection_index: int, candles: list[Candle], strength: float, *, status: StructureStatus = StructureStatus.CONFIRMED, invalidation: float | None = None, source_indexes: tuple[int, ...] | None = None) -> StructureEvent:
     indexes = source_indexes or (detection_index,)
     if any(index < 0 or index >= len(candles) for index in indexes):
         raise ValueError("Structure event source candle index is outside the dataset.")
     if any(index > detection_index for index in indexes):
         raise ValueError("Structure event cannot cite candles after its detection time.")
-    return StructureEvent(
-        type=kind,
-        price=price,
-        time=candles[detection_index].timestamp,
-        timeframe=candles[detection_index].timeframe,
-        strength=max(0.0, min(1.0, strength)),
-        status=status,
-        invalidation=invalidation,
-        source_candles=tuple(candles[i].timestamp for i in indexes),
-    )
+    return StructureEvent(type=kind, price=price, time=candles[detection_index].timestamp, timeframe=candles[detection_index].timeframe, strength=max(0.0, min(1.0, strength)), status=status, invalidation=invalidation, source_candles=tuple(candles[i].timestamp for i in indexes))
 
 
 def _swings(candles: list[Candle]) -> tuple[list[tuple[int, str, float]], list[tuple[int, str, float]]]:
@@ -104,7 +85,6 @@ def _structure_breaks(candles: list[Candle], highs: list[tuple[int, str, float]]
     last_high: tuple[int, float] | None = None
     last_low: tuple[int, float] | None = None
     trend: str | None = None
-
     for i in range(SWING_LEFT + SWING_RIGHT, len(candles)):
         while next_high is not None and next_high[0] + SWING_RIGHT <= i:
             last_high = (next_high[0], next_high[2])
@@ -268,7 +248,7 @@ def _apply_snapshot_statuses(events: list[StructureEvent], candles: list[Candle]
             invalidated = any(c.low <= event.invalidation for c in later) if event.type.endswith("BULLISH") else any(c.high >= event.invalidation for c in later)
             status = StructureStatus.INVALIDATED if invalidated else StructureStatus.ACTIVE
         elif event.invalidation is not None and event.type.startswith(("SWING_", "HIGHER_", "LOWER_")):
-            invalidated = any(c.close > event.invalidation for c in later) if "HIGH" in event.type else any(c.close < event.invalidation for c in later)
+            invalidated = any(c.close > event.invalidation for c in later) if event.type.endswith("_HIGH") else any(c.close < event.invalidation for c in later)
             status = StructureStatus.INVALIDATED if invalidated else StructureStatus.CONFIRMED
         updated.append(event.model_copy(update={"status": status}))
     return updated
