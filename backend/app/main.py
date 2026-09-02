@@ -8,6 +8,7 @@ from starlette.middleware.trustedhost import TrustedHostMiddleware
 from app.api.analysis import router as analysis_router
 from app.api.auth import router as auth_router
 from app.api.market import router as market_router
+from app.api.market_structure import router as market_structure_router
 from app.api.providers import router as providers_router
 from app.api.regime import router as regime_router
 from app.api.strategies import router as strategies_router
@@ -74,6 +75,7 @@ app.include_router(watchlists_router)
 app.include_router(analysis_router)
 app.include_router(regime_router)
 app.include_router(strategies_router)
+app.include_router(market_structure_router)
 
 
 @app.get("/health")
