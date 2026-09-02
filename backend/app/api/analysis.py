@@ -112,13 +112,23 @@ async def get_analysis(
 
     try:
         mapping = normalize_symbol(symbol)
-        candle_task = quote_service.orchestrator.get_candles(
-            mapping.internal,
-            timeframe,
-            limit,
-            start_date=start,
-            end_date=end,
-        )
+        if start is None and end is None:
+            # Preserve the narrow provider contract used by existing callers and
+            # test doubles. Historical-range arguments are only supplied when
+            # the request explicitly asks for a range.
+            candle_task = quote_service.orchestrator.get_candles(
+                mapping.internal,
+                timeframe,
+                limit,
+            )
+        else:
+            candle_task = quote_service.orchestrator.get_candles(
+                mapping.internal,
+                timeframe,
+                limit,
+                start_date=start,
+                end_date=end,
+            )
         dataset, current_quote = await asyncio.wait_for(
             asyncio.gather(
                 candle_task,
