@@ -11,11 +11,17 @@ class Settings(BaseSettings):
 
     quote_cache_seconds: int = 30
     stale_quote_seconds: int = 180
+    market_cache_stale_seconds: int = 900
     http_timeout_seconds: float = 10.0
     http_max_retries: int = 3
     analysis_timeout_seconds: float = 10.0
+    provider_timeout_seconds: float = 5.0
+    provider_failure_threshold: int = 3
+    provider_circuit_cooldown_seconds: int = 60
 
     twelve_data_api_key: str = ""
+    finnhub_api_key: str = ""
+    alpha_vantage_api_key: str = ""
 
     # Supabase Auth
     supabase_url: str = ""
@@ -27,14 +33,15 @@ class Settings(BaseSettings):
     csrf_secret: str = "development-only-change-me"
 
     # GitHub Actions OIDC trust for server-to-server production verification.
-    # These are configuration values, not secrets. The workflow presents a
-    # short-lived GitHub-signed JWT; no long-lived verification credential is
-    # stored in GitHub Actions secrets.
+    # Multiple explicitly trusted verification workflows are supported.
     github_oidc_issuer: str = "https://token.actions.githubusercontent.com"
     github_oidc_jwks_url: str = "https://token.actions.githubusercontent.com/.well-known/jwks"
     github_oidc_audience: str = "research-production-verifier"
     github_oidc_repository: str = "ykclassic/research"
-    github_oidc_workflow: str = ".github/workflows/production-regime-verification.yml"
+    github_oidc_workflows: str = (
+        ".github/workflows/production-regime-verification.yml,"
+        ".github/workflows/production-market-data-verification.yml"
+    )
     github_oidc_ref: str = "refs/heads/main"
 
     model_config = SettingsConfigDict(
@@ -43,6 +50,14 @@ class Settings(BaseSettings):
         case_sensitive=False,
         extra="ignore",
     )
+
+    @property
+    def trusted_oidc_workflows(self) -> tuple[str, ...]:
+        return tuple(
+            item.strip()
+            for item in self.github_oidc_workflows.split(",")
+            if item.strip()
+        )
 
     @model_validator(mode="after")
     def validate_production_security(self) -> "Settings":
@@ -72,16 +87,15 @@ class Settings(BaseSettings):
         hosts = [host.strip() for host in self.trusted_hosts.split(",") if host.strip()]
         if not hosts:
             raise ValueError("Production requires at least one configured trusted host.")
-        if not any(
-            host not in {"localhost", "127.0.0.1", "testserver"}
-            for host in hosts
-        ):
-            raise ValueError(
-                "Production TRUSTED_HOSTS must include a non-localhost host."
-            )
+        if not any(host not in {"localhost", "127.0.0.1", "testserver"} for host in hosts):
+            raise ValueError("Production TRUSTED_HOSTS must include a non-localhost host.")
 
-        if self.analysis_timeout_seconds <= 0:
-            raise ValueError("Production analysis timeout must be greater than zero.")
+        if self.analysis_timeout_seconds <= 0 or self.provider_timeout_seconds <= 0:
+            raise ValueError("Production request timeouts must be greater than zero.")
+        if self.provider_failure_threshold < 1:
+            raise ValueError("Provider failure threshold must be at least one.")
+        if self.provider_circuit_cooldown_seconds <= 0:
+            raise ValueError("Provider circuit cooldown must be greater than zero.")
 
         if not self.github_oidc_audience.strip():
             raise ValueError("Production requires GITHUB_OIDC_AUDIENCE.")
@@ -89,8 +103,10 @@ class Settings(BaseSettings):
             raise ValueError("Production GitHub OIDC repository must be ykclassic/research.")
         if self.github_oidc_ref != "refs/heads/main":
             raise ValueError("Production GitHub OIDC verification must be restricted to main.")
-        if not self.github_oidc_workflow.startswith(".github/workflows/"):
-            raise ValueError("Production GitHub OIDC workflow must be a repository workflow path.")
+        if not self.trusted_oidc_workflows:
+            raise ValueError("Production requires at least one trusted GitHub OIDC workflow.")
+        if any(not workflow.startswith(".github/workflows/") for workflow in self.trusted_oidc_workflows):
+            raise ValueError("Production GitHub OIDC workflows must be repository workflow paths.")
 
         return self
 
