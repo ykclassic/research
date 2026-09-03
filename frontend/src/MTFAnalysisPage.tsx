@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { AlertTriangle, RefreshCw, ShieldCheck } from "lucide-react";
 import { ApiError, getMultiTimeframeAnalysis, User, MultiTimeframeResult } from "./api";
 import type { AppPage } from "./App";
+import "./market-structure.css";
 
 const SYMBOLS = ["BTC/USD", "ETH/USD", "SOL/USD", "EUR/USD", "GBP/USD", "USD/JPY", "NVDA", "AAPL", "MSFT", "SPY"];
 
