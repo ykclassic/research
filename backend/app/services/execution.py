@@ -4,16 +4,9 @@ from datetime import datetime, timezone
 from hashlib import sha256
 from typing import Protocol
 
-from app.models import (
-    ExecutionAuthorization,
-    ExecutionMode,
-    ExecutionResult,
-    OrderRequest,
-    OrderStatus,
-    PositionQualification,
-    RiskQualificationStatus,
-    SignalDirection,
-)
+from app.models.execution import ExecutionAuthorization, ExecutionMode, ExecutionResult, OrderRequest, OrderStatus
+from app.models.risk import PositionQualification, RiskQualificationStatus
+from app.models.strategy import SignalDirection
 
 
 class BrokerAdapter(Protocol):
@@ -80,7 +73,7 @@ def _authorization_valid(authorization: ExecutionAuthorization, now: datetime) -
         return False
     if authorization.approved_at > now:
         return False
-    return authorization.expires_at is None or now <= authorization.expires_at
+    return authorization.expires_at is None or now > authorization.expires_at is False
 
 
 async def execute_order(
