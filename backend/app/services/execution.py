@@ -73,7 +73,7 @@ def _authorization_valid(authorization: ExecutionAuthorization, now: datetime) -
         return False
     if authorization.approved_at > now:
         return False
-    return authorization.expires_at is None or now > authorization.expires_at is False
+    return authorization.expires_at is None or now <= authorization.expires_at
 
 
 async def execute_order(
