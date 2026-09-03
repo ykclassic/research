@@ -3,6 +3,7 @@ from enum import Enum
 
 from pydantic import BaseModel, Field
 
+from app.models.execution import ExecutionAuthorization, ExecutionMode, ExecutionRequest, ExecutionResult, OrderRequest, OrderStatus
 from app.models.market import Candle, CompletenessStatus, FreshnessStatus, OHLCVDataset, TechnicalAnalysisResult, Timeframe
 from app.models.market_structure import MarketStructureResult, StructureEvent, StructureStatus
 from app.models.mtf import MTFBias, MTFResearchConclusion, MTFState, MTFTimeframeAnalysis, MultiTimeframeResult
@@ -47,4 +48,4 @@ class ProviderStatus(BaseModel):
     last_latency_ms: int | None = None
     message: str
 
-__all__ = ["Candle", "CompletenessStatus", "FreshnessStatus", "OHLCVDataset", "ProviderStatus", "Quote", "QuoteStatus", "TechnicalAnalysisResult", "Timeframe", "MarketRegime", "MarketRegimeResult", "RegimeEvidence", "RegimeThresholds", "SignalDirection", "StrategyDefinition", "StrategyPortfolioResult", "StrategySignal", "StrategyStatus", "MarketStructureResult", "StructureEvent", "StructureStatus", "MTFBias", "MTFResearchConclusion", "MTFState", "MTFTimeframeAnalysis", "MultiTimeframeResult", "QualificationStatus", "StrategyQualification", "StrategySelectionResult", "PositionQualification", "RiskPolicy", "RiskQualificationStatus"]
+__all__ = ["Candle", "CompletenessStatus", "FreshnessStatus", "OHLCVDataset", "ProviderStatus", "Quote", "QuoteStatus", "TechnicalAnalysisResult", "Timeframe", "MarketRegime", "MarketRegimeResult", "RegimeEvidence", "RegimeThresholds", "SignalDirection", "StrategyDefinition", "StrategyPortfolioResult", "StrategySignal", "StrategyStatus", "MarketStructureResult", "StructureEvent", "StructureStatus", "MTFBias", "MTFResearchConclusion", "MTFState", "MTFTimeframeAnalysis", "MultiTimeframeResult", "QualificationStatus", "StrategyQualification", "StrategySelectionResult", "PositionQualification", "RiskPolicy", "RiskQualificationStatus", "ExecutionAuthorization", "ExecutionMode", "ExecutionRequest", "ExecutionResult", "OrderRequest", "OrderStatus"]
