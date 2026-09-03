@@ -25,6 +25,18 @@ def test_find_matching_deploy_requires_exact_commit() -> None:
     assert result["id"] == "dep-new"
 
 
+def test_find_matching_deploy_prefers_live_duplicate() -> None:
+    items = [
+        {"deploy": deploy("dep-old", "abc123", "deactivated")},
+        {"deploy": deploy("dep-live", "abc123", "live")},
+    ]
+
+    result = find_matching_deploy(items, "abc123")
+
+    assert result is not None
+    assert result["id"] == "dep-live"
+
+
 def test_find_matching_deploy_rejects_prefix_only_match() -> None:
     items = [{"deploy": deploy("dep-new", "abcdef1234567890", "live")}]
 
@@ -41,6 +53,11 @@ def test_validate_live_deploy_requires_exact_commit_and_live_status() -> None:
 def test_validate_live_deploy_rejects_failed_matching_deploy() -> None:
     with pytest.raises(RuntimeError, match="failed"):
         validate_live_deploy(deploy("dep-failed", "abc123", "build_failed"), "abc123")
+
+
+def test_validate_live_deploy_rejects_deactivated_matching_deploy() -> None:
+    with pytest.raises(RuntimeError, match="failed"):
+        validate_live_deploy(deploy("dep-old", "abc123", "deactivated"), "abc123")
 
 
 def test_validate_live_deploy_rejects_commit_mismatch() -> None:
