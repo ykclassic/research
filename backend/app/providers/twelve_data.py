@@ -43,7 +43,9 @@ class TwelveDataProvider(MarketDataProvider):
     def usage(self) -> ProviderUsage | None:
         return self._last_usage
 
-    def _record_usage(self, headers: httpx.Headers) -> None:
+    def _record_usage(self, headers: httpx.Headers | None) -> None:
+        if headers is None:
+            return
         used = headers.get("api-credits-used")
         remaining = headers.get("api-credits-left")
         if used is None and remaining is None:
@@ -174,7 +176,7 @@ class TwelveDataProvider(MarketDataProvider):
             try:
                 async with httpx.AsyncClient(timeout=httpx.Timeout(settings.provider_timeout_seconds)) as client:
                     response = await client.get(f"{self.base_url}/quote", params=params)
-                self._record_usage(response.headers)
+                self._record_usage(getattr(response, "headers", None))
                 latency_ms = int((time.perf_counter() - started) * 1000)
                 response.raise_for_status()
                 payload = response.json()
@@ -208,7 +210,6 @@ class TwelveDataProvider(MarketDataProvider):
                     str(key): value for key, value in payload.items()
                     if isinstance(value, dict)
                 }
-                # A single-symbol response is not keyed by symbol; normalize it for completeness.
                 if len(mappings) == 1 and payload.get("symbol"):
                     by_provider_symbol[str(payload["symbol"])] = payload
 
@@ -216,7 +217,6 @@ class TwelveDataProvider(MarketDataProvider):
                 for mapping in mappings:
                     row = by_provider_symbol.get(mapping.twelve_data)
                     if row is None:
-                        # Some APIs normalize case; tolerate that without weakening identity checks.
                         row = next((value for key, value in by_provider_symbol.items() if key.upper() == mapping.twelve_data.upper()), None)
                     if row is None:
                         code = ProviderErrorCode.SYMBOL_UNSUPPORTED
@@ -303,7 +303,7 @@ class TwelveDataProvider(MarketDataProvider):
                     timeout=httpx.Timeout(settings.provider_timeout_seconds)
                 ) as client:
                     response = await client.get(f"{self.base_url}/time_series", params=params)
-                self._record_usage(response.headers)
+                self._record_usage(getattr(response, "headers", None))
                 response.raise_for_status()
                 payload = response.json()
                 if payload.get("status") == "error" or "values" not in payload:
