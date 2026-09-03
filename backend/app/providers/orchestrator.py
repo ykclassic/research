@@ -79,14 +79,9 @@ class MarketDataOrchestrator:
                 state.credits_used = usage.credits_used
                 state.credits_remaining = usage.credits_remaining
                 state.usage_observed_at = usage.observed_at
-            # Do not repeatedly hammer a provider after quota/auth failures or outages.
-            if error_code in {
-                ProviderErrorCode.RATE_LIMITED,
-                ProviderErrorCode.QUOTA_EXHAUSTED,
-                ProviderErrorCode.AUTHENTICATION_FAILURE,
-                ProviderErrorCode.PROVIDER_TIMEOUT,
-                ProviderErrorCode.PROVIDER_UNAVAILABLE,
-            }:
+            # Circuit breaking still applies to unknown provider failures; symbol
+            # unsupported is isolated to that symbol and must not disable the feed.
+            if error_code != ProviderErrorCode.SYMBOL_UNSUPPORTED:
                 state.consecutive_failures += 1
                 if state.consecutive_failures >= settings.provider_failure_threshold:
                     state.opened_until = time.monotonic() + settings.provider_circuit_cooldown_seconds
@@ -176,8 +171,7 @@ class MarketDataOrchestrator:
                     diagnostics[key].append(provider.name)
                     quote = by_symbol.get(key)
                     if quote is None:
-                        code = ProviderErrorCode.PROVIDER_UNAVAILABLE
-                        provider_failure_codes.append(code)
+                        provider_failure_codes.append(ProviderErrorCode.PROVIDER_UNAVAILABLE)
                         continue
                     code = self._normalized_error_code(quote)
                     if self._fresh_quote(quote):
