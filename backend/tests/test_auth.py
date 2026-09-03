@@ -1,12 +1,12 @@
 from unittest.mock import patch
 
 import pytest
-from fastapi.testclient import TestClient
 from fastapi import HTTPException
+from fastapi.testclient import TestClient
 
-from app.main import app
 from app.api.auth import _validate_github_oidc_claims
 from app.config import settings
+from app.main import app
 
 
 @pytest.fixture()
