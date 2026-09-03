@@ -18,6 +18,11 @@ export type TechnicalAnalysisRange = { startDate?: string; endDate?: string };
 export type StructureStatus = "ACTIVE" | "BROKEN" | "CONFIRMED" | "INVALIDATED";
 export interface StructureEvent { type: string; price: number; time: string; timeframe: string; strength: number; status: StructureStatus; invalidation: number | null; source_candles: string[]; }
 export interface MarketStructureResult { symbol: string; timeframe: string; source: string; calculated_at: string; latest_candle_timestamp: string; candle_count: number; events: StructureEvent[]; }
+export type MTFBias = "BULLISH" | "BEARISH" | "NEUTRAL" | "UNKNOWN";
+export type MTFState = "DAILY_BIAS" | "H4_TREND" | "H1_PULLBACK" | "H1_CONTINUATION" | "H1_REVERSAL" | "H1_NEUTRAL" | "M15_BULLISH_BOS" | "M15_BEARISH_BOS" | "M15_CONFIRMATION" | "M15_NEUTRAL" | "UNKNOWN";
+export interface MTFTimeframeAnalysis { timeframe: string; bias: MTFBias; state: MTFState; conclusion: string; confidence: number; latest_candle_timestamp: string; source: string; candle_count: number; evidence: string[]; }
+export interface MTFResearchConclusion { alignment_count: number; alignment_total: 4; bias: MTFBias; confidence: number; primary_setup: string; invalidation: string; conclusion: string; }
+export interface MultiTimeframeResult { symbol: string; calculated_at: string; timeframes: MTFTimeframeAnalysis[]; research: MTFResearchConclusion; }
 export class ApiError extends Error { readonly status: number; constructor(message: string, status: number) { super(message); this.name = "ApiError"; this.status = status; } }
 const API_BASE = (import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8000").replace(/\/$/, "");
 const REQUEST_TIMEOUT_MS = 12_000;
@@ -44,3 +49,4 @@ export async function removeWatchlistSymbol(id: string, symbol: string): Promise
 export async function getTechnicalAnalysis(symbol: string, timeframe = "1h", limit = 250, range: TechnicalAnalysisRange = {}): Promise<TechnicalAnalysis> { const params = new URLSearchParams({ timeframe }); if (range.startDate || range.endDate) { if (!range.startDate || !range.endDate) throw new Error("A historical range requires both a start date and an end date."); params.set("start", range.startDate); params.set("end", range.endDate); } else params.set("limit", String(limit)); return request<TechnicalAnalysis>(`/api/analysis/${encodeURIComponent(symbol)}?${params}`); }
 export async function getMarketRegime(symbol: string, timeframe = "1h", limit = 250): Promise<RegimeResult> { const params = new URLSearchParams({ timeframe, limit: String(limit) }); return request<RegimeResult>(`/api/regime/${encodeURIComponent(symbol)}?${params}`); }
 export async function getMarketStructure(symbol: string, timeframe = "1h", limit = 250): Promise<MarketStructureResult> { const params = new URLSearchParams({ timeframe, limit: String(limit) }); return request<MarketStructureResult>(`/api/market-structure/${encodeURIComponent(symbol)}?${params}`); }
+export async function getMultiTimeframeAnalysis(symbol: string, limit = 250): Promise<MultiTimeframeResult> { const params = new URLSearchParams({ limit: String(limit) }); return request<MultiTimeframeResult>(`/api/mtf/${encodeURIComponent(symbol)}?${params}`); }
