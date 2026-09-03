@@ -11,6 +11,7 @@ from app.models.regime import MarketRegime, MarketRegimeResult, RegimeEvidence, 
 from app.models.risk import PositionQualification, RiskPolicy, RiskQualificationStatus
 from app.models.strategy import SignalDirection, StrategyDefinition, StrategyPortfolioResult, StrategySignal, StrategyStatus
 from app.models.strategy_selection import QualificationStatus, StrategyQualification, StrategySelectionResult
+from app.models.trade_lifecycle import ExitReason, PerformanceSummary, TradeLifecycleStatus, TradeOutcome, trade_from_execution
 
 class QuoteStatus(str, Enum):
     LIVE = "LIVE"
@@ -48,4 +49,4 @@ class ProviderStatus(BaseModel):
     last_latency_ms: int | None = None
     message: str
 
-__all__ = ["Candle", "CompletenessStatus", "FreshnessStatus", "OHLCVDataset", "ProviderStatus", "Quote", "QuoteStatus", "TechnicalAnalysisResult", "Timeframe", "MarketRegime", "MarketRegimeResult", "RegimeEvidence", "RegimeThresholds", "SignalDirection", "StrategyDefinition", "StrategyPortfolioResult", "StrategySignal", "StrategyStatus", "MarketStructureResult", "StructureEvent", "StructureStatus", "MTFBias", "MTFResearchConclusion", "MTFState", "MTFTimeframeAnalysis", "MultiTimeframeResult", "QualificationStatus", "StrategyQualification", "StrategySelectionResult", "PositionQualification", "RiskPolicy", "RiskQualificationStatus", "ExecutionAuthorization", "ExecutionMode", "ExecutionRequest", "ExecutionResult", "OrderRequest", "OrderStatus"]
+__all__ = ["Candle", "CompletenessStatus", "FreshnessStatus", "OHLCVDataset", "ProviderStatus", "Quote", "QuoteStatus", "TechnicalAnalysisResult", "Timeframe", "MarketRegime", "MarketRegimeResult", "RegimeEvidence", "RegimeThresholds", "SignalDirection", "StrategyDefinition", "StrategyPortfolioResult", "StrategySignal", "StrategyStatus", "MarketStructureResult", "StructureEvent", "StructureStatus", "MTFBias", "MTFResearchConclusion", "MTFState", "MTFTimeframeAnalysis", "MultiTimeframeResult", "QualificationStatus", "StrategyQualification", "StrategySelectionResult", "PositionQualification", "RiskPolicy", "RiskQualificationStatus", "ExecutionAuthorization", "ExecutionMode", "ExecutionRequest", "ExecutionResult", "OrderRequest", "OrderStatus", "ExitReason", "PerformanceSummary", "TradeLifecycleStatus", "TradeOutcome", "trade_from_execution"]
