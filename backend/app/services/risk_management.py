@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from math import isfinite
 
-from app.models.market import TechnicalAnalysisResult
+from app.models.market import OHLCVDataset, TechnicalAnalysisResult
 from app.models.risk import PositionQualification, RiskPolicy, RiskQualificationStatus
 from app.models.strategy import SignalDirection
 from app.models.strategy_selection import StrategySelectionResult
@@ -13,31 +13,28 @@ RISK_POLICY = RiskPolicy()
 
 def qualify_position(
     selection: StrategySelectionResult,
+    dataset: OHLCVDataset,
     features: TechnicalAnalysisResult,
     account_equity: float,
     policy: RiskPolicy = RISK_POLICY,
 ) -> PositionQualification:
     """Convert a selected strategy into a deterministic, non-executable position candidate."""
-    if selection.symbol != features.symbol:
-        raise ValueError("Strategy selection and feature symbols must match.")
-    if features.candle_count < 14:
+    if selection.symbol != features.symbol or selection.symbol != dataset.symbol:
+        raise ValueError("Strategy selection, dataset, and feature symbols must match.")
+    completed = dataset.completed_candles
+    if len(completed) < 14:
         raise ValueError("At least 14 completed candles are required for ATR risk qualification.")
     if not isfinite(account_equity) or account_equity <= 0:
         raise ValueError("account_equity must be greater than zero and finite.")
 
     direction = selection.selected_direction
     atr = features.indicators.get("atr14")
-    entry = None
-    if features.candle_count > 0:
-        entry = features.indicators.get("close")
-    if entry is None:
-        raise ValueError("Canonical feature set must expose the latest close for position qualification.")
+    entry_price = completed[-1].close
     if atr is None or not isinstance(atr, (int, float)) or not isfinite(float(atr)) or float(atr) <= 0:
         raise ValueError("A positive finite ATR14 is required for risk qualification.")
-    if not isfinite(float(entry)) or float(entry) <= 0:
+    if not isfinite(float(entry_price)) or float(entry_price) <= 0:
         raise ValueError("A positive finite entry price is required for risk qualification.")
 
-    entry_price = float(entry)
     atr_value = float(atr)
     risk_amount = account_equity * policy.risk_per_trade
     stop_distance = atr_value * policy.stop_atr_multiplier
