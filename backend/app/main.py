@@ -5,6 +5,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 from app.api.analysis import router as analysis_router
 from app.api.auth import router as auth_router
+from app.api.execution import router as execution_router
 from app.api.market import router as market_router
 from app.api.market_structure import router as market_structure_router
 from app.api.mtf import router as mtf_router
@@ -20,7 +21,7 @@ from app.config import settings
 async def lifespan(_: FastAPI):
     yield
 
-app = FastAPI(title="Adaptive Intelligent Market Research Bot API", version="1.9.0", lifespan=lifespan)
+app = FastAPI(title="Adaptive Intelligent Market Research Bot API", version="1.10.0", lifespan=lifespan)
 origins = [item.strip() for item in settings.cors_origins.split(",") if item.strip()]
 trusted_hosts = [item.strip() for item in settings.trusted_hosts.split(",") if item.strip()]
 app.add_middleware(TrustedHostMiddleware, allowed_hosts=trusted_hosts or ["localhost", "127.0.0.1", "testserver"])
@@ -53,6 +54,7 @@ app.include_router(strategy_selection_router)
 app.include_router(risk_management_router)
 app.include_router(market_structure_router)
 app.include_router(mtf_router)
+app.include_router(execution_router)
 
 @app.get("/health")
 async def health() -> dict:
