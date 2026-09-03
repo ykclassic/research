@@ -101,6 +101,7 @@ def main() -> int:
         print("FAIL: GITHUB_OIDC_TOKEN is required.", file=sys.stderr)
         return 2
 
+    expected_commit = os.getenv("EXPECTED_DEPLOY_COMMIT", "").strip()
     base_url = args.api_base.rstrip("/")
     symbol = args.symbol.upper()
     timeout = httpx.Timeout(REQUEST_TIMEOUT_SECONDS, connect=REQUEST_CONNECT_TIMEOUT_SECONDS)
@@ -112,12 +113,22 @@ def main() -> int:
             health.raise_for_status()
             payload = health.json()
             require(payload.get("ok") is True, f"health payload is not healthy: {payload}")
+            deployed_commit = str(payload.get("deployment_commit") or health.headers.get("X-Deployment-Commit") or "")
+            if expected_commit:
+                require(deployed_commit == expected_commit, f"API deployment commit mismatch: expected {expected_commit}, observed {deployed_commit or '<missing>'}")
+                results.append(CheckResult("API deployment matches pushed Git commit", True, f"expected={expected_commit}; observed={deployed_commit}"))
+            else:
+                results.append(CheckResult("API deployment provenance is visible", True, f"deployment_commit={deployed_commit or '<not exposed in this environment>'}"))
             results.append(CheckResult("API reachable", True, f"HTTP 200; service={payload.get('service')}; environment={payload.get('environment')}"))
 
             nonce = str(uuid.uuid4())
             headers = {"Authorization": f"Bearer {oidc_token}", "Cache-Control": "no-cache, no-store, max-age=0", "Pragma": "no-cache", "X-Verification-Nonce": nonce}
             response = request(client, f"{base_url}/api/market/quote/{symbol}", params={"refresh": "true", "verification_nonce": nonce}, headers=headers)
             response.raise_for_status()
+            response_commit = response.headers.get("X-Deployment-Commit", "")
+            if expected_commit:
+                require(response_commit == expected_commit, f"Quote response deployment commit mismatch: expected {expected_commit}, observed {response_commit or '<missing>'}")
+                results.append(CheckResult("Quote response came from intended deployment", True, f"X-Deployment-Commit={response_commit}"))
             body = response.json()
             quote = body["quote"]
             source = quote["source"]
@@ -178,6 +189,8 @@ def main() -> int:
             second_nonce = str(uuid.uuid4())
             second = request(client, f"{base_url}/api/market/quote/{symbol}", params={"refresh": "true", "verification_nonce": second_nonce}, headers={**headers, "X-Verification-Nonce": second_nonce})
             second.raise_for_status()
+            if expected_commit:
+                require(second.headers.get("X-Deployment-Commit") == expected_commit, f"Second quote response deployment commit mismatch: expected {expected_commit}, observed {second.headers.get('X-Deployment-Commit', '<missing>')}")
             second_quote = second.json()["quote"]
             require(second.headers.get("X-Market-Data-Cache") == "MISS", "Second forced refresh was served from cache")
             require(second_quote.get("observed_at") != quote.get("observed_at"), "Forced refresh did not advance backend observation time")
@@ -185,6 +198,8 @@ def main() -> int:
 
             fallback = request(client, f"{base_url}/api/market/verification/fallback/{symbol}", params={"timeframe": args.timeframe, "limit": args.limit}, headers=headers)
             fallback.raise_for_status()
+            if expected_commit:
+                require(fallback.headers.get("X-Deployment-Commit") == expected_commit, f"Fallback response deployment commit mismatch: expected {expected_commit}, observed {fallback.headers.get('X-Deployment-Commit', '<missing>')}")
             fallback_payload = fallback.json()
             require(fallback_payload.get("fallback_verified") is True, f"Fallback path was not exercised: {fallback_payload}")
             fallback_quote = fallback_payload["quote"]
