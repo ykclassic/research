@@ -33,6 +33,7 @@ CSRF_COOKIE = "mr_csrf"
 CSRF_HEADER = "X-CSRF-Token"
 GITHUB_OIDC_ALGORITHMS = ("RS256",)
 GITHUB_OIDC_EVENTS = {"schedule", "workflow_dispatch"}
+GITHUB_OIDC_PUSH_WORKFLOW = ".github/workflows/production-market-data-verification.yml"
 
 
 class Credentials(BaseModel):
@@ -136,14 +137,23 @@ def _validate_github_oidc_claims(claims: dict[str, Any]) -> None:
         f"{settings.github_oidc_repository}/{workflow}@{settings.github_oidc_ref}"
         for workflow in settings.trusted_oidc_workflows
     }
-    if claims.get("repository") != settings.github_oidc_repository:
+    repository = claims.get("repository")
+    ref = claims.get("ref")
+    workflow_ref = claims.get("workflow_ref")
+    event_name = claims.get("event_name")
+    if repository != settings.github_oidc_repository:
         raise HTTPException(status_code=403, detail="GitHub OIDC repository is not trusted.")
-    if claims.get("ref") != settings.github_oidc_ref:
+    if ref != settings.github_oidc_ref:
         raise HTTPException(status_code=403, detail="GitHub OIDC ref is not trusted.")
-    if claims.get("workflow_ref") not in expected_workflow_refs:
+    if workflow_ref not in expected_workflow_refs:
         raise HTTPException(status_code=403, detail="GitHub OIDC workflow is not trusted.")
-    if claims.get("event_name") not in GITHUB_OIDC_EVENTS:
-        raise HTTPException(status_code=403, detail="GitHub OIDC event is not trusted.")
+    if event_name in GITHUB_OIDC_EVENTS:
+        return
+    if event_name == "push" and workflow_ref == (
+        f"{settings.github_oidc_repository}/{GITHUB_OIDC_PUSH_WORKFLOW}@{settings.github_oidc_ref}"
+    ):
+        return
+    raise HTTPException(status_code=403, detail="GitHub OIDC event is not trusted.")
 
 
 def _verify_github_oidc_token(token: str) -> None:

@@ -1,8 +1,11 @@
 from unittest.mock import patch
 
 import pytest
+from fastapi import HTTPException
 from fastapi.testclient import TestClient
 
+from app.api.auth import _validate_github_oidc_claims
+from app.config import settings
 from app.main import app
 
 
@@ -121,3 +124,40 @@ def test_logout_requires_csrf_and_clears_session(client):
 def test_market_api_requires_authentication(client):
     response = client.get("/api/market/quotes")
     assert response.status_code == 401
+
+
+def _oidc_claims(event_name: str, workflow: str | None = None, ref: str | None = None) -> dict[str, str]:
+    workflow = workflow or settings.github_oidc_workflow
+    return {
+        "repository": settings.github_oidc_repository,
+        "ref": ref or settings.github_oidc_ref,
+        "workflow_ref": f"{settings.github_oidc_repository}/{workflow}@{settings.github_oidc_ref}",
+        "event_name": event_name,
+    }
+
+
+def test_production_market_workflow_push_event_is_trusted():
+    _validate_github_oidc_claims(_oidc_claims("push"))
+
+
+@pytest.mark.parametrize("event_name", ["schedule", "workflow_dispatch"])
+def test_existing_production_oidc_events_remain_trusted(event_name):
+    _validate_github_oidc_claims(_oidc_claims(event_name))
+
+
+def test_push_from_regime_workflow_is_rejected():
+    claims = _oidc_claims("push", workflow=".github/workflows/production-regime-verification.yml")
+    with pytest.raises(HTTPException, match="event is not trusted"):
+        _validate_github_oidc_claims(claims)
+
+
+def test_push_from_untrusted_workflow_is_rejected():
+    claims = _oidc_claims("push", workflow=".github/workflows/untrusted.yml")
+    with pytest.raises(HTTPException, match="workflow is not trusted"):
+        _validate_github_oidc_claims(claims)
+
+
+def test_trusted_workflow_on_non_main_ref_is_rejected():
+    claims = _oidc_claims("push", ref="refs/heads/feature/test")
+    with pytest.raises(HTTPException, match="ref is not trusted"):
+        _validate_github_oidc_claims(claims)
