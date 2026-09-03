@@ -3,10 +3,11 @@ import { Activity, AlertTriangle, Check, Clock3, LogOut, Plus, RefreshCw, Shield
 import { ApiError, addWatchlistSymbol, confirmPasswordReset, createWatchlist, deleteWatchlist, getCurrentUser, getQuotes, getWatchlists, login, logout, Quote, register, removeWatchlistSymbol, renameWatchlist, requestPasswordReset, User, Watchlist } from "./api";
 import TechnicalAnalysisPage from "./TechnicalAnalysisPage";
 import MarketStructurePage from "./MarketStructurePage";
+import MTFAnalysisPage from "./MTFAnalysisPage";
 
 const SYMBOLS = ["BTC/USD", "ETH/USD", "SOL/USD", "EUR/USD", "GBP/USD", "USD/JPY", "NVDA", "AAPL", "MSFT", "SPY"];
 type AuthMode = "login" | "register" | "forgot" | "reset";
-export type AppPage = "market" | "watchlists" | "analysis" | "market-structure";
+export type AppPage = "market" | "watchlists" | "analysis" | "market-structure" | "mtf";
 
 function formatPrice(price: number | null): string { if (price === null) return "—"; if (price >= 1000) return price.toLocaleString(undefined, { maximumFractionDigits: 2 }); if (price >= 1) return price.toLocaleString(undefined, { maximumFractionDigits: 5 }); return price.toLocaleString(undefined, { maximumFractionDigits: 8 }); }
 function formatTime(timestamp: string | null): string { if (!timestamp) return "No timestamp"; const date = new Date(timestamp); return Number.isNaN(date.getTime()) ? "Invalid timestamp" : date.toLocaleTimeString(); }
@@ -25,7 +26,7 @@ function AuthScreen({ onAuthenticated }: { onAuthenticated: (user: User) => void
 
 function Header({ user, page, setPage, onLogout, onRefresh, refreshing, disabled }: { user: User; page: AppPage; setPage: (p: AppPage) => void; onLogout: () => void; onRefresh?: () => void; refreshing?: boolean; disabled?: boolean }) {
   const signOut = async () => { try { await logout(); } finally { onLogout(); } };
-  return <header className="topbar"><div><div className="eyebrow">Adaptive Intelligence</div><h1>Market Research</h1></div><nav className="main-nav" aria-label="Research sections"><button className={`nav-button ${page === "market" ? "active" : ""}`} onClick={() => setPage("market")}>Market Data</button><button className={`nav-button ${page === "watchlists" ? "active" : ""}`} onClick={() => setPage("watchlists")}>Watchlists</button><button className={`nav-button ${page === "analysis" ? "active" : ""}`} onClick={() => setPage("analysis")}>Technical Analysis</button><button className={`nav-button ${page === "market-structure" ? "active" : ""}`} onClick={() => setPage("market-structure")}>Market Structure</button></nav><div className="topbar-actions"><span className="user-email">{user.email}</span>{onRefresh && <button className="refresh" onClick={onRefresh} disabled={Boolean(refreshing || disabled)}><RefreshCw size={16} className={refreshing ? "spin" : ""}/>{refreshing ? "Refreshing" : "Refresh prices"}</button>}<button className="logout" onClick={() => void signOut()}><LogOut size={16}/>Sign out</button></div></header>;
+  return <header className="topbar"><div><div className="eyebrow">Adaptive Intelligence</div><h1>Market Research</h1></div><nav className="main-nav" aria-label="Research sections"><button className={`nav-button ${page === "market" ? "active" : ""}`} onClick={() => setPage("market")}>Market Data</button><button className={`nav-button ${page === "watchlists" ? "active" : ""}`} onClick={() => setPage("watchlists")}>Watchlists</button><button className={`nav-button ${page === "analysis" ? "active" : ""}`} onClick={() => setPage("analysis")}>Technical Analysis</button><button className={`nav-button ${page === "market-structure" ? "active" : ""}`} onClick={() => setPage("market-structure")}>Market Structure</button><button className={`nav-button ${page === "mtf" ? "active" : ""}`} onClick={() => setPage("mtf")}>MTF Analysis</button></nav><div className="topbar-actions"><span className="user-email">{user.email}</span>{onRefresh && <button className="refresh" onClick={onRefresh} disabled={Boolean(refreshing || disabled)}><RefreshCw size={16} className={refreshing ? "spin" : ""}/>{refreshing ? "Refreshing" : "Refresh prices"}</button>}<button className="logout" onClick={() => void signOut()}><LogOut size={16}/>Sign out</button></div></header>;
 }
 
 function MarketDataPage({ user, onLogout, setPage }: { user: User; onLogout: () => void; setPage: (p: AppPage) => void }) {
@@ -60,6 +61,7 @@ function App() {
   if (page === "market") return <MarketDataPage user={user} onLogout={onLogout} setPage={setPage}/>;
   if (page === "watchlists") return <WatchlistsPage user={user} onLogout={onLogout} setPage={setPage}/>;
   if (page === "analysis") return <TechnicalAnalysisPage user={user} onLogout={onLogout} setPage={setPage}/>;
-  return <MarketStructurePage user={user} onLogout={onLogout} setPage={setPage}/>;
+  if (page === "market-structure") return <MarketStructurePage user={user} onLogout={onLogout} setPage={setPage}/>;
+  return <MTFAnalysisPage user={user} onLogout={onLogout} setPage={setPage}/>;
 }
 export default App;
