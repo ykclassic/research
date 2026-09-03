@@ -12,6 +12,8 @@ from app.models.risk import PositionQualification, RiskPolicy, RiskQualification
 from app.models.strategy import SignalDirection, StrategyDefinition, StrategyPortfolioResult, StrategySignal, StrategyStatus
 from app.models.strategy_selection import QualificationStatus, StrategyQualification, StrategySelectionResult
 from app.models.trade_lifecycle import ExitReason, PerformanceSummary, TradeLifecycleStatus, TradeOutcome, trade_from_execution
+from app.providers.errors import ProviderErrorCode
+from app.providers.base import ProviderUsage
 
 class QuoteStatus(str, Enum):
     LIVE = "LIVE"
@@ -34,11 +36,14 @@ class Quote(BaseModel):
     latency_ms: int | None = None
     cache_hit: bool = False
     error: str | None = None
+    error_code: ProviderErrorCode | None = None
     freshness_status: FreshnessStatus = FreshnessStatus.UNKNOWN
     freshness_age_seconds: float | None = Field(default=None, ge=0)
     completeness_status: CompletenessStatus = CompletenessStatus.COMPLETE
     fallback_used: bool = False
     provider_attempts: tuple[str, ...] = ()
+    provider_credits_used: int | None = Field(default=None, ge=0)
+    provider_credits_remaining: int | None = Field(default=None, ge=0)
 
 class ProviderStatus(BaseModel):
     provider: str
@@ -47,6 +52,11 @@ class ProviderStatus(BaseModel):
     circuit_open: bool = False
     consecutive_failures: int = 0
     last_latency_ms: int | None = None
+    last_error: str | None = None
+    last_error_code: ProviderErrorCode | None = None
+    credits_used: int | None = Field(default=None, ge=0)
+    credits_remaining: int | None = Field(default=None, ge=0)
+    usage_observed_at: datetime | None = None
     message: str
 
-__all__ = ["Candle", "CompletenessStatus", "FreshnessStatus", "OHLCVDataset", "ProviderStatus", "Quote", "QuoteStatus", "TechnicalAnalysisResult", "Timeframe", "MarketRegime", "MarketRegimeResult", "RegimeEvidence", "RegimeThresholds", "SignalDirection", "StrategyDefinition", "StrategyPortfolioResult", "StrategySignal", "StrategyStatus", "MarketStructureResult", "StructureEvent", "StructureStatus", "MTFBias", "MTFResearchConclusion", "MTFState", "MTFTimeframeAnalysis", "MultiTimeframeResult", "QualificationStatus", "StrategyQualification", "StrategySelectionResult", "PositionQualification", "RiskPolicy", "RiskQualificationStatus", "ExecutionAuthorization", "ExecutionMode", "ExecutionRequest", "ExecutionResult", "OrderRequest", "OrderStatus", "ExitReason", "PerformanceSummary", "TradeLifecycleStatus", "TradeOutcome", "trade_from_execution"]
+__all__ = ["Candle", "CompletenessStatus", "FreshnessStatus", "OHLCVDataset", "ProviderErrorCode", "ProviderStatus", "ProviderUsage", "Quote", "QuoteStatus", "TechnicalAnalysisResult", "Timeframe", "MarketRegime", "MarketRegimeResult", "RegimeEvidence", "RegimeThresholds", "SignalDirection", "StrategyDefinition", "StrategyPortfolioResult", "StrategySignal", "StrategyStatus", "MarketStructureResult", "StructureEvent", "StructureStatus", "MTFBias", "MTFResearchConclusion", "MTFState", "MTFTimeframeAnalysis", "MultiTimeframeResult", "QualificationStatus", "StrategyQualification", "StrategySelectionResult", "PositionQualification", "RiskPolicy", "RiskQualificationStatus", "ExecutionAuthorization", "ExecutionMode", "ExecutionRequest", "ExecutionResult", "OrderRequest", "OrderStatus", "ExitReason", "PerformanceSummary", "TradeLifecycleStatus", "TradeOutcome", "trade_from_execution"]
