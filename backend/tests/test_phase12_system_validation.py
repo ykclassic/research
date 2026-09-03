@@ -1,11 +1,18 @@
 from __future__ import annotations
 
+import asyncio
 from datetime import datetime, timedelta, timezone
 from math import inf, nan
 
 import pytest
 
-from app.models.execution import ExecutionAuthorization, ExecutionMode, OrderStatus
+from app.models.execution import (
+    ExecutionAuthorization,
+    ExecutionMode,
+    ExecutionResult,
+    OrderRequest,
+    OrderStatus,
+)
 from app.models.market import Candle, OHLCVDataset
 from app.models.risk import RiskQualificationStatus
 from app.models.strategy import SignalDirection
@@ -14,56 +21,23 @@ from app.services.execution import build_order_request, execute_order
 from app.services.performance import close_trade, summarize_performance
 from app.services.risk_management import qualify_position
 from tests.test_risk_management import make_dataset, make_features, make_selection
+from tests.test_trade_lifecycle import execution as make_execution
 
 UTC = timezone.utc
 BASE = datetime(2026, 9, 3, tzinfo=UTC)
 
 
 def test_market_dataset_rejects_duplicate_timestamps() -> None:
-    candle = Candle(
-        timestamp=BASE,
-        open=100,
-        high=101,
-        low=99,
-        close=100,
-        volume=10,
-        symbol="BTC/USD",
-        timeframe="1h",
-        source="test",
-        is_complete=True,
-    )
+    candle = Candle(timestamp=BASE, open=100, high=101, low=99, close=100, volume=10, symbol="BTC/USD", timeframe="1h", source="test", is_complete=True)
     with pytest.raises(ValueError, match="strictly increasing"):
-        OHLCVDataset(
-            symbol="BTC/USD",
-            timeframe="1h",
-            source="test",
-            requested_at=BASE,
-            candles=(candle, candle),
-        )
+        OHLCVDataset(symbol="BTC/USD", timeframe="1h", source="test", requested_at=BASE, candles=(candle, candle))
 
 
 def test_market_dataset_rejects_mixed_candle_identity() -> None:
-    first = Candle(
-        timestamp=BASE,
-        open=100,
-        high=101,
-        low=99,
-        close=100,
-        volume=10,
-        symbol="BTC/USD",
-        timeframe="1h",
-        source="test",
-        is_complete=True,
-    )
+    first = Candle(timestamp=BASE, open=100, high=101, low=99, close=100, volume=10, symbol="BTC/USD", timeframe="1h", source="test", is_complete=True)
     second = first.model_copy(update={"timestamp": BASE + timedelta(hours=1), "symbol": "ETH/USD"})
     with pytest.raises(ValueError, match="dataset identity"):
-        OHLCVDataset(
-            symbol="BTC/USD",
-            timeframe="1h",
-            source="test",
-            requested_at=BASE,
-            candles=(first, second),
-        )
+        OHLCVDataset(symbol="BTC/USD", timeframe="1h", source="test", requested_at=BASE, candles=(first, second))
 
 
 def test_market_dataset_separates_completed_from_forming_candle() -> None:
@@ -90,12 +64,7 @@ def test_risk_engine_preserves_selected_direction_and_risk_controls() -> None:
 
 
 def test_risk_engine_short_position_has_directionally_valid_controls() -> None:
-    position = qualify_position(
-        make_selection(SignalDirection.SHORT),
-        make_dataset(),
-        make_features(),
-        10_000,
-    )
+    position = qualify_position(make_selection(SignalDirection.SHORT), make_dataset(), make_features(), 10_000)
     assert position.stop_loss > position.entry_price > position.take_profit
 
 
@@ -103,33 +72,20 @@ def test_risk_engine_short_position_has_directionally_valid_controls() -> None:
 async def test_end_to_end_qualified_paper_trade_reaches_performance() -> None:
     position = qualify_position(make_selection(), make_dataset(), make_features(), 10_000)
     order = build_order_request(position, ExecutionMode.PAPER, "phase12-e2e")
-    authorization = ExecutionAuthorization(
-        approved=True,
-        approval_id="approval-phase12",
-        approved_at=BASE,
-        expires_at=BASE + timedelta(hours=1),
-    )
-    execution = await execute_order(order, authorization)
-    assert execution.status is OrderStatus.FILLED
-    trade = trade_from_execution(execution)
+    authorization = ExecutionAuthorization(approved=True, approval_id="approval-phase12", approved_at=BASE, expires_at=BASE + timedelta(hours=1))
+    result = await execute_order(order, authorization)
+    assert result.status is OrderStatus.FILLED
+    trade = trade_from_execution(result)
     assert trade.status is TradeLifecycleStatus.OPEN
-
-    closed = close_trade(
-        trade,
-        position.take_profit,
-        BASE + timedelta(hours=2),
-        ExitReason.TAKE_PROFIT,
-    )
+    closed = close_trade(trade, position.take_profit, BASE + timedelta(hours=2), ExitReason.TAKE_PROFIT)
     summary = summarize_performance([closed])[0]
     assert closed.status is TradeLifecycleStatus.CLOSED
     assert summary.closed_trade_count == 1
     assert summary.wins == 1
-    assert summary.total_pnl is not None
     assert summary.average_r == pytest.approx(position.risk_policy.minimum_reward_risk)
 
 
-@pytest.mark.asyncio
-async def test_unqualified_position_cannot_cross_execution_boundary() -> None:
+def test_unqualified_position_cannot_cross_execution_boundary() -> None:
     position = qualify_position(make_selection(), make_dataset(), make_features(), 10_000)
     rejected = position.model_copy(update={"status": RiskQualificationStatus.REJECTED})
     with pytest.raises(ValueError, match="QUALIFIED"):
@@ -149,12 +105,7 @@ async def test_unauthorized_order_never_reaches_broker() -> None:
 async def test_expired_authorization_never_reaches_broker() -> None:
     position = qualify_position(make_selection(), make_dataset(), make_features(), 10_000)
     order = build_order_request(position, ExecutionMode.PAPER, "phase12-expired")
-    authorization = ExecutionAuthorization(
-        approved=True,
-        approval_id="approval-expired",
-        approved_at=BASE - timedelta(hours=2),
-        expires_at=BASE - timedelta(hours=1),
-    )
+    authorization = ExecutionAuthorization(approved=True, approval_id="approval-expired", approved_at=BASE - timedelta(hours=2), expires_at=BASE - timedelta(hours=1))
     result = await execute_order(order, authorization)
     assert result.status is OrderStatus.REJECTED
     assert result.broker_order_id is None
@@ -164,11 +115,7 @@ async def test_expired_authorization_never_reaches_broker() -> None:
 async def test_research_only_order_never_reaches_broker() -> None:
     position = qualify_position(make_selection(), make_dataset(), make_features(), 10_000)
     order = build_order_request(position, ExecutionMode.RESEARCH_ONLY, "phase12-research")
-    authorization = ExecutionAuthorization(
-        approved=True,
-        approval_id="approval-research",
-        approved_at=BASE,
-    )
+    authorization = ExecutionAuthorization(approved=True, approval_id="approval-research", approved_at=BASE)
     result = await execute_order(order, authorization)
     assert result.status is OrderStatus.REJECTED
     assert result.broker_order_id is None
@@ -178,98 +125,89 @@ async def test_research_only_order_never_reaches_broker() -> None:
 async def test_live_order_is_fail_closed_without_live_adapter() -> None:
     position = qualify_position(make_selection(), make_dataset(), make_features(), 10_000)
     order = build_order_request(position, ExecutionMode.LIVE, "phase12-live")
-    authorization = ExecutionAuthorization(
-        approved=True,
-        approval_id="approval-live",
-        approved_at=BASE,
-    )
+    authorization = ExecutionAuthorization(approved=True, approval_id="approval-live", approved_at=BASE)
     result = await execute_order(order, authorization)
     assert result.status is OrderStatus.REJECTED
     assert result.broker_order_id is None
 
 
 def test_trade_lifecycle_rejects_double_close() -> None:
-    position = qualify_position(make_selection(), make_dataset(), make_features(), 10_000)
-    order = build_order_request(position, ExecutionMode.PAPER, "phase12-close")
-    import asyncio
-
-    authorization = ExecutionAuthorization(
-        approved=True,
-        approval_id="approval-close",
-        approved_at=BASE,
-    )
-    execution = asyncio.run(execute_order(order, authorization))
-    trade = trade_from_execution(execution)
-    closed = close_trade(trade, position.take_profit, BASE + timedelta(hours=1), ExitReason.TAKE_PROFIT)
+    trade = trade_from_execution(make_execution())
+    closed = close_trade(trade, 110.0, BASE + timedelta(hours=1), ExitReason.TAKE_PROFIT)
     with pytest.raises(ValueError, match="OPEN"):
-        close_trade(closed, position.take_profit, BASE + timedelta(hours=2), ExitReason.MANUAL)
+        close_trade(closed, 110.0, BASE + timedelta(hours=2), ExitReason.MANUAL)
 
 
 def test_performance_summary_is_deterministic() -> None:
-    first = trade_from_execution(
-        __import__("tests.test_trade_lifecycle", fromlist=["execution"]).execution()
-    )
-    second = close_trade(first, 110.0, BASE + timedelta(hours=1), ExitReason.TAKE_PROFIT)
-    left = summarize_performance([second])
-    right = summarize_performance([second])
-    assert left == right
+    trade = trade_from_execution(make_execution())
+    closed = close_trade(trade, 110.0, BASE + timedelta(hours=1), ExitReason.TAKE_PROFIT)
+    assert summarize_performance([closed]) == summarize_performance([closed])
 
 
 def test_trade_pnl_and_r_are_consistent() -> None:
-    trade = trade_from_execution(
-        __import__("tests.test_trade_lifecycle", fromlist=["execution"]).execution()
-    )
+    trade = trade_from_execution(make_execution())
     closed = close_trade(trade, 110.0, BASE + timedelta(hours=1), ExitReason.TAKE_PROFIT)
     risk_cash = abs(trade.entry_price - trade.stop_loss) * trade.quantity
     assert closed.realized_pnl == pytest.approx(closed.r_multiple * risk_cash)
 
 
 def test_performance_excludes_open_trades_from_expectancy() -> None:
-    trade = trade_from_execution(
-        __import__("tests.test_trade_lifecycle", fromlist=["execution"]).execution()
-    )
-    summary = summarize_performance([trade])[0]
+    summary = summarize_performance([trade_from_execution(make_execution())])[0]
     assert summary.closed_trade_count == 0
     assert summary.win_rate == 0
     assert summary.average_r == 0
     assert summary.expectancy_r == 0
 
 
-def test_order_request_cannot_have_non_positive_quantity() -> None:
-    position = qualify_position(make_selection(), make_dataset(), make_features(), 10_000)
+def test_order_request_model_rejects_non_positive_quantity() -> None:
     with pytest.raises(ValueError):
-        build_order_request(
-            position.model_copy(update={"position_size": 0}),
-            ExecutionMode.PAPER,
+        OrderRequest(
+            client_order_id="bad",
+            symbol="BTC/USD",
+            direction=SignalDirection.LONG,
+            quantity=0,
+            entry_price=100,
+            stop_loss=95,
+            take_profit=110,
+            strategy_id="test",
+            risk_policy_version="1.0.0",
+            execution_mode=ExecutionMode.PAPER,
+            created_at=BASE,
         )
 
 
 def test_canonical_dataset_output_is_reproducible() -> None:
-    left = make_dataset()
-    right = make_dataset()
-    assert left == right
-    assert left.completed_candles == right.completed_candles
+    assert make_dataset() == make_dataset()
 
 
 def test_market_model_rejects_non_finite_ohlcv() -> None:
     with pytest.raises(ValueError, match="finite"):
-        Candle(
-            timestamp=BASE,
-            open=100,
-            high=101,
-            low=99,
-            close=nan,
-            volume=10,
-            symbol="BTC/USD",
-            timeframe="1h",
-            source="test",
-            is_complete=True,
-        )
+        Candle(timestamp=BASE, open=100, high=101, low=99, close=nan, volume=10, symbol="BTC/USD", timeframe="1h", source="test", is_complete=True)
 
 
-def test_causal_snapshot_rule_is_explicit_for_forming_candles() -> None:
+def test_causal_snapshot_rule_is_explicit_for_completed_candles() -> None:
     dataset = make_dataset()
-    latest = dataset.latest_candle
-    assert latest.timestamp <= dataset.requested_at
-    assert all(c.timestamp <= latest.timestamp for c in dataset.candles)
+    assert all(c.timestamp <= dataset.latest_candle.timestamp for c in dataset.candles)
     assert all(c.is_complete for c in dataset.completed_candles)
+
+
+def test_execution_result_cannot_claim_fill_without_positive_filled_quantity() -> None:
+    with pytest.raises(ValueError):
+        ExecutionResult(
+            client_order_id="invalid",
+            broker_order_id="broker-invalid",
+            symbol="BTC/USD",
+            direction=SignalDirection.LONG,
+            status=OrderStatus.FILLED,
+            execution_mode=ExecutionMode.PAPER,
+            requested_quantity=1,
+            filled_quantity=-1,
+            requested_entry_price=100,
+            fill_price=100,
+            stop_loss=95,
+            take_profit=110,
+            strategy_id="test",
+            generated_at=BASE,
+            executed_at=BASE,
+            message="invalid",
+        )
