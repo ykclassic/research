@@ -17,6 +17,10 @@ def _quality(quote):
         "request_latency_ms": quote.latency_ms,
         "freshness_status": quote.freshness_status,
         "freshness_age_seconds": quote.freshness_age_seconds,
+        "error_code": quote.error_code,
+        "error": quote.error,
+        "provider_credits_used": quote.provider_credits_used,
+        "provider_credits_remaining": quote.provider_credits_remaining,
         "candle_completeness": "NOT_APPLICABLE",
         "provenance": {
             "provider": quote.source,
@@ -41,6 +45,7 @@ async def get_quote(symbol: str, response: Response, refresh: bool = False):
     response.headers["X-Market-Data-Refresh"] = "true" if refresh else "false"
     response.headers["X-Market-Data-Freshness"] = quote.freshness_status.value
     response.headers["X-Market-Data-Fallback"] = "true" if quote.fallback_used else "false"
+    response.headers["X-Market-Data-Error-Code"] = quote.error_code.value if quote.error_code else ""
     return {"quote": quote.model_dump(mode="json"), "data_quality": _quality(quote)}
 
 
