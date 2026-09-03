@@ -61,7 +61,7 @@ def test_bullish_four_of_four_research_conclusion() -> None:
     structures = {
         Timeframe.DAY_1: (_event(Timeframe.DAY_1, "BOS_BULLISH", 170.0),),
         Timeframe.HOUR_4: (_event(Timeframe.HOUR_4, "BOS_BULLISH", 170.0),),
-        Timeframe.HOUR_1: (_event(Timeframe.HOUR_1, "ORDER_BLOCK_BULLISH", 176.0, status=StructureStatus.ACTIVE, invalidation=175.0),),
+        Timeframe.HOUR_1: (_event(Timeframe.HOUR_1, "ORDER_BLOCK_BULLISH", 177.0, status=StructureStatus.ACTIVE, invalidation=175.0),),
         Timeframe.MINUTE_15: (_event(Timeframe.MINUTE_15, "BOS_BULLISH", 177.0),),
     }
     result = analyze_multi_timeframe(datasets, structures)
