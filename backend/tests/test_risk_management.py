@@ -157,4 +157,4 @@ def test_invalid_equity_is_rejected_before_sizing() -> None:
 
 def test_missing_atr_is_rejected() -> None:
     with pytest.raises(ValueError, match="ATR14"):
-        qualify_position(make_selection(), make_dataset(), make_features(atr=0))
+        qualify_position(make_selection(), make_dataset(), make_features(atr=0), 10_000)
