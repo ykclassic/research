@@ -17,6 +17,7 @@ TERMINAL_FAILURE_STATUSES = {
     "update_failed",
     "canceled",
     "pre_deploy_failed",
+    "deactivated",
 }
 
 
@@ -27,7 +28,7 @@ def deployment_object(item: dict[str, Any]) -> dict[str, Any]:
 
 
 def find_matching_deploy(items: list[dict[str, Any]], expected_commit: str) -> dict[str, Any] | None:
-    """Return the newest deploy whose Git commit exactly matches expected_commit."""
+    """Return the newest matching deploy, preferring a live match."""
     matches = [
         deployment_object(item)
         for item in items
@@ -35,7 +36,8 @@ def find_matching_deploy(items: list[dict[str, Any]], expected_commit: str) -> d
     ]
     if not matches:
         return None
-    return matches[0]
+    live_matches = [item for item in matches if item.get("status") == "live"]
+    return live_matches[0] if live_matches else matches[0]
 
 
 def validate_live_deploy(deploy: dict[str, Any], expected_commit: str) -> None:
