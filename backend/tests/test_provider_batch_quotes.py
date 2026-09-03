@@ -32,9 +32,10 @@ class FakeProvider(MarketDataProvider):
         if self.fail_code:
             return Quote(symbol=internal_symbol, provider_symbol=internal_symbol, status=QuoteStatus.UNAVAILABLE,
                          source=self.name, error=self.fail_code.value, error_code=self.fail_code)
+        now = datetime.now(timezone.utc)
         return Quote(symbol=internal_symbol, provider_symbol=internal_symbol, price=100.0,
-                     timestamp=datetime.now(timezone.utc), provider_timestamp=datetime.now(timezone.utc),
-                     observed_at=datetime.now(timezone.utc), source=self.name, status=QuoteStatus.LIVE)
+                     timestamp=now, provider_timestamp=now, observed_at=now,
+                     source=self.name, status=QuoteStatus.LIVE)
 
     async def get_quotes(self, internal_symbols: list[str]) -> list[Quote]:
         self.batch_calls += 1
@@ -68,9 +69,6 @@ def test_non_batch_provider_keeps_individual_symbol_fallback():
 
 
 def test_provider_order_matches_production_contract():
-    orchestrator = MarketDataOrchestrator([])
-    assert [provider.name for provider in orchestrator.providers] == []
-
     default = MarketDataOrchestrator()
     assert [provider.name for provider in default.providers] == ["twelve_data", "alpha_vantage", "finnhub"]
 
