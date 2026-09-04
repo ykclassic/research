@@ -87,7 +87,7 @@ class MarketDataOrchestrator:
                 state.credits_remaining = usage.credits_remaining
                 state.usage_observed_at = usage.observed_at
             # Only actual provider failures may advance the circuit breaker.
-            # Semantic quote states (LIVE/DELAYED/MARKET_CLOSED/STALE) are not failures.
+            # Semantic quote states are valid provider responses, not failures.
             if error_code != ProviderErrorCode.SYMBOL_UNSUPPORTED:
                 state.consecutive_failures += 1
                 if state.consecutive_failures >= settings.provider_failure_threshold:
@@ -179,8 +179,7 @@ class MarketDataOrchestrator:
         if quote.status != QuoteStatus.STALE:
             return None
 
-        open_now = is_market_open(symbol)
-        if not open_now:
+        if not is_market_open(symbol):
             return quote.model_copy(update={
                 "status": QuoteStatus.MARKET_CLOSED,
                 "market_open": False,
@@ -271,7 +270,7 @@ class MarketDataOrchestrator:
                 )
                 latency_ms = int((time.perf_counter() - started) * 1000)
                 by_symbol = {quote.symbol: quote for quote in quotes}
-                successful = 0
+                semantic_success = False
                 provider_failure_codes: list[ProviderErrorCode] = []
 
                 for key in candidates:
@@ -283,6 +282,7 @@ class MarketDataOrchestrator:
 
                     semantic = self._semantic_quote(quote, key)
                     if semantic is not None:
+                        semantic_success = True
                         semantic = semantic.model_copy(update={
                             "latency_ms": latency_ms,
                             "provider_attempts": tuple(diagnostics[key]),
@@ -293,7 +293,6 @@ class MarketDataOrchestrator:
                         if previous is None or self._semantic_rank(semantic) > self._semantic_rank(previous):
                             semantic_results[key] = semantic
                         if self._fresh_quote(semantic):
-                            successful += 1
                             results[key] = semantic
                             self.quote_cache.set(key, semantic, settings.quote_cache_seconds, settings.stale_quote_seconds)
                         continue
@@ -301,11 +300,14 @@ class MarketDataOrchestrator:
                     code = self._normalized_error_code(quote)
                     provider_failure_codes.append(code)
 
-                if successful:
+                if semantic_success:
+                    # A valid semantic response proves the provider is reachable.
+                    # It also clears any stale circuit history without counting the
+                    # semantic state as a failure.
                     self._record_success(provider, latency_ms)
                 elif provider_failure_codes:
-                    # Semantic states never enter this list. Only actual provider
-                    # failures (including UNKNOWN when no valid quote exists) do.
+                    # Only actual provider failures (including UNKNOWN when no valid
+                    # quote exists) may advance the circuit breaker.
                     code = provider_failure_codes[0]
                     detail = next((by_symbol[key].error for key in candidates if key in by_symbol and by_symbol[key].error), "Provider returned no usable quotes")
                     self._record_failure(provider, detail, latency_ms, code)
