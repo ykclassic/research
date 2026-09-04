@@ -57,7 +57,7 @@ class CandleProvider(MarketDataProvider):
 
 
 @pytest.mark.asyncio
-async def test_canonical_candle_cache_recovers_different_outputsize_after_provider_failure() -> None:
+async def test_canonical_candle_cache_serves_different_outputsize_without_provider_call() -> None:
     provider = CandleProvider()
     orchestrator = MarketDataOrchestrator([provider])
 
@@ -73,7 +73,7 @@ async def test_canonical_candle_cache_recovers_different_outputsize_after_provid
     assert recovered.source == "twelve_data"
     assert recovered.candle_count if hasattr(recovered, "candle_count") else len(recovered.candles) == 30
     assert len(recovered.candles) == 30
-    assert provider.calls == 2
+    assert provider.calls == 1
     assert recovered.freshness_status == FreshnessStatus.FRESH
 
 
@@ -95,7 +95,7 @@ async def test_canonical_cache_is_shared_across_mtf_timeframe_requests() -> None
     assert recovered.fallback_used is True
     assert recovered.timeframe == Timeframe.HOUR_1
     assert recovered.source == "twelve_data"
-    assert provider.calls == 5
+    assert provider.calls == 4
 
 
 def test_canonical_cache_returns_newest_matching_dataset() -> None:

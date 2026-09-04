@@ -33,6 +33,10 @@ class CanonicalMarketCache(Generic[T]):
     The cache is intentionally the only cache consulted by the orchestration layer.
     Provider-specific responses are validated before entering it. A stale entry is
     never relabeled as live data; callers receive explicit stale/cache metadata.
+
+    Canonical candle entries represent the provider-independent recovery namespace,
+    so datasets stored under ``canonical|...`` are marked as fallback data while
+    request-specific entries retain their original fallback metadata.
     """
 
     def __init__(self) -> None:
@@ -71,10 +75,20 @@ class CanonicalMarketCache(Generic[T]):
         _, entry = max(candidates, key=lambda item: item[1].stored_at)
         return entry.value, max(0.0, now - entry.stored_at)
 
+    @staticmethod
+    def _canonical_value(key: str, value: T) -> T:
+        """Annotate canonical recovery entries without changing request caches."""
+        if not key.startswith("canonical|") or not hasattr(value, "model_copy"):
+            return value
+        try:
+            return value.model_copy(update={"fallback_used": True})
+        except (AttributeError, TypeError):
+            return value
+
     def set(self, key: str, value: T, fresh_ttl_seconds: float, stale_ttl_seconds: float) -> None:
         now = time.monotonic()
         self._items[key] = CacheEntry(
-            value=value,
+            value=self._canonical_value(key, value),
             stored_at=now,
             fresh_until=now + max(0.0, fresh_ttl_seconds),
             stale_until=now + max(fresh_ttl_seconds, stale_ttl_seconds),
