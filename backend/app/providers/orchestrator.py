@@ -60,7 +60,7 @@ class MarketDataOrchestrator:
         }
         self._lock = Lock()
         self._twelve_data_quota = QuoteQuotaScheduler(
-            minute_budget=settings.twelve_data_quote_minute_budget,
+            minute_budget=settings.twelve_data_quote_minute_budget + settings.twelve_data_candle_minute_reserve,
             daily_budget=settings.twelve_data_quote_daily_budget,
         )
         self.quote_cache: CanonicalMarketCache[Quote] = CanonicalMarketCache()
@@ -108,18 +108,27 @@ class MarketDataOrchestrator:
         self._sync_usage(provider)
         snapshot = self._twelve_data_quota.snapshot()
         state = self._state(provider, "quote")
-        state.quote_budget_remaining = snapshot.available
+        state.quote_budget_remaining = max(0, snapshot.available - settings.twelve_data_candle_minute_reserve)
         state.daily_quote_budget_remaining = snapshot.daily_remaining
-        return snapshot.available
+        return state.quote_budget_remaining
 
     def _reserve_twelve_data_quote_budget(self, requested: int) -> int:
-        granted = self._twelve_data_quota.reserve(requested)
+        granted = self._twelve_data_quota.reserve_with_protected_capacity(requested, settings.twelve_data_candle_minute_reserve)
         state = self._health.get(("twelve_data", "quote"))
+        if state is not None:
+            snapshot = self._twelve_data_quota.snapshot()
+            state.quote_budget_remaining = max(0, snapshot.available - settings.twelve_data_candle_minute_reserve)
+            state.daily_quote_budget_remaining = snapshot.daily_remaining
+        return granted
+
+    def _reserve_twelve_data_candle_budget(self) -> bool:
+        granted = self._twelve_data_quota.reserve(1)
+        state = self._health.get(("twelve_data", "candles"))
         if state is not None:
             snapshot = self._twelve_data_quota.snapshot()
             state.quote_budget_remaining = snapshot.available
             state.daily_quote_budget_remaining = snapshot.daily_remaining
-        return granted
+        return granted == 1
 
     def provider_status(self, domain: HealthDomain = "quote") -> list[ProviderStatus]:
         statuses: list[ProviderStatus] = []
@@ -293,9 +302,6 @@ class MarketDataOrchestrator:
         excluded = excluded_providers or set()
         attempts: list[str] = []
 
-        # A canonical entry is independent of provider and request size. This lets
-        # MTF recover a validated last-known-good candle set when a provider fails,
-        # even if the current request uses a different outputsize.
         if not excluded:
             cached = self.candle_cache.get(request_key, allow_stale=False)
             if cached is None:
@@ -309,6 +315,10 @@ class MarketDataOrchestrator:
         for provider in self.providers:
             candle_state = self._state(provider, "candles")
             if provider.name in excluded or not provider.configured or candle_state.circuit_open:
+                continue
+            if provider.name == "twelve_data" and not self._reserve_twelve_data_candle_budget():
+                candle_state.last_error = "Candle quota scheduler has no capacity; routing to fallback providers."
+                candle_state.last_error_code = ProviderErrorCode.QUOTA_EXHAUSTED
                 continue
             attempts.append(provider.name)
             started = time.perf_counter()
@@ -335,9 +345,6 @@ class MarketDataOrchestrator:
             except Exception as exc:
                 self._record_failure(provider, str(exc), int((time.perf_counter() - started) * 1000), classify_provider_error(exc), "candles")
 
-        # Last-known-good canonical recovery is deliberately explicit about
-        # freshness. It may be used to keep MTF research available, but it is
-        # never relabeled as fresh data.
         cached = self.candle_cache.get(request_key, allow_stale=True)
         if cached is None:
             cached = self.candle_cache.get(canonical_key, allow_stale=True)
