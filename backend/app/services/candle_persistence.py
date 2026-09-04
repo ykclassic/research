@@ -4,7 +4,7 @@ from typing import Any
 
 from app.models.market import OHLCVDataset, Timeframe
 from app.services.candle_freshness import require_current_completed_candles
-from app.services.supabase_data import DataConfigurationError, _request
+from app.services.supabase_data import DataServiceError, _request
 
 
 TABLE = "mtf_candle_cache"
@@ -25,7 +25,7 @@ def load_dataset(access_token: str, user_id: str, symbol: str, timeframe: Timefr
                 "limit": "1",
             },
         ).json()
-    except DataConfigurationError:
+    except DataServiceError:
         return None
     if not rows:
         return None
@@ -55,7 +55,5 @@ def save_dataset(access_token: str, user_id: str, dataset: OHLCVDataset) -> bool
             prefer="resolution=merge-duplicates,return=minimal",
         )
         return True
-    except Exception:
-        # Persistence is a resilience enhancement, not a reason to reject a
-        # validated provider response when the database is temporarily down.
+    except DataServiceError:
         return False
