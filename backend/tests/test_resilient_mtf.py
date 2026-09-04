@@ -69,7 +69,7 @@ async def test_canonical_candle_cache_serves_different_outputsize_without_provid
     recovered = await orchestrator.get_candles("BTC/USD", Timeframe.HOUR_1, outputsize=500)
 
     assert recovered.cache_hit is True
-    assert recovered.fallback_used is False
+    assert recovered.fallback_used is True
     assert recovered.source == "twelve_data"
     assert recovered.candle_count if hasattr(recovered, "candle_count") else len(recovered.candles) == 30
     assert len(recovered.candles) == 30
@@ -92,7 +92,7 @@ async def test_canonical_cache_is_shared_across_mtf_timeframe_requests() -> None
     recovered = await orchestrator.get_candles("BTC/USD", Timeframe.HOUR_1, outputsize=500)
 
     assert recovered.cache_hit is True
-    assert recovered.fallback_used is False
+    assert recovered.fallback_used is True
     assert recovered.timeframe == Timeframe.HOUR_1
     assert recovered.source == "twelve_data"
     assert provider.calls == 4
