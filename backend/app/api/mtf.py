@@ -33,9 +33,6 @@ async def _load(symbol: str, timeframe: Timeframe, limit: int) -> tuple[Timefram
         quote_service.orchestrator.get_candles(symbol, timeframe, limit),
         timeout=settings.analysis_timeout_seconds,
     )
-    # Recompute freshness from the latest completed candle at read time. This
-    # prevents an old in-memory cache entry from being accepted merely because
-    # its stored freshness metadata was created when it was new.
     dataset = require_current_completed_candles(dataset)
     return timeframe, _completed_dataset(dataset)
 
@@ -47,8 +44,29 @@ async def get_multi_timeframe_analysis(
 ) -> MultiTimeframeResult:
     try:
         mapping = normalize_symbol(symbol)
-        loaded = await asyncio.gather(*(_load(mapping.internal, timeframe, limit) for timeframe in REQUIRED_TIMEFRAMES))
-        datasets = dict(loaded)
+        results = await asyncio.gather(
+            *(_load(mapping.internal, timeframe, limit) for timeframe in REQUIRED_TIMEFRAMES),
+            return_exceptions=True,
+        )
+        failures: list[str] = []
+        datasets: dict[Timeframe, OHLCVDataset] = {}
+        for timeframe, result in zip(REQUIRED_TIMEFRAMES, results):
+            if isinstance(result, BaseException):
+                failures.append(f"{timeframe.value}: {result}")
+            else:
+                _, dataset = result
+                datasets[timeframe] = dataset
+        if failures:
+            status = quote_service.orchestrator.provider_status("candles")
+            provider_details = "; ".join(
+                f"{item.provider}=" + (item.last_error or "no failure recorded")
+                for item in status
+                if item.configured
+            )
+            detail = "MTF candle load failed: " + " | ".join(failures)
+            if provider_details:
+                detail += f". Candle provider health: {provider_details}"
+            raise HTTPException(status_code=503, detail=detail)
         structures = {
             timeframe: tuple(analyze_market_structure(dataset).events)
             for timeframe, dataset in datasets.items()
@@ -56,5 +74,7 @@ async def get_multi_timeframe_analysis(
         return analyze_multi_timeframe(datasets, structures)
     except asyncio.TimeoutError as exc:
         raise HTTPException(status_code=503, detail="Market-data providers exceeded the multi-timeframe latency budget and no cached dataset was available.") from exc
+    except HTTPException:
+        raise
     except (RuntimeError, ValueError) as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
