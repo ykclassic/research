@@ -1,20 +1,23 @@
 from __future__ import annotations
 
 import asyncio
+from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Cookie, Depends, HTTPException, Query
 
-from app.api.auth import get_current_user_or_github_actions
+from app.api.auth import UserResponse, get_current_user_or_github_actions
 from app.config import settings
 from app.models.market import OHLCVDataset, Timeframe
 from app.models.mtf import MultiTimeframeResult
 from app.services.candle_freshness import require_current_completed_candles
+from app.services.candle_persistence import load_dataset as load_persisted_dataset
+from app.services.candle_persistence import save_dataset as save_persisted_dataset
 from app.services.market_structure import analyze_market_structure
 from app.services.mtf_analysis import MINIMUM_CANDLES, REQUIRED_TIMEFRAMES, analyze_multi_timeframe
 from app.services.quote_service import QuoteService
 from app.symbols import normalize_symbol
 
-router = APIRouter(prefix="/api/mtf", tags=["multi-timeframe"], dependencies=[Depends(get_current_user_or_github_actions)])
+router = APIRouter(prefix="/api/mtf", tags=["multi-timeframe"])
 quote_service = QuoteService()
 
 
@@ -28,24 +31,47 @@ def _completed_dataset(dataset: OHLCVDataset) -> OHLCVDataset:
     return dataset.model_copy(update={"candles": completed})
 
 
-async def _load(symbol: str, timeframe: Timeframe, limit: int) -> tuple[Timeframe, OHLCVDataset]:
+async def _load(
+    symbol: str,
+    timeframe: Timeframe,
+    limit: int,
+    *,
+    user: UserResponse | None,
+    access_token: str | None,
+) -> tuple[Timeframe, OHLCVDataset]:
+    if user is not None and access_token:
+        persisted = await asyncio.to_thread(
+            load_persisted_dataset,
+            access_token,
+            user.id,
+            symbol,
+            timeframe,
+        )
+        if persisted is not None:
+            return timeframe, _completed_dataset(persisted.model_copy(update={"cache_hit": True, "fallback_used": True, "request_latency_ms": 0}))
+
     dataset = await asyncio.wait_for(
         quote_service.orchestrator.get_candles(symbol, timeframe, limit),
         timeout=settings.analysis_timeout_seconds,
     )
     dataset = require_current_completed_candles(dataset)
-    return timeframe, _completed_dataset(dataset)
+    dataset = _completed_dataset(dataset)
+    if user is not None and access_token:
+        await asyncio.to_thread(save_persisted_dataset, access_token, user.id, dataset)
+    return timeframe, dataset
 
 
 @router.get("/{symbol:path}", response_model=MultiTimeframeResult)
 async def get_multi_timeframe_analysis(
     symbol: str,
     limit: int = Query(250, ge=30, le=5000),
+    user: Annotated[UserResponse | None, Depends(get_current_user_or_github_actions)] = None,
+    access_token: Annotated[str | None, Cookie(alias="mr_access_token")] = None,
 ) -> MultiTimeframeResult:
     try:
         mapping = normalize_symbol(symbol)
         results = await asyncio.gather(
-            *(_load(mapping.internal, timeframe, limit) for timeframe in REQUIRED_TIMEFRAMES),
+            *(_load(mapping.internal, timeframe, limit, user=user, access_token=access_token) for timeframe in REQUIRED_TIMEFRAMES),
             return_exceptions=True,
         )
         failures: list[str] = []
