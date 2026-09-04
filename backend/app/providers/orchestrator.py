@@ -15,6 +15,7 @@ from app.providers.errors import ProviderErrorCode, classify_provider_error, err
 from app.providers.finnhub import FinnhubProvider
 from app.providers.twelve_data import TwelveDataProvider
 from app.services.cache import CanonicalMarketCache
+from app.services.market_sessions import is_market_open
 from app.symbols import normalize_symbol
 
 
@@ -40,7 +41,7 @@ class MarketDataOrchestrator:
     """Canonical provider boundary for all market-data reads."""
 
     def __init__(self, providers: list[MarketDataProvider] | None = None) -> None:
-        # Order is part of the production data contract: Twelve Data -> Alpha Vantage -> Finnhub.
+        # Provider order is intentionally unchanged in Phase 1. Phase 2 owns routing order.
         self.providers = providers or [TwelveDataProvider(), AlphaVantageProvider(), FinnhubProvider()]
         self._health = {provider.name: ProviderHealthState() for provider in self.providers}
         self._lock = Lock()
@@ -85,20 +86,15 @@ class MarketDataOrchestrator:
                 state.credits_used = usage.credits_used
                 state.credits_remaining = usage.credits_remaining
                 state.usage_observed_at = usage.observed_at
-            # Circuit breaking still applies to unknown provider failures; symbol
-            # unsupported is isolated to that symbol and must not disable the feed.
+            # Only actual provider failures may advance the circuit breaker.
+            # Semantic quote states are valid provider responses, not failures.
             if error_code != ProviderErrorCode.SYMBOL_UNSUPPORTED:
                 state.consecutive_failures += 1
                 if state.consecutive_failures >= settings.provider_failure_threshold:
                     state.opened_until = time.monotonic() + settings.provider_circuit_cooldown_seconds
 
     def _available_twelve_data_quote_budget(self, provider: MarketDataProvider) -> int:
-        """Return a conservative quote budget for the current minute/day.
-
-        The configured scanner budget is deliberately below Twelve Data Basic's
-        eight-credit/minute ceiling, leaving headroom for candle/analysis calls.
-        Provider-reported remaining credits further reduce the budget when known.
-        """
+        """Return a conservative quote budget for the current minute/day."""
         now = time.monotonic()
         today = datetime.now(timezone.utc).date()
         with self._lock:
@@ -166,6 +162,42 @@ class MarketDataOrchestrator:
         return quote.status in {QuoteStatus.LIVE, QuoteStatus.DELAYED} and quote.price is not None
 
     @staticmethod
+    def _semantic_quote(quote: Quote, symbol: str) -> Quote | None:
+        """Normalize valid provider data into explicit market semantics.
+
+        A provider can return a valid last price while its timestamp is outside
+        the freshness SLA. That is data semantics, not a provider outage. During
+        a closed primary session it is surfaced as MARKET_CLOSED; otherwise it
+        remains STALE. Neither state is allowed to trip the provider circuit.
+        """
+        if quote.price is None:
+            return None
+        if quote.status in {QuoteStatus.LIVE, QuoteStatus.DELAYED, QuoteStatus.MARKET_CLOSED}:
+            if quote.status == QuoteStatus.MARKET_CLOSED:
+                return quote.model_copy(update={"market_open": False})
+            return quote.model_copy(update={"market_open": True if quote.market_open is None else quote.market_open})
+        if quote.status != QuoteStatus.STALE:
+            return None
+
+        if not is_market_open(symbol):
+            return quote.model_copy(update={
+                "status": QuoteStatus.MARKET_CLOSED,
+                "market_open": False,
+                "error": "Market is closed; provider returned the last validated quote.",
+                "error_code": None,
+            })
+        return quote.model_copy(update={"status": QuoteStatus.STALE, "market_open": True})
+
+    @staticmethod
+    def _semantic_rank(quote: Quote) -> int:
+        return {
+            QuoteStatus.LIVE: 4,
+            QuoteStatus.DELAYED: 3,
+            QuoteStatus.MARKET_CLOSED: 2,
+            QuoteStatus.STALE: 1,
+        }.get(quote.status, 0)
+
+    @staticmethod
     def _fresh_dataset(dataset: OHLCVDataset) -> bool:
         return dataset.freshness_status in {FreshnessStatus.FRESH, FreshnessStatus.DELAYED} and bool(dataset.completed_candles)
 
@@ -197,6 +229,7 @@ class MarketDataOrchestrator:
         mappings = [normalize_symbol(symbol) for symbol in symbols]
         unique_keys = list(dict.fromkeys(mapping.internal for mapping in mappings))
         results: dict[str, Quote] = {}
+        semantic_results: dict[str, Quote] = {}
         remaining: list[str] = []
         diagnostics: dict[str, list[str]] = {key: [] for key in unique_keys}
 
@@ -218,7 +251,6 @@ class MarketDataOrchestrator:
             if provider.name == "twelve_data":
                 budget = self._available_twelve_data_quote_budget(provider)
                 if budget <= 0:
-                    # Do not send a request when the local/provider-observed budget is exhausted.
                     state = self._state(provider)
                     state.last_error = "Scanner quote budget exhausted; routing to fallback providers."
                     state.last_error_code = ProviderErrorCode.QUOTA_EXHAUSTED
@@ -238,7 +270,7 @@ class MarketDataOrchestrator:
                 )
                 latency_ms = int((time.perf_counter() - started) * 1000)
                 by_symbol = {quote.symbol: quote for quote in quotes}
-                successful = 0
+                semantic_success = False
                 provider_failure_codes: list[ProviderErrorCode] = []
 
                 for key in candidates:
@@ -247,28 +279,40 @@ class MarketDataOrchestrator:
                     if quote is None:
                         provider_failure_codes.append(ProviderErrorCode.PROVIDER_UNAVAILABLE)
                         continue
-                    code = self._normalized_error_code(quote)
-                    if self._fresh_quote(quote):
-                        successful += 1
-                        enriched = quote.model_copy(update={
+
+                    semantic = self._semantic_quote(quote, key)
+                    if semantic is not None:
+                        semantic_success = True
+                        semantic = semantic.model_copy(update={
                             "latency_ms": latency_ms,
                             "provider_attempts": tuple(diagnostics[key]),
                             "fallback_used": provider.name != self.providers[0].name or bool(excluded),
                             "cache_hit": False,
                         })
-                        results[key] = enriched
-                        self.quote_cache.set(key, enriched, settings.quote_cache_seconds, settings.stale_quote_seconds)
-                    else:
-                        provider_failure_codes.append(code)
+                        previous = semantic_results.get(key)
+                        if previous is None or self._semantic_rank(semantic) > self._semantic_rank(previous):
+                            semantic_results[key] = semantic
+                        if self._fresh_quote(semantic):
+                            results[key] = semantic
+                            self.quote_cache.set(key, semantic, settings.quote_cache_seconds, settings.stale_quote_seconds)
+                        continue
 
-                if successful:
+                    code = self._normalized_error_code(quote)
+                    provider_failure_codes.append(code)
+
+                if semantic_success:
+                    # A valid semantic response proves the provider is reachable.
+                    # It also clears any stale circuit history without counting the
+                    # semantic state as a failure.
                     self._record_success(provider, latency_ms)
                 elif provider_failure_codes:
-                    # Record one provider-level failure per batch, not one per symbol.
+                    # Only actual provider failures (including UNKNOWN when no valid
+                    # quote exists) may advance the circuit breaker.
                     code = provider_failure_codes[0]
                     detail = next((by_symbol[key].error for key in candidates if key in by_symbol and by_symbol[key].error), "Provider returned no usable quotes")
                     self._record_failure(provider, detail, latency_ms, code)
 
+                # Keep semantic-but-not-current quotes eligible for a better fallback.
                 remaining = [key for key in remaining if key not in results]
             except Exception as exc:
                 latency_ms = int((time.perf_counter() - started) * 1000)
@@ -283,6 +327,14 @@ class MarketDataOrchestrator:
             if key in results:
                 output[key] = results[key]
                 continue
+            if key in semantic_results:
+                semantic = semantic_results[key]
+                output[key] = semantic.model_copy(update={
+                    "provider_attempts": tuple(diagnostics[key]),
+                    "fallback_used": semantic.fallback_used or len(diagnostics[key]) > 1,
+                })
+                continue
+
             cached = self.quote_cache.get(key, allow_stale=True)
             mapping = normalize_symbol(key)
             if cached is not None:
