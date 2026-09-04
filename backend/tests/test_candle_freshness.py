@@ -39,6 +39,16 @@ def test_freshness_is_measured_from_candle_close_not_open() -> None:
     assert result.freshness_status is FreshnessStatus.FRESH
 
 
+def test_current_hourly_completed_candle_is_not_quote_stale() -> None:
+    opened = datetime(2026, 9, 4, 14, 0, tzinfo=timezone.utc)
+    now = datetime(2026, 9, 4, 15, 54, tzinfo=timezone.utc)
+    result = refresh_candle_freshness(dataset(opened), now=now)
+
+    assert result.freshness_age_seconds == 3240
+    assert result.freshness_status is FreshnessStatus.FRESH
+    assert require_current_completed_candles(result, now=now).provider_timestamp == opened
+
+
 def test_years_old_completed_candles_are_rejected_for_current_research() -> None:
     now = datetime(2026, 9, 4, tzinfo=timezone.utc)
     old = datetime(2020, 9, 4, tzinfo=timezone.utc)

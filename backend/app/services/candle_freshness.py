@@ -15,10 +15,10 @@ def refresh_candle_freshness(
 ) -> OHLCVDataset:
     """Recompute candle freshness from the latest *completed* candle.
 
-    Provider timestamps identify the candle's opening time, so freshness must
-    be measured from the candle close time rather than from its opening time.
-    This also revalidates cached datasets whose stored freshness was calculated
-    by an older implementation.
+    A completed candle is current for its timeframe until the next completed
+    candle is expected. The tolerance is therefore timeframe duration plus the
+    configured provider-staleness allowance, rather than the quote-level
+    three-minute freshness threshold used for point-in-time prices.
     """
     observed_at = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
     latest = dataset.latest_completed_candle
@@ -36,7 +36,8 @@ def refresh_candle_freshness(
             "freshness_age_seconds": 0.0,
         })
 
-    freshness = freshness_for_age(age, settings.stale_quote_seconds)
+    fresh_window = dataset.timeframe.seconds + settings.stale_quote_seconds
+    freshness = freshness_for_age(age, fresh_window)
 
     # When a traditional exchange is closed, its most recent completed candle
     # remains the current completed market session. Do not manufacture a fresh
