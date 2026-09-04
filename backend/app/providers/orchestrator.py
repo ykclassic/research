@@ -131,6 +131,14 @@ class MarketDataOrchestrator:
             state.daily_quote_budget_remaining = snapshot.daily_remaining
         return granted == 1
 
+    def _release_twelve_data_candle_budget(self) -> None:
+        self._twelve_data_quota.release_candle(1)
+        state = self._health.get(("twelve_data", "candles"))
+        if state is not None:
+            snapshot = self._twelve_data_quota.snapshot()
+            state.quote_budget_remaining = snapshot.candle_remaining
+            state.daily_quote_budget_remaining = snapshot.daily_remaining
+
     def provider_status(self, domain: HealthDomain = "quote") -> list[ProviderStatus]:
         statuses: list[ProviderStatus] = []
         for provider in self.providers:
@@ -317,10 +325,32 @@ class MarketDataOrchestrator:
             candle_state = self._state(provider, "candles")
             if provider.name in excluded or not provider.configured or candle_state.circuit_open:
                 continue
+            candle_reserved = False
             if provider.name == "twelve_data" and not self._reserve_twelve_data_candle_budget():
-                candle_state.last_error = "Candle quota scheduler has no capacity; routing to fallback providers."
-                candle_state.last_error_code = ProviderErrorCode.QUOTA_EXHAUSTED
-                continue
+                snapshot = self._twelve_data_quota.snapshot()
+                # A fresh zero balance is a minute-window condition, not a
+                # provider failure. If the daily allowance remains, wait only
+                # for the imminent Twelve Data minute reset and retry once.
+                if snapshot.provider_remaining == 0 and snapshot.daily_remaining > 0:
+                    wait_seconds = self._twelve_data_quota.seconds_until_minute_reset()
+                    if 0 < wait_seconds <= 6:
+                        await asyncio.sleep(wait_seconds + 0.05)
+                        if self._reserve_twelve_data_candle_budget():
+                            candle_reserved = True
+                        else:
+                            candle_state.last_error = "Candle quota remains unavailable after the Twelve Data minute reset; routing to fallback providers."
+                            candle_state.last_error_code = ProviderErrorCode.QUOTA_EXHAUSTED
+                            continue
+                    else:
+                        candle_state.last_error = "Candle quota scheduler has no capacity; routing to fallback providers."
+                        candle_state.last_error_code = ProviderErrorCode.QUOTA_EXHAUSTED
+                        continue
+                else:
+                    candle_state.last_error = "Candle quota scheduler has no capacity; routing to fallback providers."
+                    candle_state.last_error_code = ProviderErrorCode.QUOTA_EXHAUSTED
+                    continue
+            elif provider.name == "twelve_data":
+                candle_reserved = True
             attempts.append(provider.name)
             started = time.perf_counter()
             try:
@@ -345,6 +375,9 @@ class MarketDataOrchestrator:
                 return dataset
             except Exception as exc:
                 self._record_failure(provider, str(exc), int((time.perf_counter() - started) * 1000), classify_provider_error(exc), "candles")
+            finally:
+                if candle_reserved:
+                    self._release_twelve_data_candle_budget()
 
         cached = self.candle_cache.get(request_key, allow_stale=True)
         if cached is None:
