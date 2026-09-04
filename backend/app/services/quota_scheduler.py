@@ -18,11 +18,9 @@ class QuotaSnapshot:
 class QuoteQuotaScheduler:
     """Thread-safe scheduler for the shared Twelve Data API credit budget.
 
-    Quote capacity keeps its historical four-credit view while a separate
-    protected candle reservation is tracked against the same provider balance.
-    Provider-reported minute credits are authoritative for completed requests;
-    local minute reservations therefore represent only work that is still in
-    flight and are cleared when fresh provider telemetry is reconciled.
+    Quote and candle capacity are tracked as separate configured pools over the
+    same provider credit balance. Provider telemetry accounts for completed
+    requests; local reservations account only for requests still in flight.
     """
 
     def __init__(self, *, minute_budget: int, daily_budget: int, protected_capacity: int = 0, clock=time.monotonic) -> None:
@@ -58,16 +56,30 @@ class QuoteQuotaScheduler:
         age = (datetime.now(timezone.utc) - self._provider_observed_at).total_seconds()
         return self._provider_remaining if 0 <= age < 60 else None
 
+    def _in_flight_locked(self) -> int:
+        return self._minute_reserved + self._candle_reserved
+
+    def _shared_remaining_locked(self) -> int:
+        local_total = self._minute_budget + self._protected_capacity
+        local_remaining = max(0, local_total - self._in_flight_locked())
+        provider_remaining = self._provider_remaining_locked()
+        if provider_remaining is None:
+            return local_remaining
+        return min(local_remaining, max(0, provider_remaining - self._in_flight_locked()))
+
     def _snapshot_locked(self) -> QuotaSnapshot:
         self._reset_locked()
         minute_remaining = max(0, self._minute_budget - self._minute_reserved)
         candle_remaining = max(0, self._protected_capacity - self._candle_reserved)
         daily_remaining = max(0, self._daily_budget - self._daily_reserved)
         provider_remaining = self._provider_remaining_locked()
-        limits = [minute_remaining, daily_remaining]
-        if provider_remaining is not None:
-            limits.append(max(0, provider_remaining - self._minute_reserved - self._candle_reserved))
-        return QuotaSnapshot(minute_remaining, daily_remaining, provider_remaining, min(limits), candle_remaining)
+        return QuotaSnapshot(
+            minute_remaining=minute_remaining,
+            daily_remaining=daily_remaining,
+            provider_remaining=provider_remaining,
+            available=min(minute_remaining, daily_remaining, self._shared_remaining_locked()),
+            candle_remaining=candle_remaining,
+        )
 
     def observe_provider_remaining(self, remaining: int | None, observed_at: datetime | None) -> None:
         with self._lock:
@@ -83,13 +95,7 @@ class QuoteQuotaScheduler:
             return 0
         with self._lock:
             snapshot = self._snapshot_locked()
-            provider_headroom = snapshot.provider_remaining
-            if provider_headroom is not None:
-                provider_headroom = max(0, provider_headroom - self._candle_reserved - self._minute_reserved)
-            limits = [snapshot.minute_remaining, snapshot.daily_remaining]
-            if provider_headroom is not None:
-                limits.append(provider_headroom)
-            granted = min([requested, *limits])
+            granted = min(requested, snapshot.minute_remaining, snapshot.daily_remaining, snapshot.available)
             self._minute_reserved += granted
             self._daily_reserved += granted
             return granted
@@ -99,14 +105,7 @@ class QuoteQuotaScheduler:
             return 0
         with self._lock:
             snapshot = self._snapshot_locked()
-            provider_headroom = snapshot.provider_remaining
-            if provider_headroom is not None:
-                provider_headroom = max(0, provider_headroom - self._candle_reserved - self._minute_reserved)
-            daily_headroom = snapshot.daily_remaining
-            limits = [snapshot.candle_remaining, daily_headroom]
-            if provider_headroom is not None:
-                limits.append(provider_headroom)
-            granted = min([requested, *limits])
+            granted = min(requested, snapshot.candle_remaining, snapshot.daily_remaining, self._shared_remaining_locked())
             self._candle_reserved += granted
             self._daily_reserved += granted
             return granted
@@ -118,14 +117,13 @@ class QuoteQuotaScheduler:
         protected_capacity = max(0, protected_capacity)
         with self._lock:
             snapshot = self._snapshot_locked()
-            provider_headroom = snapshot.provider_remaining
-            if provider_headroom is not None:
-                provider_headroom = max(0, provider_headroom - self._candle_reserved - self._minute_reserved)
-            grantable = max(0, snapshot.minute_remaining - protected_capacity)
-            limits = [grantable, snapshot.daily_remaining]
-            if provider_headroom is not None:
-                limits.append(provider_headroom)
-            granted = min([requested, *limits])
+            grantable = max(0, self._minute_budget - self._minute_reserved)
+            provider_remaining = snapshot.provider_remaining
+            if provider_remaining is not None:
+                provider_capacity = max(0, provider_remaining - self._in_flight_locked())
+            else:
+                provider_capacity = self._shared_remaining_locked()
+            granted = min(requested, grantable, snapshot.daily_remaining, provider_capacity)
             self._minute_reserved += granted
             self._daily_reserved += granted
             return granted
@@ -144,11 +142,9 @@ class QuoteQuotaScheduler:
             with self._lock:
                 self._provider_remaining = max(0, provider_remaining)
                 self._provider_observed_at = observed_at
-                # The provider's remaining-credit header already includes all
-                # completed requests, including the request that produced this
-                # telemetry. Keeping those completed requests in the local
-                # reservation counter would double-count them on the next
-                # reservation and can incorrectly starve candle capacity.
+                # Fresh provider telemetry already includes completed quote
+                # requests, so retaining those local quote reservations would
+                # double-count them on the next reservation.
                 self._minute_reserved = 0
 
     @property

@@ -112,28 +112,29 @@ async def get_analysis(
 
     try:
         mapping = normalize_symbol(symbol)
+        # Candle capacity is the scarcer, protected resource on Twelve Data.
+        # Load candles first so a forced quote refresh cannot consume the last
+        # available credit needed to produce the analysis dataset. If Twelve
+        # Data has insufficient quote capacity afterward, quote routing can
+        # independently fall through to Finnhub/Alpha Vantage.
         if start is None and end is None:
-            # Preserve the narrow provider contract used by existing callers and
-            # test doubles. Historical-range arguments are only supplied when
-            # the request explicitly asks for a range.
-            candle_task = quote_service.orchestrator.get_candles(
-                mapping.internal,
-                timeframe,
-                limit,
+            dataset = await asyncio.wait_for(
+                quote_service.orchestrator.get_candles(mapping.internal, timeframe, limit),
+                timeout=settings.analysis_timeout_seconds,
             )
         else:
-            candle_task = quote_service.orchestrator.get_candles(
-                mapping.internal,
-                timeframe,
-                limit,
-                start_date=start,
-                end_date=end,
+            dataset = await asyncio.wait_for(
+                quote_service.orchestrator.get_candles(
+                    mapping.internal,
+                    timeframe,
+                    limit,
+                    start_date=start,
+                    end_date=end,
+                ),
+                timeout=settings.analysis_timeout_seconds,
             )
-        dataset, current_quote = await asyncio.wait_for(
-            asyncio.gather(
-                candle_task,
-                quote_service.get_quote(mapping.internal, force_refresh=True),
-            ),
+        current_quote = await asyncio.wait_for(
+            quote_service.get_quote(mapping.internal, force_refresh=True),
             timeout=settings.analysis_timeout_seconds,
         )
         result = calculate_feature_set(dataset)

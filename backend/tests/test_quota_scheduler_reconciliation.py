@@ -8,7 +8,7 @@ def test_provider_telemetry_does_not_double_count_completed_quote_reservation() 
 
     assert scheduler.reserve(1) == 1
     scheduler.reconcile(
-        provider_remaining=4,
+        provider_remaining=5,
         observed_at=datetime.now(timezone.utc),
     )
 
