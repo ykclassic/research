@@ -88,8 +88,12 @@ jobs:
               print(f"  {key}={claims[key]}")
           PY
 
-      - name: Verify deployed market-data path and fallback path
-        run: python backend/scripts/verify_production_market_data.py
-
+      # MTF is the primary candle consumer. Run it first so a successful
+      # four-timeframe load populates the canonical in-memory cache; the
+      # subsequent technical-analysis verification can reuse the same
+      # completed candle rather than spending another Twelve Data credit.
       - name: Verify production MTF candle freshness and provenance
         run: python backend/scripts/verify_production_mtf.py
+
+      - name: Verify deployed market-data path and fallback path
+        run: python backend/scripts/verify_production_market_data.py
