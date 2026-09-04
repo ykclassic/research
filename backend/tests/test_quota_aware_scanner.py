@@ -117,3 +117,6 @@ async def test_daily_scanner_budget_fails_closed_for_twelve_data_and_uses_fallba
     status = next(item for item in orchestrator.provider_status() if item.provider == "twelve_data")
     assert status.last_error_code == ProviderErrorCode.QUOTA_EXHAUSTED
     assert status.daily_quote_budget_remaining == 0
+
+
+# Phase 2 routing contract: Twelve Data -> Finnhub -> Alpha Vantage.
