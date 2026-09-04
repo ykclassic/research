@@ -40,9 +40,26 @@ class ProviderHealthState:
 class MarketDataOrchestrator:
     """Canonical provider boundary for all market-data reads."""
 
+    _ROUTING_ORDER = {
+        "twelve_data": 0,
+        "finnhub": 1,
+        "alpha_vantage": 2,
+    }
+
+    @classmethod
+    def _route_providers(cls, providers: list[MarketDataProvider]) -> list[MarketDataProvider]:
+        """Apply the canonical provider priority for deterministic fallback routing.
+
+        Twelve Data is the primary provider, Finnhub is the first fallback, and
+        Alpha Vantage is the tertiary fallback. The sort also applies to injected
+        providers so tests and alternate construction paths cannot silently change
+        production routing semantics.
+        """
+        return sorted(providers, key=lambda provider: cls._ROUTING_ORDER.get(provider.name, 99))
+
     def __init__(self, providers: list[MarketDataProvider] | None = None) -> None:
-        # Provider order is intentionally unchanged in Phase 1. Phase 2 owns routing order.
-        self.providers = providers or [TwelveDataProvider(), AlphaVantageProvider(), FinnhubProvider()]
+        configured_providers = providers or [TwelveDataProvider(), FinnhubProvider(), AlphaVantageProvider()]
+        self.providers = self._route_providers(configured_providers)
         self._health = {provider.name: ProviderHealthState() for provider in self.providers}
         self._lock = Lock()
         self._twelve_data_minute_window_started = time.monotonic()
