@@ -1,0 +1,118 @@
+from __future__ import annotations
+
+from datetime import datetime, timezone
+
+import pytest
+
+from app.config import settings
+from app.models import Quote, QuoteStatus
+from app.models.market import OHLCVDataset, Timeframe
+from app.providers.base import MarketDataProvider, ProviderUsage
+from app.providers.errors import ProviderErrorCode
+from app.providers.orchestrator import MarketDataOrchestrator
+
+
+class FakeProvider(MarketDataProvider):
+    def __init__(self, name: str, *, remaining: int | None = None) -> None:
+        self.name = name
+        self.calls: list[list[str]] = []
+        self._remaining = remaining
+
+    @property
+    def configured(self) -> bool:
+        return True
+
+    @property
+    def usage(self) -> ProviderUsage | None:
+        if self._remaining is None:
+            return None
+        return ProviderUsage(
+            credits_used=8 - self._remaining,
+            credits_remaining=self._remaining,
+            observed_at=datetime.now(timezone.utc),
+        )
+
+    async def get_quote(self, internal_symbol: str) -> Quote:
+        self.calls.append([internal_symbol])
+        return Quote(symbol=internal_symbol, provider_symbol=internal_symbol, price=100.0, status=QuoteStatus.LIVE)
+
+    async def get_quotes(self, internal_symbols: list[str]) -> list[Quote]:
+        self.calls.append(list(internal_symbols))
+        return [
+            Quote(symbol=symbol, provider_symbol=symbol, price=100.0, status=QuoteStatus.LIVE)
+            for symbol in internal_symbols
+        ]
+
+    async def get_candles(
+        self,
+        internal_symbol: str,
+        timeframe: Timeframe,
+        outputsize: int = 250,
+        start_date=None,
+        end_date=None,
+    ) -> OHLCVDataset:
+        raise NotImplementedError
+
+
+@pytest.mark.asyncio
+async def test_twelve_data_budget_routes_overflow_to_alpha_then_finnhub(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(settings, "twelve_data_quote_minute_budget", 6)
+    monkeypatch.setattr(settings, "twelve_data_quote_daily_budget", 800)
+
+    twelve = FakeProvider("twelve_data")
+    alpha = FakeProvider("alpha_vantage")
+    finnhub = FakeProvider("finnhub")
+    orchestrator = MarketDataOrchestrator([twelve, alpha, finnhub])
+    symbols = ["BTC/USD", "ETH/USD", "SOL/USD", "EUR/USD", "GBP/USD", "USD/JPY", "NVDA", "AAPL", "MSFT", "SPY"]
+
+    quotes = await orchestrator.get_quotes(symbols, force_refresh=True)
+
+    assert len(quotes) == 10
+    assert twelve.calls == [symbols[:6]]
+    assert alpha.calls == [symbols[6:]]
+    assert finnhub.calls == []
+    assert all(quote.status == QuoteStatus.LIVE for quote in quotes)
+    assert all(quote.source == "twelve_data" for quote in quotes[:6])
+    assert all(quote.source == "alpha_vantage" for quote in quotes[6:])
+
+
+@pytest.mark.asyncio
+async def test_provider_reported_remaining_credits_further_reduce_twelve_data_batch(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(settings, "twelve_data_quote_minute_budget", 6)
+    monkeypatch.setattr(settings, "twelve_data_quote_daily_budget", 800)
+
+    twelve = FakeProvider("twelve_data", remaining=2)
+    alpha = FakeProvider("alpha_vantage")
+    finnhub = FakeProvider("finnhub")
+    orchestrator = MarketDataOrchestrator([twelve, alpha, finnhub])
+    symbols = ["BTC/USD", "ETH/USD", "SOL/USD", "EUR/USD"]
+
+    quotes = await orchestrator.get_quotes(symbols, force_refresh=True)
+
+    assert len(quotes) == 4
+    assert twelve.calls == [symbols[:2]]
+    assert alpha.calls == [symbols[2:]]
+    assert finnhub.calls == []
+
+
+@pytest.mark.asyncio
+async def test_daily_scanner_budget_fails_closed_for_twelve_data_and_uses_fallback(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(settings, "twelve_data_quote_minute_budget", 6)
+    monkeypatch.setattr(settings, "twelve_data_quote_daily_budget", 1)
+
+    twelve = FakeProvider("twelve_data")
+    alpha = FakeProvider("alpha_vantage")
+    finnhub = FakeProvider("finnhub")
+    orchestrator = MarketDataOrchestrator([twelve, alpha, finnhub])
+    orchestrator._twelve_data_daily_reserved = 1
+    symbols = ["BTC/USD", "ETH/USD"]
+
+    quotes = await orchestrator.get_quotes(symbols, force_refresh=True)
+
+    assert twelve.calls == []
+    assert alpha.calls == [symbols]
+    assert all(quote.status == QuoteStatus.LIVE for quote in quotes)
+
+    status = next(item for item in orchestrator.provider_status() if item.provider == "twelve_data")
+    assert status.last_error_code == ProviderErrorCode.QUOTA_EXHAUSTED
+    assert status.daily_quote_budget_remaining == 0
