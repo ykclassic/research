@@ -15,13 +15,7 @@ class QuotaSnapshot:
 
 
 class QuoteQuotaScheduler:
-    """Thread-safe reservation scheduler for quote work.
-
-    Reservations are based on configured minute/daily capacity and are further
-    constrained by a recent provider-reported credit balance. Capacity is never
-    exceeded optimistically: callers reserve before dispatch and release any
-    unused reservation after the provider response.
-    """
+    """Thread-safe reservation scheduler for quote work."""
 
     def __init__(self, *, minute_budget: int, daily_budget: int, clock=time.monotonic) -> None:
         if minute_budget < 1 or daily_budget < minute_budget:
@@ -47,6 +41,20 @@ class QuoteQuotaScheduler:
             self._daily_date = today
             self._daily_reserved = 0
 
+    def _snapshot_locked(self) -> QuotaSnapshot:
+        self._reset_locked()
+        minute_remaining = max(0, self._minute_budget - self._minute_reserved)
+        daily_remaining = max(0, self._daily_budget - self._daily_reserved)
+        provider_remaining = None
+        if self._provider_remaining is not None and self._provider_observed_at is not None:
+            age = (datetime.now(timezone.utc) - self._provider_observed_at).total_seconds()
+            if 0 <= age < 60:
+                provider_remaining = self._provider_remaining
+        limits = [minute_remaining, daily_remaining]
+        if provider_remaining is not None:
+            limits.append(provider_remaining)
+        return QuotaSnapshot(minute_remaining, daily_remaining, provider_remaining, min(limits))
+
     def observe_provider_remaining(self, remaining: int | None, observed_at: datetime | None) -> None:
         with self._lock:
             self._provider_remaining = None if remaining is None else max(0, remaining)
@@ -54,25 +62,13 @@ class QuoteQuotaScheduler:
 
     def snapshot(self) -> QuotaSnapshot:
         with self._lock:
-            self._reset_locked()
-            minute_remaining = max(0, self._minute_budget - self._minute_reserved)
-            daily_remaining = max(0, self._daily_budget - self._daily_reserved)
-            provider_remaining = None
-            if self._provider_remaining is not None and self._provider_observed_at is not None:
-                age = (datetime.now(timezone.utc) - self._provider_observed_at).total_seconds()
-                if 0 <= age < 60:
-                    provider_remaining = self._provider_remaining
-            limits = [minute_remaining, daily_remaining]
-            if provider_remaining is not None:
-                limits.append(provider_remaining)
-            return QuotaSnapshot(minute_remaining, daily_remaining, provider_remaining, min(limits))
+            return self._snapshot_locked()
 
     def reserve(self, requested: int) -> int:
         if requested <= 0:
             return 0
         with self._lock:
-            self._reset_locked()
-            snapshot = self.snapshot()
+            snapshot = self._snapshot_locked()
             granted = min(requested, snapshot.available)
             self._minute_reserved += granted
             self._daily_reserved += granted
@@ -87,16 +83,9 @@ class QuoteQuotaScheduler:
             self._minute_reserved -= released
             self._daily_reserved -= released
 
-    def reconcile(self, *, attempted: int, provider_remaining: int | None, observed_at: datetime | None) -> None:
-        """Reconcile local reservations with authoritative provider telemetry.
-
-        A response that reports fewer credits than expected clamps future work;
-        an authoritative higher balance never increases configured capacity.
-        """
+    def reconcile(self, *, provider_remaining: int | None, observed_at: datetime | None) -> None:
         if provider_remaining is not None:
             self.observe_provider_remaining(provider_remaining, observed_at)
-        if attempted < 0:
-            raise ValueError("attempted must be non-negative")
 
     @property
     def daily_date(self) -> date:
