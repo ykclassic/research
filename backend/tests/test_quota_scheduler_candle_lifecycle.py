@@ -24,5 +24,6 @@ def test_zero_provider_balance_recovers_after_minute_reset() -> None:
     scheduler.reconcile(provider_remaining=0, observed_at=datetime.now(timezone.utc))
     assert scheduler.reserve_candle(1) == 0
 
+    # Provider credits reset at the start of the next minute.
     now[0] += 60.0
     assert scheduler.reserve_candle(1) == 1
