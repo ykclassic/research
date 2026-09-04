@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import pytest
 
@@ -42,7 +42,7 @@ class QuotaProvider(MarketDataProvider):
         self.candle_calls.append(timeframe)
         now = datetime.now(timezone.utc)
         candles = tuple(Candle(
-            timestamp=now,
+            timestamp=now - timedelta(seconds=timeframe.seconds * (29 - index)),
             open=99.0,
             high=101.0,
             low=98.0,
@@ -52,13 +52,13 @@ class QuotaProvider(MarketDataProvider):
             timeframe=timeframe,
             source=self.name,
             is_complete=True,
-        ) for _ in range(30))
+        ) for index in range(30))
         return OHLCVDataset(
             symbol=internal_symbol,
             timeframe=timeframe,
             source=self.name,
             requested_at=now,
-            provider_timestamp=now,
+            provider_timestamp=candles[-1].timestamp,
             candles=candles,
             freshness_status=FreshnessStatus.FRESH,
             freshness_age_seconds=0.0,
@@ -94,7 +94,6 @@ async def test_candle_quota_exhaustion_routes_to_fallback_provider(monkeypatch: 
     orchestrator = MarketDataOrchestrator([twelve, fallback])
 
     await orchestrator.get_quotes(["BTC/USD", "ETH/USD", "SOL/USD", "EUR/USD"], force_refresh=True)
-    # Consume all four protected candle credits.
     for timeframe in (Timeframe.DAY_1, Timeframe.HOUR_4, Timeframe.HOUR_1, Timeframe.MINUTE_15):
         await orchestrator.get_candles("BTC/USD", timeframe, 30)
 
