@@ -11,6 +11,7 @@ from app.models import Quote, QuoteStatus
 from app.models.market import Candle, CompletenessStatus, FreshnessStatus, OHLCVDataset, Timeframe
 from app.providers.base import MarketDataProvider, ProviderUsage, dataset_completeness, freshness_for_age
 from app.providers.errors import ProviderErrorCode, classify_provider_error, error_label, retryable_provider_error
+from app.services.candle_freshness import refresh_candle_freshness
 from app.services.data_validation import validate_ohlcv_dataset
 from app.symbols import normalize_symbol
 
@@ -288,6 +289,9 @@ class TwelveDataProvider(MarketDataProvider):
             "symbol": mapping.twelve_data,
             "interval": interval,
             "apikey": settings.twelve_data_api_key,
+            # Make timestamp provenance deterministic. Twelve Data otherwise
+            # uses asset-specific default timezones for naive datetime strings.
+            "timezone": "UTC",
         }
         if start_date is not None and end_date is not None:
             params["start_date"] = self._format_range_timestamp(start_date)
@@ -334,8 +338,6 @@ class TwelveDataProvider(MarketDataProvider):
                     raise ValueError("Provider returned no historical candles.")
 
                 provider_timestamp = candles[-1].timestamp
-                age = max(0.0, (now - provider_timestamp).total_seconds())
-                freshness = freshness_for_age(age, timeframe.seconds + settings.stale_quote_seconds)
                 dataset = OHLCVDataset(
                     symbol=mapping.internal,
                     timeframe=timeframe,
@@ -344,8 +346,6 @@ class TwelveDataProvider(MarketDataProvider):
                     provider_timestamp=provider_timestamp,
                     candles=tuple(candles),
                     request_latency_ms=int((time.perf_counter() - started) * 1000),
-                    freshness_status=freshness,
-                    freshness_age_seconds=age,
                     completeness_status=dataset_completeness(
                         OHLCVDataset.model_construct(
                             symbol=mapping.internal,
@@ -358,7 +358,7 @@ class TwelveDataProvider(MarketDataProvider):
                     ),
                     provider_attempts=(self.name,),
                 )
-                return validate_ohlcv_dataset(dataset)
+                return validate_ohlcv_dataset(refresh_candle_freshness(dataset))
             except (httpx.HTTPError, ValueError, TypeError, KeyError) as exc:
                 last_error = str(exc)
                 code = classify_provider_error(exc, message=str(exc))
