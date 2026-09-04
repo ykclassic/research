@@ -90,6 +90,11 @@ class QuoteQuotaScheduler:
         with self._lock:
             return self._snapshot_locked()
 
+    def seconds_until_minute_reset(self) -> float:
+        with self._lock:
+            self._reset_locked()
+            return max(0.0, 60.0 - (self._clock() - self._minute_started))
+
     def reserve(self, requested: int) -> int:
         if requested <= 0:
             return 0
@@ -135,6 +140,15 @@ class QuoteQuotaScheduler:
             self._reset_locked()
             released = min(count, self._minute_reserved, self._daily_reserved)
             self._minute_reserved -= released
+            self._daily_reserved -= released
+
+    def release_candle(self, count: int = 1) -> None:
+        if count <= 0:
+            return
+        with self._lock:
+            self._reset_locked()
+            released = min(count, self._candle_reserved, self._daily_reserved)
+            self._candle_reserved -= released
             self._daily_reserved -= released
 
     def reconcile(self, *, provider_remaining: int | None, observed_at: datetime | None) -> None:
