@@ -45,6 +45,11 @@ class QuoteQuotaScheduler:
             self._minute_started = now
             self._minute_reserved = 0
             self._candle_reserved = 0
+            # Provider credits reset with the minute. Carrying a previous
+            # minute's credits-left value across the boundary would incorrectly
+            # block fresh capacity after the provider has replenished the pool.
+            self._provider_remaining = None
+            self._provider_observed_at = None
         today = datetime.now(timezone.utc).date()
         if today != self._daily_date:
             self._daily_date = today
@@ -89,6 +94,11 @@ class QuoteQuotaScheduler:
     def snapshot(self) -> QuotaSnapshot:
         with self._lock:
             return self._snapshot_locked()
+
+    def seconds_until_minute_reset(self) -> float:
+        with self._lock:
+            self._reset_locked()
+            return max(0.0, 60.0 - (self._clock() - self._minute_started))
 
     def reserve(self, requested: int) -> int:
         if requested <= 0:
@@ -135,6 +145,15 @@ class QuoteQuotaScheduler:
             self._reset_locked()
             released = min(count, self._minute_reserved, self._daily_reserved)
             self._minute_reserved -= released
+            self._daily_reserved -= released
+
+    def release_candle(self, count: int = 1) -> None:
+        if count <= 0:
+            return
+        with self._lock:
+            self._reset_locked()
+            released = min(count, self._candle_reserved, self._daily_reserved)
+            self._candle_reserved -= released
             self._daily_reserved -= released
 
     def reconcile(self, *, provider_remaining: int | None, observed_at: datetime | None) -> None:
