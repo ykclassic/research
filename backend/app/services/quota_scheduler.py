@@ -20,8 +20,9 @@ class QuoteQuotaScheduler:
 
     Quote capacity keeps its historical four-credit view while a separate
     protected candle reservation is tracked against the same provider balance.
-    This prevents quote traffic from consuming the four credits reserved for
-    Daily/H4/H1/M15 MTF candle requests.
+    Provider-reported minute credits are authoritative for completed requests;
+    local minute reservations therefore represent only work that is still in
+    flight and are cleared when fresh provider telemetry is reconciled.
     """
 
     def __init__(self, *, minute_budget: int, daily_budget: int, protected_capacity: int = 0, clock=time.monotonic) -> None:
@@ -140,7 +141,15 @@ class QuoteQuotaScheduler:
 
     def reconcile(self, *, provider_remaining: int | None, observed_at: datetime | None) -> None:
         if provider_remaining is not None:
-            self.observe_provider_remaining(provider_remaining, observed_at)
+            with self._lock:
+                self._provider_remaining = max(0, provider_remaining)
+                self._provider_observed_at = observed_at
+                # The provider's remaining-credit header already includes all
+                # completed requests, including the request that produced this
+                # telemetry. Keeping those completed requests in the local
+                # reservation counter would double-count them on the next
+                # reservation and can incorrectly starve candle capacity.
+                self._minute_reserved = 0
 
     @property
     def daily_date(self) -> date:
