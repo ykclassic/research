@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 import time
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 from threading import Lock
 
 from app.config import settings
@@ -28,6 +28,8 @@ class ProviderHealthState:
     credits_used: int | None = None
     credits_remaining: int | None = None
     usage_observed_at: datetime | None = None
+    quote_budget_remaining: int | None = None
+    daily_quote_budget_remaining: int | None = None
 
     @property
     def circuit_open(self) -> bool:
@@ -42,6 +44,10 @@ class MarketDataOrchestrator:
         self.providers = providers or [TwelveDataProvider(), AlphaVantageProvider(), FinnhubProvider()]
         self._health = {provider.name: ProviderHealthState() for provider in self.providers}
         self._lock = Lock()
+        self._twelve_data_minute_window_started = time.monotonic()
+        self._twelve_data_minute_reserved = 0
+        self._twelve_data_daily_date = datetime.now(timezone.utc).date()
+        self._twelve_data_daily_reserved = 0
         self.quote_cache: CanonicalMarketCache[Quote] = CanonicalMarketCache()
         self.candle_cache: CanonicalMarketCache[OHLCVDataset] = CanonicalMarketCache()
 
@@ -86,21 +92,74 @@ class MarketDataOrchestrator:
                 if state.consecutive_failures >= settings.provider_failure_threshold:
                     state.opened_until = time.monotonic() + settings.provider_circuit_cooldown_seconds
 
+    def _available_twelve_data_quote_budget(self, provider: MarketDataProvider) -> int:
+        """Return a conservative quote budget for the current minute/day.
+
+        The configured scanner budget is deliberately below Twelve Data Basic's
+        eight-credit/minute ceiling, leaving headroom for candle/analysis calls.
+        Provider-reported remaining credits further reduce the budget when known.
+        """
+        now = time.monotonic()
+        today = datetime.now(timezone.utc).date()
+        with self._lock:
+            if now - self._twelve_data_minute_window_started >= 60:
+                self._twelve_data_minute_window_started = now
+                self._twelve_data_minute_reserved = 0
+            if today != self._twelve_data_daily_date:
+                self._twelve_data_daily_date = today
+                self._twelve_data_daily_reserved = 0
+
+            minute_remaining = max(0, settings.twelve_data_quote_minute_budget - self._twelve_data_minute_reserved)
+            daily_remaining = max(0, settings.twelve_data_quote_daily_budget - self._twelve_data_daily_reserved)
+            available = min(minute_remaining, daily_remaining)
+            usage = provider.usage
+            if usage is not None and usage.credits_remaining is not None and usage.observed_at is not None:
+                usage_age = (datetime.now(timezone.utc) - usage.observed_at).total_seconds()
+                if 0 <= usage_age < 60:
+                    available = min(available, max(0, usage.credits_remaining))
+
+            state = self._state(provider)
+            state.quote_budget_remaining = available
+            state.daily_quote_budget_remaining = daily_remaining
+            return available
+
+    def _reserve_twelve_data_quote_budget(self, count: int) -> None:
+        if count <= 0:
+            return
+        with self._lock:
+            self._twelve_data_minute_reserved += count
+            self._twelve_data_daily_reserved += count
+            state = self._health.get("twelve_data")
+            if state is not None:
+                state.quote_budget_remaining = max(0, settings.twelve_data_quote_minute_budget - self._twelve_data_minute_reserved)
+                state.daily_quote_budget_remaining = max(0, settings.twelve_data_quote_daily_budget - self._twelve_data_daily_reserved)
+
     def provider_status(self) -> list[ProviderStatus]:
-        return [ProviderStatus(
-            provider=provider.name,
-            configured=provider.configured,
-            reachable=None,
-            circuit_open=self._state(provider).circuit_open,
-            consecutive_failures=self._state(provider).consecutive_failures,
-            last_latency_ms=self._state(provider).last_latency_ms,
-            last_error=self._state(provider).last_error,
-            last_error_code=self._state(provider).last_error_code,
-            credits_used=self._state(provider).credits_used,
-            credits_remaining=self._state(provider).credits_remaining,
-            usage_observed_at=self._state(provider).usage_observed_at,
-            message=("Configured; health is learned from real requests." if provider.configured else "Provider key is not configured."),
-        ) for provider in self.providers]
+        statuses: list[ProviderStatus] = []
+        for provider in self.providers:
+            state = self._state(provider)
+            quote_budget_remaining = state.quote_budget_remaining
+            daily_quote_budget_remaining = state.daily_quote_budget_remaining
+            if provider.name == "twelve_data":
+                quote_budget_remaining = self._available_twelve_data_quote_budget(provider)
+                daily_quote_budget_remaining = state.daily_quote_budget_remaining
+            statuses.append(ProviderStatus(
+                provider=provider.name,
+                configured=provider.configured,
+                reachable=None,
+                circuit_open=state.circuit_open,
+                consecutive_failures=state.consecutive_failures,
+                last_latency_ms=state.last_latency_ms,
+                last_error=state.last_error,
+                last_error_code=state.last_error_code,
+                credits_used=state.credits_used,
+                credits_remaining=state.credits_remaining,
+                usage_observed_at=state.usage_observed_at,
+                quote_budget_remaining=quote_budget_remaining,
+                daily_quote_budget_remaining=daily_quote_budget_remaining,
+                message=("Configured; health is learned from real requests." if provider.configured else "Provider key is not configured."),
+            ))
+        return statuses
 
     @staticmethod
     def _fresh_quote(quote: Quote) -> bool:
@@ -156,6 +215,21 @@ class MarketDataOrchestrator:
                 continue
 
             candidates = list(remaining)
+            if provider.name == "twelve_data":
+                budget = self._available_twelve_data_quote_budget(provider)
+                if budget <= 0:
+                    # Do not send a request when the local/provider-observed budget is exhausted.
+                    state = self._state(provider)
+                    state.last_error = "Scanner quote budget exhausted; routing to fallback providers."
+                    state.last_error_code = ProviderErrorCode.QUOTA_EXHAUSTED
+                    candidates = []
+                else:
+                    candidates = candidates[:budget]
+                    self._reserve_twelve_data_quote_budget(len(candidates))
+
+            if not candidates:
+                continue
+
             started = time.perf_counter()
             try:
                 quotes = await asyncio.wait_for(
