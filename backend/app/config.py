@@ -17,6 +17,11 @@ class Settings(BaseSettings):
     provider_timeout_seconds: float = 5.0
     provider_failure_threshold: int = 3
     provider_circuit_cooldown_seconds: int = 60
+    # Twelve Data Basic exposes 8 credits/minute. Keep a reserve for candle
+    # and other provider requests; the scanner can consume at most this budget.
+    twelve_data_quote_minute_budget: int = 6
+    twelve_data_quote_daily_budget: int = 800
+    twelve_data_quote_refresh_seconds: int = 300
     twelve_data_api_key: str = ""
     finnhub_api_key: str = ""
     alpha_vantage_api_key: str = ""
@@ -64,6 +69,12 @@ class Settings(BaseSettings):
             raise ValueError("Production request timeouts must be greater than zero.")
         if self.provider_failure_threshold < 1 or self.provider_circuit_cooldown_seconds <= 0:
             raise ValueError("Provider circuit settings are invalid.")
+        if self.twelve_data_quote_minute_budget < 1 or self.twelve_data_quote_minute_budget > 8:
+            raise ValueError("Twelve Data quote minute budget must be between 1 and 8 credits.")
+        if self.twelve_data_quote_daily_budget < self.twelve_data_quote_minute_budget:
+            raise ValueError("Twelve Data daily quote budget must cover the configured minute budget.")
+        if self.twelve_data_quote_refresh_seconds < 60:
+            raise ValueError("Twelve Data quote refresh interval must be at least 60 seconds.")
         if not self.github_oidc_audience.strip() or self.github_oidc_repository != "ykclassic/research" or self.github_oidc_ref != "refs/heads/main":
             raise ValueError("Production GitHub OIDC trust settings are invalid.")
         if not self.trusted_oidc_workflows or any(not workflow.startswith(".github/workflows/") for workflow in self.trusted_oidc_workflows):

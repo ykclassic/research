@@ -14,12 +14,14 @@ from app.models.strategy_selection import QualificationStatus, StrategyQualifica
 from app.models.trade_lifecycle import ExitReason, PerformanceSummary, TradeLifecycleStatus, TradeOutcome, trade_from_execution
 from app.providers.errors import ProviderErrorCode
 
+
 class QuoteStatus(str, Enum):
     LIVE = "LIVE"
     DELAYED = "DELAYED"
     STALE = "STALE"
     UNAVAILABLE = "UNAVAILABLE"
     MARKET_CLOSED = "MARKET_CLOSED"
+
 
 class Quote(BaseModel):
     symbol: str
@@ -44,6 +46,7 @@ class Quote(BaseModel):
     provider_credits_used: int | None = Field(default=None, ge=0)
     provider_credits_remaining: int | None = Field(default=None, ge=0)
 
+
 class ProviderStatus(BaseModel):
     provider: str
     configured: bool
@@ -56,6 +59,9 @@ class ProviderStatus(BaseModel):
     credits_used: int | None = Field(default=None, ge=0)
     credits_remaining: int | None = Field(default=None, ge=0)
     usage_observed_at: datetime | None = None
+    quote_budget_remaining: int | None = Field(default=None, ge=0)
+    daily_quote_budget_remaining: int | None = Field(default=None, ge=0)
     message: str
+
 
 __all__ = ["Candle", "CompletenessStatus", "FreshnessStatus", "OHLCVDataset", "ProviderErrorCode", "ProviderStatus", "Quote", "QuoteStatus", "TechnicalAnalysisResult", "Timeframe", "MarketRegime", "MarketRegimeResult", "RegimeEvidence", "RegimeThresholds", "SignalDirection", "StrategyDefinition", "StrategyPortfolioResult", "StrategySignal", "StrategyStatus", "MarketStructureResult", "StructureEvent", "StructureStatus", "MTFBias", "MTFResearchConclusion", "MTFState", "MTFTimeframeAnalysis", "MultiTimeframeResult", "QualificationStatus", "StrategyQualification", "StrategySelectionResult", "PositionQualification", "RiskPolicy", "RiskQualificationStatus", "ExecutionAuthorization", "ExecutionMode", "ExecutionRequest", "ExecutionResult", "OrderRequest", "OrderStatus", "ExitReason", "PerformanceSummary", "TradeLifecycleStatus", "TradeOutcome", "trade_from_execution"]

@@ -1,7 +1,10 @@
 export type QuoteStatus = "LIVE" | "DELAYED" | "STALE" | "UNAVAILABLE" | "MARKET_CLOSED";
 export type FreshnessStatus = "FRESH" | "DELAYED" | "STALE" | "UNKNOWN";
 export type CompletenessStatus = "COMPLETE" | "PARTIAL" | "INVALID" | "UNKNOWN" | "NOT_APPLICABLE";
-export interface Quote { symbol: string; provider_symbol: string; price: number | null; currency: string | null; timestamp: string | null; provider_timestamp?: string | null; observed_at?: string | null; source: string | null; status: QuoteStatus; market_open: boolean | null; latency_ms: number | null; cache_hit?: boolean; error: string | null; freshness_status?: FreshnessStatus; freshness_age_seconds?: number | null; completeness_status?: CompletenessStatus; fallback_used?: boolean; provider_attempts?: string[]; }
+export type ProviderErrorCode = "RATE_LIMITED" | "QUOTA_EXHAUSTED" | "AUTHENTICATION_FAILURE" | "SYMBOL_UNSUPPORTED" | "PROVIDER_TIMEOUT" | "PROVIDER_UNAVAILABLE" | "ALL_PROVIDERS_UNAVAILABLE";
+export interface Quote { symbol: string; provider_symbol: string; price: number | null; currency: string | null; timestamp: string | null; provider_timestamp?: string | null; observed_at?: string | null; source: string | null; status: QuoteStatus; market_open: boolean | null; latency_ms: number | null; cache_hit?: boolean; error: string | null; error_code?: ProviderErrorCode | null; freshness_status?: FreshnessStatus; freshness_age_seconds?: number | null; completeness_status?: CompletenessStatus; fallback_used?: boolean; provider_attempts?: string[]; provider_credits_used?: number | null; provider_credits_remaining?: number | null; }
+export interface ProviderStatus { provider: string; configured: boolean; reachable: boolean | null; circuit_open: boolean; consecutive_failures: number; last_latency_ms: number | null; last_error: string | null; last_error_code: ProviderErrorCode | null; credits_used: number | null; credits_remaining: number | null; usage_observed_at: string | null; quote_budget_remaining: number | null; daily_quote_budget_remaining: number | null; message: string; }
+export interface MarketStatus { providers: ProviderStatus[]; quote_cache_entries: number; candle_cache_entries: number; }
 export interface User { id: string; email: string; created_at: string; }
 export interface WatchlistItem { id: string; symbol: string; created_at: string; }
 export interface Watchlist { id: string; user_id: string; name: string; created_at: string; updated_at: string; watchlist_items: WatchlistItem[]; }
@@ -40,6 +43,7 @@ export async function confirmPasswordReset(accessToken: string, password: string
 export async function getCurrentUser(): Promise<User> { return request<User>("/api/auth/me"); }
 export async function logout(): Promise<void> { await authenticatedMutation<void>("/api/auth/logout", { method: "POST" }); storeCsrf(null); }
 export async function getQuotes(symbols: string[], refresh = false): Promise<Quote[]> { const params = new URLSearchParams({ symbols: symbols.join(","), refresh: String(refresh) }); return (await request<{ quotes: Quote[] }>(`/api/market/quotes?${params}`)).quotes; }
+export async function getMarketStatus(): Promise<MarketStatus> { return request<MarketStatus>("/api/market/status"); }
 export async function getWatchlists(): Promise<Watchlist[]> { return (await request<{ watchlists: Watchlist[] }>("/api/watchlists")).watchlists; }
 export async function createWatchlist(name: string): Promise<Watchlist> { return authenticatedMutation<Watchlist>("/api/watchlists", { method: "POST", body: JSON.stringify({ name }) }); }
 export async function renameWatchlist(id: string, name: string): Promise<Watchlist> { return authenticatedMutation<Watchlist>(`/api/watchlists/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify({ name }) }); }
