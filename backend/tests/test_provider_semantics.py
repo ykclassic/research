@@ -8,6 +8,7 @@ from app.config import settings
 from app.models import Quote, QuoteStatus
 from app.models.market import CompletenessStatus, FreshnessStatus, Timeframe
 from app.providers.base import MarketDataProvider
+from app.providers.errors import ProviderErrorCode
 from app.providers.orchestrator import MarketDataOrchestrator
 from app.services.market_sessions import is_market_open
 
@@ -104,6 +105,49 @@ async def test_real_provider_failure_still_advances_circuit(monkeypatch):
     status = orchestrator.provider_status()[0]
     assert status.consecutive_failures == 2
     assert status.circuit_open is True
+
+
+@pytest.mark.asyncio
+async def test_provider_routing_order_is_twelve_finnhub_then_alpha(monkeypatch):
+    unavailable = stale_quote().model_copy(update={
+        "price": None,
+        "status": QuoteStatus.UNAVAILABLE,
+        "freshness_status": FreshnessStatus.UNKNOWN,
+        "freshness_age_seconds": None,
+        "error": "Provider unavailable",
+        "error_code": ProviderErrorCode.PROVIDER_UNAVAILABLE,
+    })
+    finnhub_live = stale_quote().model_copy(update={
+        "source": "finnhub",
+        "status": QuoteStatus.LIVE,
+        "freshness_status": FreshnessStatus.FRESH,
+        "freshness_age_seconds": 0.0,
+        "error": None,
+        "error_code": None,
+    })
+
+    # Deliberately supply the providers in the wrong order. The orchestrator
+    # must enforce the canonical routing order instead of trusting construction order.
+    alpha = SemanticFakeProvider("alpha_vantage", unavailable)
+    twelve = SemanticFakeProvider("twelve_data", unavailable)
+    finnhub = SemanticFakeProvider("finnhub", finnhub_live)
+    orchestrator = MarketDataOrchestrator([alpha, twelve, finnhub])
+    monkeypatch.setattr("app.providers.orchestrator.is_market_open", lambda symbol: True)
+
+    assert [provider.name for provider in orchestrator.providers] == [
+        "twelve_data",
+        "finnhub",
+        "alpha_vantage",
+    ]
+
+    quote = await orchestrator.get_quote("AAPL", force_refresh=True)
+
+    assert quote.status == QuoteStatus.LIVE
+    assert quote.source == "finnhub"
+    assert quote.provider_attempts == ("twelve_data", "finnhub")
+    assert twelve.calls == 1
+    assert finnhub.calls == 1
+    assert alpha.calls == 0
 
 
 def test_market_session_semantics_are_deterministic():
