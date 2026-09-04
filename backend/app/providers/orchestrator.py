@@ -289,7 +289,8 @@ class MarketDataOrchestrator:
                             "fallback_used": provider.name != self.providers[0].name or bool(excluded),
                             "cache_hit": False,
                         })
-                        if self._semantic_rank(semantic) > self._semantic_rank(semantic_results.get(key, Quote(symbol=key, provider_symbol=semantic.provider_symbol, status=QuoteStatus.UNAVAILABLE))):
+                        previous = semantic_results.get(key)
+                        if previous is None or self._semantic_rank(semantic) > self._semantic_rank(previous):
                             semantic_results[key] = semantic
                         if self._fresh_quote(semantic):
                             successful += 1
@@ -309,17 +310,8 @@ class MarketDataOrchestrator:
                     detail = next((by_symbol[key].error for key in candidates if key in by_symbol and by_symbol[key].error), "Provider returned no usable quotes")
                     self._record_failure(provider, detail, latency_ms, code)
 
-                remaining = [key for key in remaining if key not in results and key not in semantic_results or (key in semantic_results and self._semantic_rank(semantic_results[key]) < QuoteStatus.LIVE.value.__len__())]
-                # Recompute remaining explicitly: LIVE/DELAYED stop fallback; semantic
-                # MARKET_CLOSED/STALE remain eligible for a fresher provider.
-                remaining = [
-                    key for key in unique_keys
-                    if key not in results and key not in semantic_results
-                ] + [
-                    key for key in candidates
-                    if key in semantic_results and semantic_results[key].status in {QuoteStatus.MARKET_CLOSED, QuoteStatus.STALE} and key not in results
-                ]
-                remaining = list(dict.fromkeys(remaining))
+                # Keep semantic-but-not-current quotes eligible for a better fallback.
+                remaining = [key for key in remaining if key not in results]
             except Exception as exc:
                 latency_ms = int((time.perf_counter() - started) * 1000)
                 code = classify_provider_error(exc)
