@@ -287,13 +287,25 @@ class MarketDataOrchestrator:
         mapping = normalize_symbol(symbol)
         timeframe = Timeframe(timeframe)
         range_key = "recent" if start_date is None else f"{start_date.isoformat()}:{end_date.isoformat()}"
-        key = f"{mapping.internal}|{timeframe.value}|{outputsize}|{range_key}"
+        request_key = f"{mapping.internal}|{timeframe.value}|{outputsize}|{range_key}"
+        canonical_key = f"canonical|{mapping.internal}|{timeframe.value}|{range_key}"
+        canonical_prefix = f"canonical|{mapping.internal}|{timeframe.value}|"
         excluded = excluded_providers or set()
         attempts: list[str] = []
-        cached = self.candle_cache.get(key, allow_stale=False)
-        if cached is not None and not excluded:
-            dataset, _ = cached
-            return dataset.model_copy(update={"cache_hit": True, "request_latency_ms": 0})
+
+        # A canonical entry is independent of provider and request size. This lets
+        # MTF recover a validated last-known-good candle set when a provider fails,
+        # even if the current request uses a different outputsize.
+        if not excluded:
+            cached = self.candle_cache.get(request_key, allow_stale=False)
+            if cached is None:
+                cached = self.candle_cache.get(canonical_key, allow_stale=False)
+            if cached is None:
+                cached = self.candle_cache.get_latest(canonical_prefix, allow_stale=False)
+            if cached is not None:
+                dataset, age = cached
+                return dataset.model_copy(update={"cache_hit": True, "cache_age_seconds": age, "request_latency_ms": 0})
+
         for provider in self.providers:
             candle_state = self._state(provider, "candles")
             if provider.name in excluded or not provider.configured or candle_state.circuit_open:
@@ -301,23 +313,51 @@ class MarketDataOrchestrator:
             attempts.append(provider.name)
             started = time.perf_counter()
             try:
-                dataset = await asyncio.wait_for(provider.get_candles(mapping.internal, timeframe, outputsize, start_date=start_date, end_date=end_date), timeout=max(settings.analysis_timeout_seconds, settings.provider_timeout_seconds))
+                dataset = await asyncio.wait_for(
+                    provider.get_candles(mapping.internal, timeframe, outputsize, start_date=start_date, end_date=end_date),
+                    timeout=max(settings.analysis_timeout_seconds, settings.provider_timeout_seconds),
+                )
                 latency_ms = int((time.perf_counter() - started) * 1000)
                 if not self._fresh_dataset(dataset):
                     self._record_failure(provider, "Provider candle set is stale or incomplete", latency_ms, ProviderErrorCode.PROVIDER_UNAVAILABLE, "candles")
                     continue
                 self._record_success(provider, latency_ms, "candles")
-                dataset = dataset.model_copy(update={"request_latency_ms": latency_ms, "provider_attempts": tuple(attempts), "fallback_used": provider.name != self.providers[0].name or bool(excluded), "cache_hit": False})
-                self.candle_cache.set(key, dataset, settings.quote_cache_seconds, settings.market_cache_stale_seconds)
+                dataset = dataset.model_copy(update={
+                    "request_latency_ms": latency_ms,
+                    "provider_attempts": tuple(attempts),
+                    "fallback_used": provider.name != self.providers[0].name or bool(excluded),
+                    "cache_hit": False,
+                    "cache_age_seconds": 0.0,
+                })
+                self.candle_cache.set(request_key, dataset, settings.quote_cache_seconds, settings.market_cache_stale_seconds)
+                self.candle_cache.set(canonical_key, dataset, settings.quote_cache_seconds, settings.market_cache_stale_seconds)
                 return dataset
             except Exception as exc:
                 self._record_failure(provider, str(exc), int((time.perf_counter() - started) * 1000), classify_provider_error(exc), "candles")
-        cached = self.candle_cache.get(key, allow_stale=True)
+
+        # Last-known-good canonical recovery is deliberately explicit about
+        # freshness. It may be used to keep MTF research available, but it is
+        # never relabeled as fresh data.
+        cached = self.candle_cache.get(request_key, allow_stale=True)
+        if cached is None:
+            cached = self.candle_cache.get(canonical_key, allow_stale=True)
+        if cached is None:
+            cached = self.candle_cache.get_latest(canonical_prefix, allow_stale=True)
         if cached is not None:
             dataset, age = cached
-            if dataset.freshness_status == FreshnessStatus.STALE or age > settings.quote_cache_seconds:
-                dataset = dataset.model_copy(update={"freshness_status": FreshnessStatus.STALE, "freshness_age_seconds": max(dataset.freshness_age_seconds or 0.0, age)})
-            return dataset.model_copy(update={"fallback_used": True, "cache_hit": True, "cache_age_seconds": age, "provider_attempts": tuple(attempts) or dataset.provider_attempts, "request_latency_ms": 0})
+            stale = dataset.freshness_status == FreshnessStatus.STALE or age > settings.quote_cache_seconds
+            if stale:
+                dataset = dataset.model_copy(update={
+                    "freshness_status": FreshnessStatus.STALE,
+                    "freshness_age_seconds": max(dataset.freshness_age_seconds or 0.0, age),
+                })
+            return dataset.model_copy(update={
+                "fallback_used": True,
+                "cache_hit": True,
+                "cache_age_seconds": age,
+                "provider_attempts": tuple(attempts) or dataset.provider_attempts,
+                "request_latency_ms": 0,
+            })
         raise RuntimeError("All configured market-data providers were unavailable and no canonical candle cache entry exists.")
 
 
