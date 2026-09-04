@@ -60,8 +60,9 @@ class MarketDataOrchestrator:
         }
         self._lock = Lock()
         self._twelve_data_quota = QuoteQuotaScheduler(
-            minute_budget=settings.twelve_data_quote_minute_budget + settings.twelve_data_candle_minute_reserve,
+            minute_budget=settings.twelve_data_quote_minute_budget,
             daily_budget=settings.twelve_data_quote_daily_budget,
+            protected_capacity=settings.twelve_data_candle_minute_reserve,
         )
         self.quote_cache: CanonicalMarketCache[Quote] = CanonicalMarketCache()
         self.candle_cache: CanonicalMarketCache[OHLCVDataset] = CanonicalMarketCache()
@@ -108,25 +109,25 @@ class MarketDataOrchestrator:
         self._sync_usage(provider)
         snapshot = self._twelve_data_quota.snapshot()
         state = self._state(provider, "quote")
-        state.quote_budget_remaining = max(0, snapshot.available - settings.twelve_data_candle_minute_reserve)
+        state.quote_budget_remaining = snapshot.available
         state.daily_quote_budget_remaining = snapshot.daily_remaining
-        return state.quote_budget_remaining
+        return snapshot.available
 
     def _reserve_twelve_data_quote_budget(self, requested: int) -> int:
-        granted = self._twelve_data_quota.reserve_with_protected_capacity(requested, settings.twelve_data_candle_minute_reserve)
+        granted = self._twelve_data_quota.reserve(requested)
         state = self._health.get(("twelve_data", "quote"))
         if state is not None:
             snapshot = self._twelve_data_quota.snapshot()
-            state.quote_budget_remaining = max(0, snapshot.available - settings.twelve_data_candle_minute_reserve)
+            state.quote_budget_remaining = snapshot.available
             state.daily_quote_budget_remaining = snapshot.daily_remaining
         return granted
 
     def _reserve_twelve_data_candle_budget(self) -> bool:
-        granted = self._twelve_data_quota.reserve(1)
+        granted = self._twelve_data_quota.reserve_candle(1)
         state = self._health.get(("twelve_data", "candles"))
         if state is not None:
             snapshot = self._twelve_data_quota.snapshot()
-            state.quote_budget_remaining = snapshot.available
+            state.quote_budget_remaining = snapshot.candle_remaining
             state.daily_quote_budget_remaining = snapshot.daily_remaining
         return granted == 1
 
