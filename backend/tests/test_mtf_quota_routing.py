@@ -40,9 +40,9 @@ class QuotaProvider(MarketDataProvider):
 
     async def get_candles(self, internal_symbol: str, timeframe: Timeframe, outputsize: int = 250, start_date=None, end_date=None) -> OHLCVDataset:
         self.candle_calls.append(timeframe)
-        now = datetime.now(timezone.utc)
+        base = datetime(2026, 9, 4, tzinfo=timezone.utc)
         candles = tuple(Candle(
-            timestamp=now - timedelta(seconds=timeframe.seconds * (29 - index)),
+            timestamp=base - timedelta(seconds=timeframe.seconds * (29 - index)),
             open=99.0,
             high=101.0,
             low=98.0,
@@ -57,7 +57,7 @@ class QuotaProvider(MarketDataProvider):
             symbol=internal_symbol,
             timeframe=timeframe,
             source=self.name,
-            requested_at=now,
+            requested_at=base,
             provider_timestamp=candles[-1].timestamp,
             candles=candles,
             freshness_status=FreshnessStatus.FRESH,
