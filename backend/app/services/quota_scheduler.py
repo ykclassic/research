@@ -45,6 +45,11 @@ class QuoteQuotaScheduler:
             self._minute_started = now
             self._minute_reserved = 0
             self._candle_reserved = 0
+            # Provider credits reset with the minute. Carrying a previous
+            # minute's credits-left value across the boundary would incorrectly
+            # block fresh capacity after the provider has replenished the pool.
+            self._provider_remaining = None
+            self._provider_observed_at = None
         today = datetime.now(timezone.utc).date()
         if today != self._daily_date:
             self._daily_date = today
