@@ -162,6 +162,7 @@ async def test_get_candles_uses_server_side_start_and_end_without_outputsize(mon
                 "symbol": "BTC/USD",
                 "interval": "1h",
                 "apikey": "test-key",
+                "timezone": "UTC",
                 "start_date": "2026-08-01 00:00:00",
                 "end_date": "2026-08-01 03:00:00",
             },

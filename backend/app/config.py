@@ -17,9 +17,10 @@ class Settings(BaseSettings):
     provider_timeout_seconds: float = 5.0
     provider_failure_threshold: int = 3
     provider_circuit_cooldown_seconds: int = 60
-    # Twelve Data Basic exposes 8 credits/minute. Keep a reserve for candle
-    # and other provider requests; the scanner can consume at most this budget.
-    twelve_data_quote_minute_budget: int = 6
+    # Twelve Data Basic exposes 8 API credits/minute. Keep four credits
+    # available for the four MTF candle timeframes; quote work is capped at four.
+    twelve_data_quote_minute_budget: int = 4
+    twelve_data_candle_minute_reserve: int = 4
     twelve_data_quote_daily_budget: int = 800
     twelve_data_quote_refresh_seconds: int = 300
     twelve_data_api_key: str = ""
@@ -71,8 +72,12 @@ class Settings(BaseSettings):
             raise ValueError("Provider circuit settings are invalid.")
         if self.twelve_data_quote_minute_budget < 1 or self.twelve_data_quote_minute_budget > 8:
             raise ValueError("Twelve Data quote minute budget must be between 1 and 8 credits.")
-        if self.twelve_data_quote_daily_budget < self.twelve_data_quote_minute_budget:
-            raise ValueError("Twelve Data daily quote budget must cover the configured minute budget.")
+        if self.twelve_data_candle_minute_reserve < 1 or self.twelve_data_candle_minute_reserve > 8:
+            raise ValueError("Twelve Data candle minute reserve must be between 1 and 8 credits.")
+        if self.twelve_data_quote_minute_budget + self.twelve_data_candle_minute_reserve > 8:
+            raise ValueError("Twelve Data quote budget plus candle reserve cannot exceed the Basic 8-credit limit.")
+        if self.twelve_data_quote_daily_budget < self.twelve_data_quote_minute_budget + self.twelve_data_candle_minute_reserve:
+            raise ValueError("Twelve Data daily budget must cover the configured quote budget and candle reserve.")
         if self.twelve_data_quote_refresh_seconds < 60:
             raise ValueError("Twelve Data quote refresh interval must be at least 60 seconds.")
         if not self.github_oidc_audience.strip() or self.github_oidc_repository != "ykclassic/research" or self.github_oidc_ref != "refs/heads/main":

@@ -8,6 +8,7 @@ from app.api.auth import get_current_user_or_github_actions
 from app.config import settings
 from app.models.market import OHLCVDataset, Timeframe
 from app.models.mtf import MultiTimeframeResult
+from app.services.candle_freshness import require_current_completed_candles
 from app.services.market_structure import analyze_market_structure
 from app.services.mtf_analysis import MINIMUM_CANDLES, REQUIRED_TIMEFRAMES, analyze_multi_timeframe
 from app.services.quote_service import QuoteService
@@ -32,6 +33,10 @@ async def _load(symbol: str, timeframe: Timeframe, limit: int) -> tuple[Timefram
         quote_service.orchestrator.get_candles(symbol, timeframe, limit),
         timeout=settings.analysis_timeout_seconds,
     )
+    # Recompute freshness from the latest completed candle at read time. This
+    # prevents an old in-memory cache entry from being accepted merely because
+    # its stored freshness metadata was created when it was new.
+    dataset = require_current_completed_candles(dataset)
     return timeframe, _completed_dataset(dataset)
 
 
