@@ -15,7 +15,7 @@ permissions:
 jobs:
   verify-production-market-data:
     runs-on: ubuntu-latest
-    timeout-minutes: 12
+    timeout-minutes: 15
 
     env:
       MARKET_API_BASE: https://research-76vr.onrender.com
@@ -23,6 +23,7 @@ jobs:
       MARKET_TIMEFRAME: 1h
       MARKET_ANALYSIS_LIMIT: 250
       MARKET_MAX_PROVIDER_AGE: 180
+      MTF_MAX_EXTRA_AGE_SECONDS: 180
       GITHUB_OIDC_AUDIENCE: research-production-verifier
       RENDER_SERVICE_ID: srv-da6bkhgjo6nc73cg1big
       RENDER_DEPLOY_WAIT_TIMEOUT: 480
@@ -89,3 +90,6 @@ jobs:
 
       - name: Verify deployed market-data path and fallback path
         run: python backend/scripts/verify_production_market_data.py
+
+      - name: Verify production MTF candle freshness and provenance
+        run: python backend/scripts/verify_production_mtf.py
