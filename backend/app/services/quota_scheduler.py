@@ -18,7 +18,7 @@ class QuoteQuotaScheduler:
     """Thread-safe reservation scheduler for quote work."""
 
     def __init__(self, *, minute_budget: int, daily_budget: int, clock=time.monotonic) -> None:
-        if minute_budget < 1 or daily_budget < minute_budget:
+        if minute_budget < 1 or daily_budget < 1:
             raise ValueError("Invalid quote quota budgets")
         self._minute_budget = minute_budget
         self._daily_budget = daily_budget
