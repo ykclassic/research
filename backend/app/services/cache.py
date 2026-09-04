@@ -47,6 +47,30 @@ class CanonicalMarketCache(Generic[T]):
         self._items.pop(key, None)
         return None
 
+    def get_latest(self, prefix: str, *, allow_stale: bool = False) -> tuple[T, float] | None:
+        """Return the newest usable entry whose key starts with ``prefix``.
+
+        This supports recovery when an MTF request asks for a different output size
+        from the request that populated the canonical cache. The newest validated
+        dataset wins; expired entries are removed while scanning.
+        """
+        now = time.monotonic()
+        candidates: list[tuple[str, CacheEntry[T]]] = []
+        expired: list[str] = []
+        for key, entry in self._items.items():
+            if not key.startswith(prefix):
+                continue
+            if entry.fresh or (allow_stale and entry.usable_stale):
+                candidates.append((key, entry))
+            else:
+                expired.append(key)
+        for key in expired:
+            self._items.pop(key, None)
+        if not candidates:
+            return None
+        _, entry = max(candidates, key=lambda item: item[1].stored_at)
+        return entry.value, max(0.0, now - entry.stored_at)
+
     def set(self, key: str, value: T, fresh_ttl_seconds: float, stale_ttl_seconds: float) -> None:
         now = time.monotonic()
         self._items[key] = CacheEntry(
