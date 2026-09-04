@@ -12,8 +12,10 @@ API_BASE = os.getenv("MARKET_API_BASE", "https://research-76vr.onrender.com").rs
 SYMBOL = os.getenv("MARKET_SYMBOL", "BTC/USD").upper()
 LIMIT = int(os.getenv("MARKET_ANALYSIS_LIMIT", "250"))
 MAX_EXTRA_AGE_SECONDS = float(os.getenv("MTF_MAX_EXTRA_AGE_SECONDS", "180"))
-EXPECTED_TIMEFRAMES = {"1day", "4h", "1h", "15min"}
+# These values must match the backend Timeframe enum exactly.
+EXPECTED_TIMEFRAMES = {"1d", "4h", "1h", "15m"}
 APPROVED_PROVIDERS = {"twelve_data", "finnhub", "alpha_vantage"}
+DURATION_BY_TIMEFRAME = {"15m": 900, "1h": 3600, "4h": 14400, "1d": 86400}
 
 
 def parse_timestamp(value: str) -> datetime:
@@ -57,12 +59,11 @@ def main() -> int:
             source = str(row["source"])
             timestamp = parse_timestamp(str(row["latest_candle_timestamp"]))
             count = int(row["candle_count"])
-            duration_by_timeframe = {"15min": 900, "1h": 3600, "4h": 14400, "1day": 86400}
             age = (now - timestamp).total_seconds()
             require(source in APPROVED_PROVIDERS, f"{timeframe}: unexpected provider {source}")
             require(count >= 30, f"{timeframe}: insufficient candle count {count}")
             require(age >= -5, f"{timeframe}: future candle timestamp by {-age:.1f}s")
-            require(age <= duration_by_timeframe[timeframe] + MAX_EXTRA_AGE_SECONDS, f"{timeframe}: latest completed candle age {age:.1f}s exceeds {duration_by_timeframe[timeframe] + MAX_EXTRA_AGE_SECONDS:.0f}s")
+            require(age <= DURATION_BY_TIMEFRAME[timeframe] + MAX_EXTRA_AGE_SECONDS, f"{timeframe}: latest completed candle age {age:.1f}s exceeds {DURATION_BY_TIMEFRAME[timeframe] + MAX_EXTRA_AGE_SECONDS:.0f}s")
             print(f"PASS {timeframe}: provider={source}; latest_completed={timestamp.isoformat()}; age={age:.1f}s; candles={count}")
 
         require(payload.get("symbol") == SYMBOL, f"MTF symbol mismatch: {payload.get('symbol')}")
