@@ -84,6 +84,7 @@ async def test_provider_reported_remaining_credits_controls_next_reservation(mon
     monkeypatch.setattr(settings, "twelve_data_quote_daily_budget", 800)
     twelve, finnhub, alpha = FakeProvider("twelve_data", remaining=2), FakeProvider("finnhub"), FakeProvider("alpha_vantage")
     orchestrator = MarketDataOrchestrator([twelve, alpha, finnhub])
+    orchestrator._twelve_data_quota.observe_provider_remaining(2, datetime.now(timezone.utc))
     symbols = ["BTC/USD", "ETH/USD", "SOL/USD", "EUR/USD"]
 
     quotes = await orchestrator.get_quotes(symbols, force_refresh=True)
