@@ -15,7 +15,7 @@ class QuotaSnapshot:
 
 
 class QuoteQuotaScheduler:
-    """Thread-safe reservation scheduler for quote work."""
+    """Thread-safe scheduler for the shared Twelve Data API credit budget."""
 
     def __init__(self, *, minute_budget: int, daily_budget: int, clock=time.monotonic) -> None:
         if minute_budget < 1 or daily_budget < 1:
@@ -70,6 +70,19 @@ class QuoteQuotaScheduler:
         with self._lock:
             snapshot = self._snapshot_locked()
             granted = min(requested, snapshot.available)
+            self._minute_reserved += granted
+            self._daily_reserved += granted
+            return granted
+
+    def reserve_with_protected_capacity(self, requested: int, protected_capacity: int) -> int:
+        """Reserve lower-priority work without consuming protected capacity."""
+        if requested <= 0:
+            return 0
+        protected_capacity = max(0, protected_capacity)
+        with self._lock:
+            snapshot = self._snapshot_locked()
+            grantable = max(0, snapshot.available - protected_capacity)
+            granted = min(requested, grantable)
             self._minute_reserved += granted
             self._daily_reserved += granted
             return granted
