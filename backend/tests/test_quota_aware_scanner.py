@@ -34,12 +34,12 @@ class FakeProvider(MarketDataProvider):
 
     async def get_quote(self, internal_symbol: str) -> Quote:
         self.calls.append([internal_symbol])
-        return Quote(symbol=internal_symbol, provider_symbol=internal_symbol, price=100.0, status=QuoteStatus.LIVE)
+        return Quote(symbol=internal_symbol, provider_symbol=internal_symbol, price=100.0, source=self.name, status=QuoteStatus.LIVE)
 
     async def get_quotes(self, internal_symbols: list[str]) -> list[Quote]:
         self.calls.append(list(internal_symbols))
         return [
-            Quote(symbol=symbol, provider_symbol=symbol, price=100.0, status=QuoteStatus.LIVE)
+            Quote(symbol=symbol, provider_symbol=symbol, price=100.0, source=self.name, status=QuoteStatus.LIVE)
             for symbol in internal_symbols
         ]
 
