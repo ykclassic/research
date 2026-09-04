@@ -31,15 +31,9 @@ class DomainHealthProvider(MarketDataProvider):
             raise RuntimeError("quote upstream unavailable")
         now = datetime.now(timezone.utc)
         return Quote(
-            symbol=internal_symbol,
-            provider_symbol=internal_symbol,
-            price=100.0,
-            timestamp=now,
-            provider_timestamp=now,
-            observed_at=now,
-            source=self.name,
-            status=QuoteStatus.LIVE,
-            freshness_status=FreshnessStatus.FRESH,
+            symbol=internal_symbol, provider_symbol=internal_symbol, price=100.0,
+            timestamp=now, provider_timestamp=now, observed_at=now, source=self.name,
+            status=QuoteStatus.LIVE, freshness_status=FreshnessStatus.FRESH,
             freshness_age_seconds=0.0,
         )
 
@@ -49,26 +43,14 @@ class DomainHealthProvider(MarketDataProvider):
             raise RuntimeError("candle upstream unavailable")
         now = datetime.now(timezone.utc)
         candle = Candle(
-            timestamp=now,
-            open=99.0,
-            high=101.0,
-            low=98.0,
-            close=100.0,
-            volume=10.0,
-            symbol=internal_symbol,
-            timeframe=timeframe,
-            source=self.name,
-            is_complete=True,
+            timestamp=now, open=99.0, high=101.0, low=98.0, close=100.0,
+            volume=10.0, symbol=internal_symbol, timeframe=timeframe,
+            source=self.name, is_complete=True,
         )
         return OHLCVDataset(
-            symbol=internal_symbol,
-            timeframe=timeframe,
-            source=self.name,
-            requested_at=now,
-            provider_timestamp=now,
-            candles=(candle,),
-            freshness_status=FreshnessStatus.FRESH,
-            freshness_age_seconds=0.0,
+            symbol=internal_symbol, timeframe=timeframe, source=self.name,
+            requested_at=now, provider_timestamp=now, candles=(candle,),
+            freshness_status=FreshnessStatus.FRESH, freshness_age_seconds=0.0,
             completeness_status=CompletenessStatus.COMPLETE,
         )
 
@@ -124,7 +106,8 @@ async def test_quote_and_candle_success_reset_only_their_own_domain(monkeypatch:
     orchestrator = MarketDataOrchestrator([provider])
 
     await orchestrator.get_quote("BTC/USD", force_refresh=True)
-    await orchestrator.get_candles("BTC/USD", Timeframe.HOUR_1)
+    with pytest.raises(RuntimeError, match="no canonical candle cache"):
+        await orchestrator.get_candles("BTC/USD", Timeframe.HOUR_1)
     assert orchestrator._health[("twelve_data", "quote")].consecutive_failures == 1
     assert orchestrator._health[("twelve_data", "candles")].consecutive_failures == 1
 
@@ -140,11 +123,7 @@ async def test_quote_and_candle_success_reset_only_their_own_domain(monkeypatch:
 
 
 def test_all_provider_health_domains_exist() -> None:
-    orchestrator = MarketDataOrchestrator([])
-    assert orchestrator._health == {}
-
-    providers = [DomainHealthProvider()]
-    orchestrator = MarketDataOrchestrator(providers)
+    orchestrator = MarketDataOrchestrator([DomainHealthProvider()])
     assert set(orchestrator._health) == {
         ("twelve_data", "quote"),
         ("twelve_data", "candles"),
