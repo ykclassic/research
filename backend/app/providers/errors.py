@@ -68,6 +68,8 @@ def classify_provider_error(
         return ProviderErrorCode.RATE_LIMITED
     if any(term in text for term in ("quota", "credit", "credits left", "daily limit")):
         return ProviderErrorCode.QUOTA_EXHAUSTED
+    if any(term in text for term in ("provider unavailable", "upstream unavailable", "service unavailable", "temporarily unavailable")):
+        return ProviderErrorCode.PROVIDER_UNAVAILABLE
     if isinstance(exc, httpx.TimeoutException):
         return ProviderErrorCode.PROVIDER_TIMEOUT
     if isinstance(exc, httpx.HTTPError):
