@@ -55,7 +55,7 @@ class FakeProvider(MarketDataProvider):
 
 
 @pytest.mark.asyncio
-async def test_twelve_data_budget_routes_overflow_to_alpha_then_finnhub(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_twelve_data_budget_routes_overflow_to_finnhub_then_alpha(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(settings, "twelve_data_quote_minute_budget", 6)
     monkeypatch.setattr(settings, "twelve_data_quote_daily_budget", 800)
 
@@ -69,11 +69,11 @@ async def test_twelve_data_budget_routes_overflow_to_alpha_then_finnhub(monkeypa
 
     assert len(quotes) == 10
     assert twelve.calls == [symbols[:6]]
-    assert alpha.calls == [symbols[6:]]
-    assert finnhub.calls == []
+    assert finnhub.calls == [symbols[6:]]
+    assert alpha.calls == []
     assert all(quote.status == QuoteStatus.LIVE for quote in quotes)
     assert all(quote.source == "twelve_data" for quote in quotes[:6])
-    assert all(quote.source == "alpha_vantage" for quote in quotes[6:])
+    assert all(quote.source == "finnhub" for quote in quotes[6:])
 
 
 @pytest.mark.asyncio
@@ -91,8 +91,8 @@ async def test_provider_reported_remaining_credits_further_reduce_twelve_data_ba
 
     assert len(quotes) == 4
     assert twelve.calls == [symbols[:2]]
-    assert alpha.calls == [symbols[2:]]
-    assert finnhub.calls == []
+    assert finnhub.calls == [symbols[2:]]
+    assert alpha.calls == []
 
 
 @pytest.mark.asyncio
@@ -110,9 +110,13 @@ async def test_daily_scanner_budget_fails_closed_for_twelve_data_and_uses_fallba
     quotes = await orchestrator.get_quotes(symbols, force_refresh=True)
 
     assert twelve.calls == []
-    assert alpha.calls == [symbols]
+    assert finnhub.calls == [symbols]
+    assert alpha.calls == []
     assert all(quote.status == QuoteStatus.LIVE for quote in quotes)
 
     status = next(item for item in orchestrator.provider_status() if item.provider == "twelve_data")
     assert status.last_error_code == ProviderErrorCode.QUOTA_EXHAUSTED
     assert status.daily_quote_budget_remaining == 0
+
+
+# Phase 2 routing contract: Twelve Data -> Finnhub -> Alpha Vantage.

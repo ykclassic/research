@@ -70,7 +70,7 @@ def test_non_batch_provider_keeps_individual_symbol_fallback():
 
 def test_provider_order_matches_production_contract():
     default = MarketDataOrchestrator()
-    assert [provider.name for provider in default.providers] == ["twelve_data", "alpha_vantage", "finnhub"]
+    assert [provider.name for provider in default.providers] == ["twelve_data", "finnhub", "alpha_vantage"]
 
 
 def test_error_classification_distinguishes_required_categories():
