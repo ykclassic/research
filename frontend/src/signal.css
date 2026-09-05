@@ -1,0 +1,38 @@
+.signal-hero { margin-bottom: 18px; }
+.signal-workspace { display:grid; grid-template-columns:minmax(0, 1.6fr) minmax(300px, .8fr); gap:18px; align-items:start; }
+.signal-panel, .signal-detail { min-width:0; }
+.signal-list { padding:8px; }
+.signal-row { width:100%; display:grid; grid-template-columns:minmax(130px, 1fr) minmax(150px, 1.15fr) 90px 110px; gap:12px; align-items:center; border:1px solid transparent; border-radius:12px; background:transparent; color:#edf4ff; padding:15px 14px; text-align:left; }
+.signal-row:hover, .signal-row.selected { background:rgba(255,255,255,.04); border-color:rgba(111,231,255,.10); }
+.signal-symbol strong, .signal-symbol span, .signal-price span, .signal-price small, .signal-score span { display:block; }
+.signal-symbol strong { font-size:14px; }
+.signal-symbol span, .signal-price small, .signal-score span { color:#667c97; font-size:10px; margin-top:3px; }
+.signal-price { text-align:right; font-variant-numeric:tabular-nums; }
+.signal-badge { display:flex; align-items:center; gap:7px; width:max-content; min-width:125px; border-radius:999px; padding:8px 11px; font-size:11px; }
+.signal-badge svg { flex:0 0 auto; }
+.signal-score { text-align:right; font-variant-numeric:tabular-nums; }
+.signal-score strong { font-size:12px; }
+.signal-badge.strong-buy, .signal-detail-status.strong-buy { color:#62e6a6; background:rgba(98,230,166,.10); }
+.signal-badge.buy, .signal-detail-status.buy { color:#8ee8bd; background:rgba(98,230,166,.06); }
+.signal-badge.neutral, .signal-detail-status.neutral { color:#b8c6d8; background:rgba(184,198,216,.07); }
+.signal-badge.sell, .signal-detail-status.sell { color:#ffb0a1; background:rgba(255,125,145,.06); }
+.signal-badge.strong-sell, .signal-detail-status.strong-sell { color:#ff7d91; background:rgba(255,125,145,.10); }
+.signal-detail { padding-bottom:18px; }
+.signal-detail-status { display:flex; align-items:center; gap:9px; margin:18px; padding:16px; border-radius:13px; font-size:19px; }
+.signal-detail-score { padding:2px 18px 18px; }
+.signal-detail-score span, .signal-detail-score small { display:block; color:#667c97; font-size:10px; }
+.signal-detail-score strong { display:block; margin:4px 0; font-size:34px; font-variant-numeric:tabular-nums; }
+.signal-metrics { display:grid; grid-template-columns:1fr 1fr; gap:8px; padding:0 18px; }
+.signal-metrics div { background:rgba(255,255,255,.025); padding:10px; border-radius:10px; }
+.signal-metrics span, .signal-metrics strong { display:block; }
+.signal-metrics span { color:#667c97; font-size:10px; }
+.signal-metrics strong { margin-top:4px; font-size:11px; word-break:break-word; }
+.signal-components { padding:16px 18px 4px; display:grid; gap:6px; }
+.signal-component { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:10px; border-radius:9px; background:rgba(255,255,255,.025); }
+.signal-component div strong, .signal-component div span { display:block; }
+.signal-component div span { margin-top:3px; color:#667c97; font-size:9px; }
+.signal-component > strong { font-variant-numeric:tabular-nums; }
+.signal-evidence { margin:12px 18px 0; padding-left:17px; color:#91a4bc; font-size:10px; line-height:1.6; }
+.signal-evidence li + li { margin-top:5px; }
+@media (max-width: 900px) { .signal-workspace { grid-template-columns:1fr; } }
+@media (max-width: 620px) { .signal-row { grid-template-columns:1fr auto; gap:8px; } .signal-score, .signal-price { text-align:left; } .signal-badge { justify-self:end; } .signal-score { justify-self:start; } .signal-price { justify-self:end; } }
