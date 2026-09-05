@@ -1,7 +1,10 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createAIResearchReport, getTechnicalAnalysis } from "./api";
 
-afterEach(() => vi.restoreAllMocks());
+afterEach(() => {
+  vi.restoreAllMocks();
+  vi.unstubAllGlobals();
+});
 
 describe("getTechnicalAnalysis", () => {
   it("requests the historical range from the backend without local filtering", async () => {
@@ -52,6 +55,15 @@ describe("getTechnicalAnalysis", () => {
 
 describe("createAIResearchReport", () => {
   it("obtains and sends the CSRF token before posting the report request", async () => {
+    vi.stubGlobal("document", { cookie: "" });
+    vi.stubGlobal("window", {
+      sessionStorage: {
+        getItem: vi.fn(() => null),
+        setItem: vi.fn(),
+        removeItem: vi.fn(),
+      },
+    });
+
     const csrfToken = "csrf-test-token";
     const response = {
       symbol: "BTC/USD",
