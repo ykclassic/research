@@ -30,6 +30,7 @@ export type SignalDirection = "NEUTRAL" | "BUY" | "STRONG_BUY" | "SELL" | "STRON
 export interface SignalComponent { timeframe: string; indicator_score: number; smc_score: number; combined_score: number; evidence: string[]; }
 export interface CryptoSignal { symbol: string; signal: SignalDirection; score: number; confluence: number; price: number; calculated_at: string; latest_candle_timestamp: string; source: string; components: SignalComponent[]; evidence: string[]; research_eligible: boolean; }
 export interface CryptoSignalList { calculated_at: string; signals: CryptoSignal[]; }
+export interface AIResearchResponse { symbol: string; timeframe: string; deterministic_gate: "PASSED"; verified_context: Record<string, unknown>; report: string; model: string; }
 export class ApiError extends Error { readonly status: number; constructor(message: string, status: number) { super(message); this.name = "ApiError"; this.status = status; } }
 const API_BASE = (import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8000").replace(/\/$/, "");
 const REQUEST_TIMEOUT_MS = 12_000;
@@ -59,3 +60,4 @@ export async function getMarketRegime(symbol: string, timeframe = "1h", limit = 
 export async function getMarketStructure(symbol: string, timeframe = "1h", limit = 250): Promise<MarketStructureResult> { const params = new URLSearchParams({ timeframe, limit: String(limit) }); return request<MarketStructureResult>(`/api/market-structure/${encodeURIComponent(symbol)}?${params}`); }
 export async function getMultiTimeframeAnalysis(symbol: string, limit = 250): Promise<MultiTimeframeResult> { const params = new URLSearchParams({ limit: String(limit) }); return request<MultiTimeframeResult>(`/api/mtf/${encodeURIComponent(symbol)}?${params}`); }
 export async function getCryptoSignals(limit = 250): Promise<CryptoSignalList> { const params = new URLSearchParams({ limit: String(limit) }); return request<CryptoSignalList>(`/api/signals?${params}`); }
+export async function createAIResearchReport(symbol: string, timeframe = "1h", limit = 250, question?: string): Promise<AIResearchResponse> { return request<AIResearchResponse>("/api/ai-research/report", { method: "POST", body: JSON.stringify({ symbol, timeframe, limit, question }) }); }
