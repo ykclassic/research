@@ -14,7 +14,9 @@ LIMIT = int(os.getenv("MARKET_ANALYSIS_LIMIT", "250"))
 MAX_EXTRA_AGE_SECONDS = float(os.getenv("MTF_MAX_EXTRA_AGE_SECONDS", "180"))
 # These values must match the backend Timeframe enum exactly.
 EXPECTED_TIMEFRAMES = {"1d", "4h", "1h", "15m"}
-APPROVED_PROVIDERS = {"twelve_data", "finnhub", "alpha_vantage"}
+# Crypto MTF analysis now uses the credential-free Kraken public provider as
+# its primary source, with the legacy providers retained as fallback paths.
+APPROVED_PROVIDERS = {"kraken_public", "twelve_data", "finnhub", "alpha_vantage"}
 DURATION_BY_TIMEFRAME = {"15m": 900, "1h": 3600, "4h": 14400, "1d": 86400}
 
 
