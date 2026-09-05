@@ -17,8 +17,6 @@ class Settings(BaseSettings):
     provider_timeout_seconds: float = 5.0
     provider_failure_threshold: int = 3
     provider_circuit_cooldown_seconds: int = 60
-    # Twelve Data Basic exposes 8 API credits/minute. Keep four credits
-    # available for the four MTF candle timeframes; quote work is capped at four.
     twelve_data_quote_minute_budget: int = 4
     twelve_data_candle_minute_reserve: int = 4
     twelve_data_quote_daily_budget: int = 800
@@ -38,6 +36,10 @@ class Settings(BaseSettings):
     github_oidc_workflow: str = ".github/workflows/production-market-data-verification.yml"
     github_oidc_workflows: str = ".github/workflows/production-regime-verification.yml,.github/workflows/production-market-data-verification.yml"
     github_oidc_ref: str = "refs/heads/main"
+    openai_api_key: str = ""
+    openai_model: str = "gpt-5.6-luna"
+    openai_timeout_seconds: float = 30.0
+    openai_max_output_tokens: int = 2500
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", case_sensitive=False, extra="ignore")
 
@@ -84,6 +86,8 @@ class Settings(BaseSettings):
             raise ValueError("Production GitHub OIDC trust settings are invalid.")
         if not self.trusted_oidc_workflows or any(not workflow.startswith(".github/workflows/") for workflow in self.trusted_oidc_workflows):
             raise ValueError("Production GitHub OIDC workflows must be repository workflow paths.")
+        if self.openai_timeout_seconds <= 0 or self.openai_max_output_tokens < 256:
+            raise ValueError("OpenAI timeout/output-token settings are invalid.")
         return self
 
 
