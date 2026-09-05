@@ -9,12 +9,14 @@ export default function AIResearchTab() {
 
   useEffect(() => {
     let active = true;
-    getCurrentUser().then(next => { if (active) setUser(next); }).catch(() => undefined);
-    return () => { active = false; };
+    const check = () => { getCurrentUser().then(next => { if (active) setUser(next); }).catch(() => { if (active) setUser(null); }); };
+    check();
+    const timer = window.setInterval(check, 3000);
+    return () => { active = false; window.clearInterval(timer); };
   }, []);
 
   if (!user) return null;
-  const logout = () => setUser(null);
+  const logout = () => { setUser(null); setOpen(false); };
   const setPage = () => setOpen(false);
   return <>
     {!open && <button className="ai-tab-trigger" onClick={() => setOpen(true)} aria-label="Open AI Market Research">AI Market Research</button>}
