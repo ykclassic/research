@@ -33,7 +33,6 @@ CSRF_COOKIE = "mr_csrf"
 CSRF_HEADER = "X-CSRF-Token"
 GITHUB_OIDC_ALGORITHMS = ("RS256",)
 GITHUB_OIDC_EVENTS = {"schedule", "workflow_dispatch"}
-GITHUB_OIDC_PUSH_WORKFLOW = ".github/workflows/production-market-data-verification.yml"
 
 
 class Credentials(BaseModel):
@@ -149,9 +148,10 @@ def _validate_github_oidc_claims(claims: dict[str, Any]) -> None:
         raise HTTPException(status_code=403, detail="GitHub OIDC workflow is not trusted.")
     if event_name in GITHUB_OIDC_EVENTS:
         return
-    if event_name == "push" and workflow_ref == (
-        f"{settings.github_oidc_repository}/{GITHUB_OIDC_PUSH_WORKFLOW}@{settings.github_oidc_ref}"
-    ):
+    # Production verification workflows are explicitly allow-listed by
+    # settings.github_oidc_workflows. A push token is therefore accepted only
+    # when it came from one of those exact trusted workflows on main.
+    if event_name == "push" and workflow_ref in expected_workflow_refs:
         return
     raise HTTPException(status_code=403, detail="GitHub OIDC event is not trusted.")
 
