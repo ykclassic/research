@@ -4,7 +4,7 @@ import asyncio
 from datetime import datetime, timezone
 from typing import Annotated
 
-from fastapi import APIRouter, Cookie, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 
 from app.api.auth import UserResponse, get_current_user_or_github_actions
 from app.config import settings
@@ -14,12 +14,12 @@ from app.providers.kraken_public import KrakenPublicProvider
 from app.services.candle_freshness import require_current_completed_candles
 from app.services.signal_engine import generate_crypto_signal
 from app.services.quote_service import QuoteService
-from app.symbols import normalize_symbol
+from app.symbols import SYMBOLS, normalize_symbol
 
 router = APIRouter(prefix="/api/signals", tags=["signals"])
 quote_service = QuoteService()
 kraken_public = KrakenPublicProvider()
-CRYPTO_SYMBOLS = tuple(symbol for symbol, mapping in __import__("app.symbols", fromlist=["SYMBOLS"]).SYMBOLS.items() if mapping.asset_class == "crypto")
+CRYPTO_SYMBOLS = tuple(symbol for symbol, mapping in SYMBOLS.items() if mapping.asset_class == "crypto")
 REQUIRED_TIMEFRAMES = (Timeframe.DAY_1, Timeframe.HOUR_4, Timeframe.HOUR_1, Timeframe.MINUTE_15)
 
 
