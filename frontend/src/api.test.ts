@@ -54,17 +54,16 @@ describe("getTechnicalAnalysis", () => {
 });
 
 describe("createAIResearchReport", () => {
-  it("obtains and sends the CSRF token before posting the report request", async () => {
-    vi.stubGlobal("document", { cookie: "" });
+  it("sends the stored CSRF token with the report request", async () => {
+    vi.stubGlobal("document", { cookie: "mr_csrf=csrf-test-token" });
     vi.stubGlobal("window", {
       sessionStorage: {
-        getItem: vi.fn(() => null),
+        getItem: vi.fn(() => "csrf-test-token"),
         setItem: vi.fn(),
         removeItem: vi.fn(),
       },
     });
 
-    const csrfToken = "csrf-test-token";
     const response = {
       symbol: "BTC/USD",
       timeframe: "1h",
@@ -73,22 +72,18 @@ describe("createAIResearchReport", () => {
       report: "Verified interpretation.",
       model: "gpt-5.6-luna",
     };
-    const fetchMock = vi.spyOn(globalThis, "fetch")
-      .mockResolvedValueOnce(new Response(JSON.stringify({ message: "CSRF token issued." }), {
-        status: 200,
-        headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken },
-      }))
-      .mockResolvedValueOnce(new Response(JSON.stringify(response), {
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(JSON.stringify(response), {
         status: 200,
         headers: { "Content-Type": "application/json" },
-      }));
+      }),
+    );
 
     const result = await createAIResearchReport("BTC/USD", "1h", 250, "How's BTC doing today");
 
-    expect(fetchMock).toHaveBeenCalledTimes(2);
-    expect(String(fetchMock.mock.calls[0][0])).toContain("/api/auth/csrf");
-    const [, init] = fetchMock.mock.calls[1];
-    expect((init?.headers as Headers).get("X-CSRF-Token")).toBe(csrfToken);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const [, init] = fetchMock.mock.calls[0];
+    expect((init?.headers as Headers).get("X-CSRF-Token")).toBe("csrf-test-token");
     expect(init?.method).toBe("POST");
     expect(JSON.parse(String(init?.body))).toEqual({
       symbol: "BTC/USD",
