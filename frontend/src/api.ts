@@ -26,6 +26,10 @@ export type MTFState = "DAILY_BIAS" | "H4_TREND" | "H1_PULLBACK" | "H1_CONTINUAT
 export interface MTFTimeframeAnalysis { timeframe: string; bias: MTFBias; state: MTFState; conclusion: string; confidence: number; latest_candle_timestamp: string; source: string; candle_count: number; evidence: string[]; }
 export interface MTFResearchConclusion { alignment_count: number; alignment_total: 4; bias: MTFBias; confidence: number; primary_setup: string; invalidation: string; conclusion: string; }
 export interface MultiTimeframeResult { symbol: string; calculated_at: string; timeframes: MTFTimeframeAnalysis[]; research: MTFResearchConclusion; }
+export type SignalDirection = "NEUTRAL" | "BUY" | "STRONG_BUY" | "SELL" | "STRONG_SELL";
+export interface SignalComponent { timeframe: string; indicator_score: number; smc_score: number; combined_score: number; evidence: string[]; }
+export interface CryptoSignal { symbol: string; signal: SignalDirection; score: number; confluence: number; price: number; calculated_at: string; latest_candle_timestamp: string; source: string; components: SignalComponent[]; evidence: string[]; research_eligible: boolean; }
+export interface CryptoSignalList { calculated_at: string; signals: CryptoSignal[]; }
 export class ApiError extends Error { readonly status: number; constructor(message: string, status: number) { super(message); this.name = "ApiError"; this.status = status; } }
 const API_BASE = (import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8000").replace(/\/$/, "");
 const REQUEST_TIMEOUT_MS = 12_000;
@@ -54,3 +58,4 @@ export async function getTechnicalAnalysis(symbol: string, timeframe = "1h", lim
 export async function getMarketRegime(symbol: string, timeframe = "1h", limit = 250): Promise<RegimeResult> { const params = new URLSearchParams({ timeframe, limit: String(limit) }); return request<RegimeResult>(`/api/regime/${encodeURIComponent(symbol)}?${params}`); }
 export async function getMarketStructure(symbol: string, timeframe = "1h", limit = 250): Promise<MarketStructureResult> { const params = new URLSearchParams({ timeframe, limit: String(limit) }); return request<MarketStructureResult>(`/api/market-structure/${encodeURIComponent(symbol)}?${params}`); }
 export async function getMultiTimeframeAnalysis(symbol: string, limit = 250): Promise<MultiTimeframeResult> { const params = new URLSearchParams({ limit: String(limit) }); return request<MultiTimeframeResult>(`/api/mtf/${encodeURIComponent(symbol)}?${params}`); }
+export async function getCryptoSignals(limit = 250): Promise<CryptoSignalList> { const params = new URLSearchParams({ limit: String(limit) }); return request<CryptoSignalList>(`/api/signals?${params}`); }
