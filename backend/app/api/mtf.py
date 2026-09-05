@@ -9,6 +9,7 @@ from app.api.auth import UserResponse, get_current_user_or_github_actions
 from app.config import settings
 from app.models.market import OHLCVDataset, Timeframe
 from app.models.mtf import MultiTimeframeResult
+from app.providers.kraken_public import KrakenPublicProvider
 from app.services.candle_freshness import require_current_completed_candles
 from app.services.candle_persistence import load_dataset as load_persisted_dataset
 from app.services.candle_persistence import save_dataset as save_persisted_dataset
@@ -19,6 +20,7 @@ from app.symbols import normalize_symbol
 
 router = APIRouter(prefix="/api/mtf", tags=["multi-timeframe"])
 quote_service = QuoteService()
+kraken_public = KrakenPublicProvider()
 
 
 def _completed_dataset(dataset: OHLCVDataset) -> OHLCVDataset:
@@ -48,12 +50,42 @@ async def _load(
             timeframe,
         )
         if persisted is not None:
-            return timeframe, _completed_dataset(persisted.model_copy(update={"cache_hit": True, "fallback_used": True, "request_latency_ms": 0}))
+            # Persisted data is only a performance cache. It must still satisfy
+            # the same current-completed-candle contract as live provider data.
+            current = require_current_completed_candles(persisted)
+            current = _completed_dataset(current)
+            return timeframe, current.model_copy(update={"cache_hit": True, "fallback_used": True, "request_latency_ms": 0})
 
-    dataset = await asyncio.wait_for(
-        quote_service.orchestrator.get_candles(symbol, timeframe, limit),
-        timeout=settings.analysis_timeout_seconds,
-    )
+    mapping = normalize_symbol(symbol)
+    dataset: OHLCVDataset
+    if mapping.asset_class == "crypto":
+        try:
+            # Phase 7 crypto analysis must not depend on quota-limited paid
+            # providers. Kraken's public OHLC endpoint supports the exact
+            # Daily/H4/H1/M15 hierarchy without credentials.
+            dataset = await asyncio.wait_for(
+                kraken_public.get_candles(symbol, timeframe, limit),
+                timeout=settings.analysis_timeout_seconds,
+            )
+        except Exception as primary_exc:
+            # Preserve the existing provider orchestrator as a secondary
+            # fallback for deployments where Kraken is temporarily unavailable.
+            try:
+                dataset = await asyncio.wait_for(
+                    quote_service.orchestrator.get_candles(symbol, timeframe, limit),
+                    timeout=settings.analysis_timeout_seconds,
+                )
+            except Exception as fallback_exc:
+                raise RuntimeError(
+                    f"Primary crypto candle provider failed: {primary_exc}; "
+                    f"orchestrated fallback failed: {fallback_exc}"
+                ) from fallback_exc
+    else:
+        dataset = await asyncio.wait_for(
+            quote_service.orchestrator.get_candles(symbol, timeframe, limit),
+            timeout=settings.analysis_timeout_seconds,
+        )
+
     dataset = require_current_completed_candles(dataset)
     dataset = _completed_dataset(dataset)
     if user is not None and access_token:
