@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import os
 import sys
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
@@ -64,6 +64,10 @@ def parse_timestamp(value: object, field_name: str) -> datetime:
     return parsed.astimezone(timezone.utc)
 
 
+def completed_candle_close(timestamp: datetime, timeframe: str) -> datetime:
+    return timestamp + timedelta(seconds=TIMEFRAME_SECONDS[timeframe])
+
+
 def main() -> int:
     print("PRODUCTION MARKET-REGIME VERIFICATION")
     print("=" * 72)
@@ -78,7 +82,7 @@ def main() -> int:
 
     status, _ = get_json(path)
     if status != 401:
-        fail(f"Authentication gate failed: unauthenticated request returned HTTP {status}")
+        fail(f"Authentication gate failed: unauthenticated regime request returned HTTP {status}")
     print("[PASS] API authentication gate: unauthenticated regime request rejected with HTTP 401")
 
     status, body = get_json(path, authorization=OIDC_TOKEN)
@@ -116,16 +120,34 @@ def main() -> int:
     )
     now = datetime.now(timezone.utc)
     provider_age = (now - provider_timestamp).total_seconds()
-    max_age = TIMEFRAME_SECONDS[TIMEFRAME] + PUBLICATION_TOLERANCE_SECONDS
-    if provider_age < 0:
+    if provider_age < -5:
         fail(f"Provider timestamp is in the future by {-provider_age:.2f}s")
-    if provider_age > max_age:
-        fail(f"Regime provider data is stale: age={provider_age:.2f}s > SLA {max_age}s")
+
+    # Twelve Data does not expose a separate fetch/update timestamp on its
+    # time-series response. In this backend, provider_timestamp therefore
+    # identifies the opening instant of the latest completed candle. Freshness
+    # must be measured from that candle's close, otherwise a valid daily candle
+    # becomes "stale" immediately after its opening timestamp is more than 24h
+    # old. If a provider supplies a distinct observation timestamp, preserve
+    # that timestamp as the freshness reference instead.
+    if provider_timestamp == latest_candle_timestamp:
+        freshness_reference = completed_candle_close(latest_candle_timestamp, TIMEFRAME)
+        freshness_basis = "latest completed candle close"
+    else:
+        freshness_reference = provider_timestamp
+        freshness_basis = "provider observation timestamp"
+
+    freshness_age = (now - freshness_reference).total_seconds()
+    max_age = TIMEFRAME_SECONDS[TIMEFRAME] + PUBLICATION_TOLERANCE_SECONDS
+    if freshness_age < -5:
+        fail(f"Freshness reference is in the future by {-freshness_age:.2f}s")
+    if freshness_age > max_age:
+        fail(f"Regime provider data is stale: age={freshness_age:.2f}s > SLA {max_age}s")
     if latest_candle_timestamp > provider_timestamp:
         fail("Latest completed candle timestamp is newer than provider timestamp")
     print(
-        f"[PASS] Provider freshness: age={provider_age:.2f}s <= SLA {max_age}s "
-        f"({TIMEFRAME} interval + {PUBLICATION_TOLERANCE_SECONDS}s tolerance)"
+        f"[PASS] Provider freshness: age={freshness_age:.2f}s <= SLA {max_age}s "
+        f"({TIMEFRAME} interval + {PUBLICATION_TOLERANCE_SECONDS}s tolerance; basis={freshness_basis})"
     )
 
     if body["candle_count"] < 220:
