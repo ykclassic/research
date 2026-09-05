@@ -14,6 +14,11 @@ def production_oidc_settings(monkeypatch):
         "github_oidc_workflow",
         ".github/workflows/production-market-data-verification.yml",
     )
+    monkeypatch.setattr(
+        auth.settings,
+        "github_oidc_workflows",
+        ".github/workflows/production-regime-verification.yml,.github/workflows/production-market-data-verification.yml",
+    )
     monkeypatch.setattr(auth.settings, "github_oidc_ref", "refs/heads/main")
     monkeypatch.setattr(auth.settings, "github_oidc_audience", "research-production-verifier")
 
@@ -34,6 +39,17 @@ def test_github_oidc_claims_accept_trusted_workflow(production_oidc_settings):
     auth._validate_github_oidc_claims(valid_claims())
 
 
+def test_github_oidc_claims_accept_trusted_regime_push(production_oidc_settings):
+    claims = valid_claims()
+    claims["workflow_ref"] = (
+        "ykclassic/research/"
+        ".github/workflows/production-regime-verification.yml@refs/heads/main"
+    )
+    claims["event_name"] = "push"
+
+    auth._validate_github_oidc_claims(claims)
+
+
 @pytest.mark.parametrize(
     "claim,value",
     [
@@ -50,6 +66,20 @@ def test_github_oidc_claims_reject_untrusted_context(
 ):
     claims = valid_claims()
     claims[claim] = value
+
+    with pytest.raises(HTTPException) as exc_info:
+        auth._validate_github_oidc_claims(claims)
+
+    assert exc_info.value.status_code == 403
+
+
+def test_github_oidc_claims_reject_push_from_untrusted_workflow(production_oidc_settings):
+    claims = valid_claims()
+    claims["event_name"] = "push"
+
+    claims["workflow_ref"] = (
+        "ykclassic/research/.github/workflows/untrusted-production-check.yml@refs/heads/main"
+    )
 
     with pytest.raises(HTTPException) as exc_info:
         auth._validate_github_oidc_claims(claims)

@@ -140,15 +140,16 @@ def test_production_market_workflow_push_event_is_trusted():
     _validate_github_oidc_claims(_oidc_claims("push"))
 
 
+def test_production_regime_workflow_push_event_is_trusted():
+    claims = _oidc_claims(
+        "push", workflow=".github/workflows/production-regime-verification.yml"
+    )
+    _validate_github_oidc_claims(claims)
+
+
 @pytest.mark.parametrize("event_name", ["schedule", "workflow_dispatch"])
 def test_existing_production_oidc_events_remain_trusted(event_name):
     _validate_github_oidc_claims(_oidc_claims(event_name))
-
-
-def test_push_from_regime_workflow_is_rejected():
-    claims = _oidc_claims("push", workflow=".github/workflows/production-regime-verification.yml")
-    with pytest.raises(HTTPException, match="event is not trusted"):
-        _validate_github_oidc_claims(claims)
 
 
 def test_push_from_untrusted_workflow_is_rejected():
