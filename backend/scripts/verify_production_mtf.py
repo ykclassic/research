@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import os
 import sys
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 import httpx
@@ -23,6 +23,19 @@ def parse_timestamp(value: str) -> datetime:
     if parsed.tzinfo is None:
         raise ValueError(f"timestamp is not timezone-aware: {value}")
     return parsed.astimezone(timezone.utc)
+
+
+def completed_candle_age_seconds(timestamp: datetime, timeframe: str, now: datetime) -> float:
+    """Return age from the *close* of the completed candle, not its open.
+
+    Provider candle timestamps identify the candle's opening instant. A daily
+    candle stamped 00:00 is therefore only a few hours old shortly after the
+    next midnight, even though its opening timestamp is more than 24 hours
+    old. Production freshness must use the completed candle close.
+    """
+    duration = timedelta(seconds=DURATION_BY_TIMEFRAME[timeframe])
+    close_at = timestamp + duration
+    return (now - close_at).total_seconds()
 
 
 def require(condition: bool, message: str) -> None:
@@ -59,12 +72,12 @@ def main() -> int:
             source = str(row["source"])
             timestamp = parse_timestamp(str(row["latest_candle_timestamp"]))
             count = int(row["candle_count"])
-            age = (now - timestamp).total_seconds()
+            age = completed_candle_age_seconds(timestamp, timeframe, now)
             require(source in APPROVED_PROVIDERS, f"{timeframe}: unexpected provider {source}")
             require(count >= 30, f"{timeframe}: insufficient candle count {count}")
-            require(age >= -5, f"{timeframe}: future candle timestamp by {-age:.1f}s")
+            require(age >= -5, f"{timeframe}: latest completed candle closes in {-age:.1f}s")
             require(age <= DURATION_BY_TIMEFRAME[timeframe] + MAX_EXTRA_AGE_SECONDS, f"{timeframe}: latest completed candle age {age:.1f}s exceeds {DURATION_BY_TIMEFRAME[timeframe] + MAX_EXTRA_AGE_SECONDS:.0f}s")
-            print(f"PASS {timeframe}: provider={source}; latest_completed={timestamp.isoformat()}; age={age:.1f}s; candles={count}")
+            print(f"PASS {timeframe}: provider={source}; latest_completed={timestamp.isoformat()}; close_age={age:.1f}s; candles={count}")
 
         require(payload.get("symbol") == SYMBOL, f"MTF symbol mismatch: {payload.get('symbol')}")
         print(f"PASS MTF: {SYMBOL} Daily/H4/H1/M15 are current completed-candle datasets.")
