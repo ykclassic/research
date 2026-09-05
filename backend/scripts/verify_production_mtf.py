@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import sys
+import time
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
@@ -12,6 +13,11 @@ API_BASE = os.getenv("MARKET_API_BASE", "https://research-76vr.onrender.com").rs
 SYMBOL = os.getenv("MARKET_SYMBOL", "BTC/USD").upper()
 LIMIT = int(os.getenv("MARKET_ANALYSIS_LIMIT", "250"))
 MAX_EXTRA_AGE_SECONDS = float(os.getenv("MTF_MAX_EXTRA_AGE_SECONDS", "180"))
+REQUEST_TIMEOUT_SECONDS = float(os.getenv("MTF_REQUEST_TIMEOUT_SECONDS", "45"))
+REQUEST_CONNECT_TIMEOUT_SECONDS = float(os.getenv("MTF_REQUEST_CONNECT_TIMEOUT_SECONDS", "10"))
+MAX_REQUEST_ATTEMPTS = int(os.getenv("MTF_MAX_REQUEST_ATTEMPTS", "3"))
+RETRY_BACKOFF_BASE_SECONDS = float(os.getenv("MTF_RETRY_BACKOFF_BASE_SECONDS", "2"))
+RETRY_BACKOFF_CAP_SECONDS = float(os.getenv("MTF_RETRY_BACKOFF_CAP_SECONDS", "8"))
 # These values must match the backend Timeframe enum exactly.
 EXPECTED_TIMEFRAMES = {"1d", "4h", "1h", "15m"}
 APPROVED_PROVIDERS = {"twelve_data", "finnhub", "alpha_vantage"}
@@ -43,6 +49,32 @@ def require(condition: bool, message: str) -> None:
         raise AssertionError(message)
 
 
+def request_mtf(
+    client: httpx.Client,
+    url: str,
+    *,
+    headers: dict[str, str],
+) -> httpx.Response:
+    """GET the MTF endpoint with bounded retries for transient read/connect timeouts."""
+    for attempt in range(1, MAX_REQUEST_ATTEMPTS + 1):
+        try:
+            return client.get(url, params={"limit": LIMIT}, headers=headers)
+        except (httpx.ConnectTimeout, httpx.ReadTimeout) as exc:
+            if attempt >= MAX_REQUEST_ATTEMPTS:
+                raise
+            delay = min(
+                RETRY_BACKOFF_BASE_SECONDS * (2 ** (attempt - 1)),
+                RETRY_BACKOFF_CAP_SECONDS,
+            )
+            print(
+                f"[RETRY] MTF verification: {type(exc).__name__} on attempt "
+                f"{attempt}/{MAX_REQUEST_ATTEMPTS}; retrying in {delay:.1f}s",
+                file=sys.stderr,
+            )
+            time.sleep(delay)
+    raise AssertionError("unreachable retry loop")
+
+
 def main() -> int:
     token = os.getenv("GITHUB_OIDC_TOKEN", "").strip()
     if not token:
@@ -56,8 +88,12 @@ def main() -> int:
     }
     url = f"{API_BASE}/api/mtf/{SYMBOL}"
     try:
-        with httpx.Client(timeout=httpx.Timeout(45.0, connect=10.0), follow_redirects=True) as client:
-            response = client.get(url, params={"limit": LIMIT}, headers=headers)
+        timeout = httpx.Timeout(
+            REQUEST_TIMEOUT_SECONDS,
+            connect=REQUEST_CONNECT_TIMEOUT_SECONDS,
+        )
+        with httpx.Client(timeout=timeout, follow_redirects=True) as client:
+            response = request_mtf(client, url, headers=headers)
         response.raise_for_status()
         payload: dict[str, Any] = response.json()
         rows = payload.get("timeframes")
