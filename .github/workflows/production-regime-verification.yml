@@ -2,6 +2,9 @@ name: Production Regime Verification
 
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - main
   schedule:
     - cron: "37 */6 * * *"
 
@@ -65,7 +68,7 @@ jobs:
           assert claims.get("repository") == "ykclassic/research"
           assert claims.get("ref") == "refs/heads/main"
           assert claims.get("workflow_ref") == "ykclassic/research/.github/workflows/production-regime-verification.yml@refs/heads/main"
-          assert claims.get("event_name") in {"schedule", "workflow_dispatch"}
+          assert claims.get("event_name") in {"push", "schedule", "workflow_dispatch"}
           assert claims.get("aud") == "research-production-verifier"
           print("OIDC claims validated for trusted production regime verification workflow.")
           PY
