@@ -1,14 +1,10 @@
 import { FormEvent, useState } from "react";
 import { AlertTriangle, Brain, CheckCircle2, Loader2, ShieldCheck } from "lucide-react";
-import { ApiError, AppPage, User, createAIResearchReport } from "./api";
+import { ApiError, User, createAIResearchReport } from "./api";
 import "./ai-research.css";
 
-interface Props {
-  user: User;
-  onLogout: () => void;
-  setPage: (page: AppPage) => void;
-}
-
+type AppPage = "market" | "watchlists" | "analysis" | "market-structure" | "mtf" | "signals" | "ai-research";
+interface Props { user: User; onLogout: () => void; setPage: (page: AppPage) => void; }
 const SYMBOLS = ["BTC/USD", "ETH/USD", "SOL/USD", "EUR/USD", "GBP/USD", "USD/JPY", "NVDA", "AAPL", "MSFT", "SPY"];
 
 export default function AIResearchPage({ user, onLogout, setPage }: Props) {
@@ -19,61 +15,14 @@ export default function AIResearchPage({ user, onLogout, setPage }: Props) {
   const [model, setModel] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-
-  const generate = async (event: FormEvent) => {
-    event.preventDefault();
-    setBusy(true);
-    setError(null);
-    setReport(null);
-    try {
-      const result = await createAIResearchReport(symbol, "1h", 250, question.trim() || undefined);
-      setReport(result.report);
-      setContext(result.verified_context);
-      setModel(result.model);
-    } catch (err) {
-      if (err instanceof ApiError && err.status === 401) {
-        onLogout();
-        return;
-      }
-      setError(err instanceof Error ? err.message : "Unable to generate AI market research.");
-    } finally {
-      setBusy(false);
-    }
-  };
-
+  const generate = async (event: FormEvent) => { event.preventDefault(); setBusy(true); setError(null); setReport(null); try { const result = await createAIResearchReport(symbol, "1h", 250, question.trim() || undefined); setReport(result.report); setContext(result.verified_context); setModel(result.model); } catch (err) { if (err instanceof ApiError && err.status === 401) { onLogout(); return; } setError(err instanceof Error ? err.message : "Unable to generate AI market research."); } finally { setBusy(false); } };
   const evidence = Array.isArray(context?.evidence) ? context.evidence as Array<Record<string, unknown>> : [];
-
   return <div className="app">
-    <header className="topbar">
-      <div><div className="eyebrow">Adaptive Intelligence</div><h1>Market Research</h1></div>
-      <nav className="main-nav" aria-label="Research sections">
-        {(["market", "watchlists", "analysis", "market-structure", "mtf", "signals", "ai-research"] as const).map(page => <button key={page} className={`nav-button ${page === "ai-research" ? "active" : ""}`} onClick={() => setPage(page)}>{page === "ai-research" ? "AI Market Research" : page === "market" ? "Market Data" : page === "watchlists" ? "Watchlists" : page === "analysis" ? "Technical Analysis" : page === "market-structure" ? "Market Structure" : page === "mtf" ? "MTF Analysis" : "Signals"}</button>)}
-      </nav>
-      <div className="topbar-actions"><span className="user-email">{user.email}</span><button className="logout" onClick={onLogout}>Sign out</button></div>
-    </header>
-
-    <main>
-      <section className="hero ai-hero">
-        <div><div className="eyebrow">Phase 8 · AI interpretation</div><h2>AI interprets verified research. It does not create market truth.</h2><p>The deterministic market-data, feature, regime, structure and multi-timeframe layers run first. The AI layer receives only their server-generated research context.</p></div>
-        <div className="hero-stat"><ShieldCheck size={20}/><strong>GATED</strong><span>deterministic-first</span></div>
-      </section>
-
+    <header className="topbar"><div><div className="eyebrow">Adaptive Intelligence</div><h1>Market Research</h1></div><nav className="main-nav" aria-label="Research sections">{(["market", "watchlists", "analysis", "market-structure", "mtf", "signals", "ai-research"] as const).map(page => <button key={page} className={`nav-button ${page === "ai-research" ? "active" : ""}`} onClick={() => setPage(page)}>{page === "ai-research" ? "AI Market Research" : page === "market" ? "Market Data" : page === "watchlists" ? "Watchlists" : page === "analysis" ? "Technical Analysis" : page === "market-structure" ? "Market Structure" : page === "mtf" ? "MTF Analysis" : "Signals"}</button>)}</nav><div className="topbar-actions"><span className="user-email">{user.email}</span><button className="logout" onClick={onLogout}>Sign out</button></div></header>
+    <main><section className="hero ai-hero"><div><div className="eyebrow">Phase 8 · AI interpretation</div><h2>AI interprets verified research. It does not create market truth.</h2><p>The deterministic market-data, feature, regime, structure and multi-timeframe layers run first. The AI layer receives only their server-generated research context.</p></div><div className="hero-stat"><ShieldCheck size={20}/><strong>GATED</strong><span>deterministic-first</span></div></section>
       {error && <div className="error"><AlertTriangle size={17}/>{error}</div>}
-
-      <section className="ai-grid">
-        <form className="panel ai-request" onSubmit={generate}>
-          <div className="panel-head"><div><h3>Research request</h3><span>AI is unavailable until the deterministic gate passes.</span></div><Brain size={20}/></div>
-          <label>Asset<select value={symbol} onChange={e => setSymbol(e.target.value)} disabled={busy}>{SYMBOLS.map(item => <option key={item}>{item}</option>)}</select></label>
-          <label>Research question <span className="optional">optional</span><textarea value={question} onChange={e => setQuestion(e.target.value)} maxLength={2000} placeholder="Example: Explain the current trend/structure confluence and the main conflicts." disabled={busy}/></label>
-          <button className="ai-generate" type="submit" disabled={busy}>{busy ? <><Loader2 size={16} className="spin"/>Running deterministic gate…</> : <><Brain size={16}/>Generate verified interpretation</>}</button>
-          <div className="ai-policy"><CheckCircle2 size={16}/><span>AI cannot write prices, timestamps, indicators, candles, market status, or calculated statistics into the verified data layer.</span></div>
-        </form>
-
-        <section className="panel ai-report"><div className="panel-head"><div><h3>Human-readable report</h3><span>{model ? `Generated by ${model}` : "No report generated"}</span></div><Brain size={20}/></div>{report ? <article className="report-body">{report.split("\n").map((line, index) => line.trim() ? <p key={`${index}-${line.slice(0, 12)}`}>{line}</p> : <br key={index}/>)}</article> : <div className="empty">Choose an asset and generate a report. The server will first validate deterministic research eligibility.</div>}</section>
-      </section>
-
+      <section className="ai-grid"><form className="panel ai-request" onSubmit={generate}><div className="panel-head"><div><h3>Research request</h3><span>AI is unavailable until the deterministic gate passes.</span></div><Brain size={20}/></div><label>Asset<select value={symbol} onChange={e => setSymbol(e.target.value)} disabled={busy}>{SYMBOLS.map(item => <option key={item}>{item}</option>)}</select></label><label>Research question <span className="optional">optional</span><textarea value={question} onChange={e => setQuestion(e.target.value)} maxLength={2000} placeholder="Example: Explain the current trend/structure confluence and the main conflicts." disabled={busy}/></label><button className="ai-generate" type="submit" disabled={busy}>{busy ? <><Loader2 size={16} className="spin"/>Running deterministic gate…</> : <><Brain size={16}/>Generate verified interpretation</>}</button><div className="ai-policy"><CheckCircle2 size={16}/><span>AI cannot write prices, timestamps, indicators, candles, market status, or calculated statistics into the verified data layer.</span></div></form>
+        <section className="panel ai-report"><div className="panel-head"><div><h3>Human-readable report</h3><span>{model ? `Generated by ${model}` : "No report generated"}</span></div><Brain size={20}/></div>{report ? <article className="report-body">{report.split("\n").map((line, index) => line.trim() ? <p key={`${index}-${line.slice(0, 12)}`}>{line}</p> : <br key={index}/>)}</article> : <div className="empty">Choose an asset and generate a report. The server will first validate deterministic research eligibility.</div>}</section></section>
       {context && <section className="panel verified-context"><div className="panel-head"><div><h3>Verified research context</h3><span>Server-generated evidence supplied to the AI layer</span></div><ShieldCheck size={20}/></div><div className="evidence-grid">{evidence.map(item => <div className="evidence-card" key={String(item.id)}><strong>{String(item.id)}</strong><span>{String(item.type).replaceAll("_", " ")}</span><small>{String(item.latest_candle_timestamp ?? item.calculated_at ?? "Verified deterministic result")}</small></div>)}</div><div className="ai-warning"><AlertTriangle size={16}/><span>The values shown here remain authoritative only in the deterministic layer. AI prose is an interpretation, not a replacement for these verified results.</span></div></section>}
-      <footer>This tool provides market research and analysis assistance only. It is not financial advice, a recommendation to buy or sell, or a substitute for professional advice.</footer>
-    </main>
-  </div>;
+      <footer>This tool provides market research and analysis assistance only. It is not financial advice, a recommendation to buy or sell, or a substitute for professional advice.</footer></main></div>;
 }
