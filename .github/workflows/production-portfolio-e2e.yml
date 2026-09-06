@@ -4,7 +4,7 @@ on:
   push:
     branches:
       - main
-      - fix/post-merge-phase13-production-validation
+      - hotfix-post-merge-phase13-production-validation
   workflow_dispatch:
 
 permissions:
