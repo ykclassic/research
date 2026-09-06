@@ -45,6 +45,8 @@ class ResearchReport(BaseModel):
     symbol: str
     generated_at: datetime
     market_status: MarketStatus
+    indicators: dict[str, object] = Field(default_factory=dict)
+    regime_snapshot: dict[str, object] = Field(default_factory=dict)
     smc_structure: SMCStructure
     multi_timeframe: list[ReportTimeframe]
     fundamental_context: FundamentalContext
