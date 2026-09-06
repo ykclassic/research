@@ -1,0 +1,36 @@
+name: Production Portfolio E2E
+
+on:
+  push:
+    branches:
+      - main
+      - fix/post-merge-phase13-production-validation
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  portfolio-production-e2e:
+    name: portfolio-production-e2e
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      TEST_API_URL: https://research-76vr.onrender.com
+      TEST_APP_URL: https://adaptive-market-research-bot-2ok8ul.v2.appdeploy.ai
+      TEST_EMAIL: ${{ secrets.TEST_EMAIL }}
+      TEST_PASSWORD: ${{ secrets.TEST_PASSWORD }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install verification dependency
+        run: python -m pip install --disable-pip-version-check requests
+
+      - name: Run authenticated production Portfolio E2E
+        run: python backend/scripts/verify_production_portfolio_e2e.py
