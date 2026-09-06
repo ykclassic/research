@@ -95,14 +95,20 @@ def normalize_range_boundary(value: datetime | None, field_name: str) -> datetim
     return value.astimezone(timezone.utc)
 
 
-@router.get("/{symbol:path}", response_model=AnalysisResponse)
 async def get_analysis(
     symbol: str,
-    timeframe: Timeframe = Query(Timeframe.HOUR_1),
-    limit: int = Query(250, ge=50, le=5000),
-    start: datetime | None = Query(None, description="Inclusive historical range start in ISO-8601 format."),
-    end: datetime | None = Query(None, description="Inclusive historical range end in ISO-8601 format."),
-):
+    timeframe: Timeframe = Timeframe.HOUR_1,
+    limit: int = 250,
+    start: datetime | None = None,
+    end: datetime | None = None,
+) -> AnalysisResponse:
+    """Build deterministic analysis without FastAPI Query parameter wrappers.
+
+    This function is called both by the HTTP route and by the AI research
+    service. FastAPI's Query objects must remain at the HTTP boundary only;
+    otherwise direct internal calls receive Query instances instead of the
+    declared Python defaults and fail during datetime validation.
+    """
     start = normalize_range_boundary(start, "start")
     end = normalize_range_boundary(end, "end")
     if (start is None) != (end is None):
@@ -112,11 +118,6 @@ async def get_analysis(
 
     try:
         mapping = normalize_symbol(symbol)
-        # Candle capacity is the scarcer, protected resource on Twelve Data.
-        # Load candles first so a forced quote refresh cannot consume the last
-        # available credit needed to produce the analysis dataset. If Twelve
-        # Data has insufficient quote capacity afterward, quote routing can
-        # independently fall through to Finnhub/Alpha Vantage.
         if start is None and end is None:
             dataset = await asyncio.wait_for(
                 quote_service.orchestrator.get_candles(mapping.internal, timeframe, limit),
@@ -177,3 +178,14 @@ async def get_analysis(
         raise HTTPException(status_code=503, detail="Market-data providers exceeded the analysis latency budget and no cached analysis was available.") from exc
     except (RuntimeError, ValueError) as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
+@router.get("/{symbol:path}", response_model=AnalysisResponse)
+async def analysis_route(
+    symbol: str,
+    timeframe: Timeframe = Query(Timeframe.HOUR_1),
+    limit: int = Query(250, ge=50, le=5000),
+    start: datetime | None = Query(None, description="Inclusive historical range start in ISO-8601 format."),
+    end: datetime | None = Query(None, description="Inclusive historical range end in ISO-8601 format."),
+) -> AnalysisResponse:
+    return await get_analysis(symbol, timeframe, limit, start, end)
