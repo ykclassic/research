@@ -16,6 +16,7 @@ from app.api.market_structure import router as market_structure_router
 from app.api.mtf import router as mtf_router
 from app.api.news import router as news_router
 from app.api.performance import router as performance_router
+from app.api.portfolio import router as portfolio_router
 from app.api.providers import router as providers_router
 from app.api.regime import router as regime_router
 from app.api.research_history import router as research_history_router
@@ -33,7 +34,7 @@ async def lifespan(_: FastAPI):
     yield
 
 
-app = FastAPI(title="Adaptive Intelligent Market Research Bot API", version="1.17.0", lifespan=lifespan)
+app = FastAPI(title="Adaptive Intelligent Market Research Bot API", version="1.18.0", lifespan=lifespan)
 origins = [item.strip() for item in settings.cors_origins.split(",") if item.strip()]
 trusted_hosts = [item.strip() for item in settings.trusted_hosts.split(",") if item.strip()]
 app.add_middleware(TrustedHostMiddleware, allowed_hosts=trusted_hosts or ["localhost", "127.0.0.1", "testserver"])
@@ -79,6 +80,7 @@ app.include_router(research_history_router)
 app.include_router(alerts_router)
 app.include_router(execution_router)
 app.include_router(performance_router)
+app.include_router(portfolio_router)
 
 
 @app.get("/health")
