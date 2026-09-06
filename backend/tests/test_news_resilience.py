@@ -61,8 +61,11 @@ async def test_research_returns_partial_response_when_one_feed_fails(monkeypatch
     async def fake_gather(*args, **kwargs):
         return [], [], []
 
+    async def fake_correlate(news):
+        return []
+
     monkeypatch.setattr(service, "_gather", fake_gather)
-    monkeypatch.setattr(service, "_correlate", lambda news: [])
+    monkeypatch.setattr(service, "_correlate", fake_correlate)
 
     result = await service.research(days=1, limit=25)
 
