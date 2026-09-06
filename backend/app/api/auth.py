@@ -102,8 +102,8 @@ def _require_csrf(
 ) -> None:
     if not csrf_header:
         raise HTTPException(status_code=403, detail="CSRF validation failed.")
-    if settings.app_env.lower() in {"production", "prod"}:
-        normalized_origin = origin.rstrip("/") if origin else None
+    if settings.app_env.lower() in {"production", "prod"} and origin:
+        normalized_origin = origin.rstrip("/")
         if normalized_origin not in _configured_origins():
             raise HTTPException(status_code=403, detail="CSRF origin validation failed.")
     cookie_valid = bool(csrf_cookie and secrets.compare_digest(csrf_cookie, csrf_header))
@@ -148,9 +148,6 @@ def _validate_github_oidc_claims(claims: dict[str, Any]) -> None:
         raise HTTPException(status_code=403, detail="GitHub OIDC workflow is not trusted.")
     if event_name in GITHUB_OIDC_EVENTS:
         return
-    # Production verification workflows are explicitly allow-listed by
-    # settings.github_oidc_workflows. A push token is therefore accepted only
-    # when it came from one of those exact trusted workflows on main.
     if event_name == "push" and workflow_ref in expected_workflow_refs:
         return
     raise HTTPException(status_code=403, detail="GitHub OIDC event is not trusted.")
@@ -159,14 +156,7 @@ def _validate_github_oidc_claims(claims: dict[str, Any]) -> None:
 def _verify_github_oidc_token(token: str) -> None:
     try:
         signing_key = _github_oidc_jwks_client().get_signing_key_from_jwt(token)
-        claims = jwt.decode(
-            token,
-            signing_key.key,
-            algorithms=list(GITHUB_OIDC_ALGORITHMS),
-            audience=settings.github_oidc_audience,
-            issuer=settings.github_oidc_issuer,
-            options={"require": ["exp", "iat", "iss", "aud", "sub"]},
-        )
+        claims = jwt.decode(token, signing_key.key, algorithms=list(GITHUB_OIDC_ALGORITHMS), audience=settings.github_oidc_audience, issuer=settings.github_oidc_issuer, options={"require": ["exp", "iat", "iss", "aud", "sub"]})
         _validate_github_oidc_claims(claims)
     except HTTPException:
         raise
@@ -174,9 +164,7 @@ def _verify_github_oidc_token(token: str) -> None:
         raise HTTPException(status_code=401, detail="Invalid GitHub Actions OIDC token.") from exc
 
 
-def get_current_user(
-    access_token: Annotated[str | None, Cookie(alias=SESSION_COOKIE)] = None,
-) -> UserResponse:
+def get_current_user(access_token: Annotated[str | None, Cookie(alias=SESSION_COOKIE)] = None) -> UserResponse:
     if not access_token:
         raise HTTPException(status_code=401, detail="Authentication required.")
     try:
@@ -185,10 +173,7 @@ def get_current_user(
         raise _auth_error(exc) from exc
 
 
-def get_current_user_or_github_actions(
-    authorization: Annotated[str | None, Header(alias="Authorization")] = None,
-    access_token: Annotated[str | None, Cookie(alias=SESSION_COOKIE)] = None,
-) -> UserResponse | None:
+def get_current_user_or_github_actions(authorization: Annotated[str | None, Header(alias="Authorization")] = None, access_token: Annotated[str | None, Cookie(alias=SESSION_COOKIE)] = None) -> UserResponse | None:
     if authorization:
         scheme, _, token = authorization.partition(" ")
         if scheme.lower() != "bearer" or not token.strip():
@@ -198,9 +183,7 @@ def get_current_user_or_github_actions(
     return get_current_user(access_token)
 
 
-def require_github_actions(
-    authorization: Annotated[str | None, Header(alias="Authorization")] = None,
-) -> None:
+def require_github_actions(authorization: Annotated[str | None, Header(alias="Authorization")] = None) -> None:
     if not authorization:
         raise HTTPException(status_code=401, detail="GitHub Actions OIDC authentication required.")
     scheme, _, token = authorization.partition(" ")
