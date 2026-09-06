@@ -1,7 +1,10 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { getTechnicalAnalysis } from "./api";
+import { createAIResearchReport, getTechnicalAnalysis } from "./api";
 
-afterEach(() => vi.restoreAllMocks());
+afterEach(() => {
+  vi.restoreAllMocks();
+  vi.unstubAllGlobals();
+});
 
 describe("getTechnicalAnalysis", () => {
   it("requests the historical range from the backend without local filtering", async () => {
@@ -46,6 +49,48 @@ describe("getTechnicalAnalysis", () => {
     expect(url).toContain("start=2026-08-01T00%3A00%3A00Z");
     expect(url).toContain("end=2026-08-03T23%3A59%3A59Z");
     expect(url).not.toContain("limit=250");
+    expect(result).toEqual(response);
+  });
+});
+
+describe("createAIResearchReport", () => {
+  it("sends the stored CSRF token with the report request", async () => {
+    vi.stubGlobal("document", { cookie: "mr_csrf=csrf-test-token" });
+    vi.stubGlobal("window", {
+      sessionStorage: {
+        getItem: vi.fn(() => "csrf-test-token"),
+        setItem: vi.fn(),
+        removeItem: vi.fn(),
+      },
+    });
+
+    const response = {
+      symbol: "BTC/USD",
+      timeframe: "1h",
+      deterministic_gate: "PASSED",
+      verified_context: {},
+      report: "Verified interpretation.",
+      model: "gpt-5.6-luna",
+    };
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(JSON.stringify(response), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
+
+    const result = await createAIResearchReport("BTC/USD", "1h", 250, "How's BTC doing today");
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const [, init] = fetchMock.mock.calls[0];
+    expect((init?.headers as Headers).get("X-CSRF-Token")).toBe("csrf-test-token");
+    expect(init?.method).toBe("POST");
+    expect(JSON.parse(String(init?.body))).toEqual({
+      symbol: "BTC/USD",
+      timeframe: "1h",
+      limit: 250,
+      question: "How's BTC doing today",
+    });
     expect(result).toEqual(response);
   });
 });
