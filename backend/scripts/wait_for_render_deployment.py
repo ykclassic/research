@@ -67,14 +67,75 @@ def list_deploys(client: httpx.Client, api_base: str, service_id: str, token: st
     return [item for item in payload if isinstance(item, dict)]
 
 
+def trigger_deployment(
+    client: httpx.Client,
+    api_base: str,
+    service_id: str,
+    token: str,
+    commit: str,
+) -> dict[str, Any]:
+    """Trigger an exact-commit Render deployment and return its deploy object."""
+    response = client.post(
+        f"{api_base.rstrip('/')}/services/{service_id}/deploys",
+        headers={"Authorization": f"Bearer {token}"},
+        json={"commitId": commit},
+    )
+    response.raise_for_status()
+    payload = response.json()
+    if not isinstance(payload, dict):
+        raise RuntimeError("Render deploy trigger returned an unexpected response shape.")
+    deploy = deployment_object(payload)
+    observed_commit = str(deploy.get("commit", {}).get("id", ""))
+    if observed_commit and observed_commit != commit:
+        raise RuntimeError(
+            f"Render deploy trigger returned commit {observed_commit}, expected {commit}."
+        )
+    print(
+        f"Render deploy triggered: id={deploy.get('id', '<unknown>')}; "
+        f"commit={commit}; status={deploy.get('status', 'unknown')}"
+    )
+    return deploy
+
+
+def ensure_deployment_triggered(
+    client: httpx.Client,
+    api_base: str,
+    service_id: str,
+    token: str,
+    commit: str,
+) -> None:
+    """Avoid duplicate deploys while ensuring the exact commit has a Render deploy."""
+    deploy = find_matching_deploy(list_deploys(client, api_base, service_id, token), commit)
+    if deploy is None:
+        trigger_deployment(client, api_base, service_id, token, commit)
+        return
+
+    status = str(deploy.get("status", "unknown"))
+    if status in TERMINAL_FAILURE_STATUSES:
+        print(
+            f"Existing Render deploy for {commit} is terminal ({status}); triggering a retry."
+        )
+        trigger_deployment(client, api_base, service_id, token, commit)
+    else:
+        print(
+            f"Render deploy already exists: id={deploy.get('id', '<unknown>')}; "
+            f"commit={commit}; status={status}"
+        )
+
+
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Wait for the Render deploy matching an exact Git commit to become live.")
+    parser = argparse.ArgumentParser(description="Ensure and wait for an exact Git commit to become live on Render.")
     parser.add_argument("--commit", default=os.getenv("GITHUB_SHA"))
     parser.add_argument("--service-id", default=os.getenv("RENDER_SERVICE_ID"))
     parser.add_argument("--api-token", default=os.getenv("RENDER_API_KEY"))
     parser.add_argument("--api-base", default=os.getenv("RENDER_API_BASE", DEFAULT_RENDER_API_BASE))
     parser.add_argument("--timeout", type=float, default=float(os.getenv("RENDER_DEPLOY_WAIT_TIMEOUT", DEFAULT_TIMEOUT_SECONDS)))
     parser.add_argument("--interval", type=float, default=float(os.getenv("RENDER_DEPLOY_POLL_INTERVAL", DEFAULT_POLL_INTERVAL_SECONDS)))
+    parser.add_argument(
+        "--trigger",
+        action="store_true",
+        help="Trigger an exact-commit Render deployment when no matching deployment is already present.",
+    )
     args = parser.parse_args()
 
     if not args.commit:
@@ -94,6 +155,15 @@ def main() -> int:
     timeout = httpx.Timeout(20.0, connect=10.0)
     last_status = "not observed"
     with httpx.Client(timeout=timeout) as client:
+        try:
+            if args.trigger:
+                ensure_deployment_triggered(
+                    client, args.api_base, args.service_id, args.api_token, args.commit
+                )
+        except (httpx.HTTPError, RuntimeError) as exc:
+            print(f"FAIL: unable to trigger/inspect Render deployment: {exc}", file=sys.stderr)
+            return 1
+
         while True:
             try:
                 deploy = find_matching_deploy(
