@@ -116,8 +116,8 @@ async def patch_alert_rule(
 @router.post("/{rule_id}/enable", dependencies=[Depends(_require_csrf)])
 async def enable_alert_rule(
     rule_id: str,
-    enabled: bool = Query(...),
     user: Annotated[UserResponse, Depends(get_current_user)],
+    enabled: bool = Query(...),
     access_token: Annotated[str | None, Cookie(alias="mr_access_token")] = None,
 ):
     try:
