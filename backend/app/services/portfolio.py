@@ -3,18 +3,9 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any
 
-from app.models.portfolio import (
-    PortfolioPosition,
-    PortfolioPositionCreate,
-    PortfolioPositionSnapshot,
-    PortfolioSummary,
-    PositionSide,
-    RiskRewardRequest,
-    RiskRewardResult,
-    ScenarioResult,
-)
-from app.services.supabase_data import DataServiceError, _request
+from app.models.portfolio import PortfolioPosition, PortfolioPositionCreate, PortfolioPositionSnapshot, PortfolioSummary, PositionSide, RiskRewardRequest, RiskRewardResult, ScenarioResult
 from app.services.quote_service import QuoteService
+from app.services.supabase_data import _request
 
 quote_service = QuoteService()
 
@@ -24,18 +15,13 @@ def _rows(access_token: str, user_id: str) -> list[dict[str, Any]]:
     return response.json()
 
 
-def _position(row: dict[str, Any]) -> PortfolioPosition:
-    return PortfolioPosition.model_validate(row)
-
-
 def list_positions(access_token: str, user_id: str) -> list[PortfolioPosition]:
-    return [_position(row) for row in _rows(access_token, user_id)]
+    return [PortfolioPosition.model_validate(row) for row in _rows(access_token, user_id)]
 
 
 def create_position(access_token: str, user_id: str, payload: PortfolioPositionCreate) -> PortfolioPosition:
     response = _request("POST", "portfolio_positions", access_token, json={**payload.model_dump(mode="json"), "user_id": user_id}, prefer="return=representation")
-    rows = response.json()
-    return _position(rows[0])
+    return PortfolioPosition.model_validate(response.json()[0])
 
 
 def delete_position(access_token: str, user_id: str, position_id: str) -> None:
@@ -45,7 +31,7 @@ def delete_position(access_token: str, user_id: str, position_id: str) -> None:
 async def summarize(access_token: str, user_id: str) -> PortfolioSummary:
     positions = list_positions(access_token, user_id)
     symbols = sorted({p.symbol for p in positions})
-    quotes = {q.symbol: q for q in (await quote_service.get_quotes(symbols, refresh=False))} if symbols else {}
+    quotes = {q.symbol: q for q in (await quote_service.get_quotes(symbols, force_refresh=False))} if symbols else {}
     snapshots: list[PortfolioPositionSnapshot] = []
     invested = gross = net = pnl = 0.0
     for position in positions:
@@ -82,11 +68,9 @@ def scenario(summary: PortfolioSummary, change_percent: float) -> ScenarioResult
 
 def risk_reward(payload: RiskRewardRequest) -> RiskRewardResult:
     if payload.side == PositionSide.LONG:
-        risk = payload.entry_price - payload.stop_loss
-        reward = payload.take_profit - payload.entry_price
+        risk, reward = payload.entry_price - payload.stop_loss, payload.take_profit - payload.entry_price
     else:
-        risk = payload.stop_loss - payload.entry_price
-        reward = payload.entry_price - payload.take_profit
+        risk, reward = payload.stop_loss - payload.entry_price, payload.entry_price - payload.take_profit
     if risk <= 0 or reward <= 0:
         return RiskRewardResult(risk_per_unit=max(0.0, risk), reward_per_unit=max(0.0, reward), reward_risk_ratio=0.0, valid=False, reason="Stop-loss and take-profit must be on the correct side of the entry price.")
     ratio = reward / risk
