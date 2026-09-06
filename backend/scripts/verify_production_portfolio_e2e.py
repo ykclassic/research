@@ -74,6 +74,9 @@ def main() -> None:
     }
     position_id: str | None = None
     try:
+        response = session.post(f"{API_URL}/api/portfolio/positions", json=payload, timeout=TIMEOUT)
+        expect(response, 403, "create portfolio position without CSRF")
+
         response = session.post(f"{API_URL}/api/portfolio/positions", json=payload, headers=headers, timeout=TIMEOUT)
         created = expect(response, 201, "create portfolio position")
         position_id = created.get("id")
@@ -82,10 +85,40 @@ def main() -> None:
         if created.get("symbol") != "BTC/USD" or created.get("side") != "LONG":
             fail("create portfolio position: normalized position fields are incorrect")
 
+        update_payload = {
+            "quantity": 0.0002,
+            "average_entry_price": 101000.0,
+            "notes": "production E2E update verification",
+        }
+        response = session.patch(f"{API_URL}/api/portfolio/positions/{position_id}", json=update_payload, timeout=TIMEOUT)
+        expect(response, 403, "update portfolio position without CSRF")
+
+        response = session.patch(f"{API_URL}/api/portfolio/positions/{position_id}", json=update_payload, headers=headers, timeout=TIMEOUT)
+        updated = expect(response, 200, "update portfolio position")
+        if updated.get("id") != position_id:
+            fail("update portfolio position: returned position id changed")
+        if updated.get("user_id") != user.get("id"):
+            fail("update portfolio position: ownership changed")
+        if updated.get("quantity") != 0.0002 or updated.get("average_entry_price") != 101000.0:
+            fail("update portfolio position: updated numeric fields were not persisted")
+        if updated.get("notes") != update_payload["notes"]:
+            fail("update portfolio position: updated notes were not persisted")
+
+        response = session.patch(
+            f"{API_URL}/api/portfolio/positions/00000000-0000-0000-0000-000000000000",
+            json={"notes": "must not update another row"},
+            headers=headers,
+            timeout=TIMEOUT,
+        )
+        expect(response, 404, "owner-scoped update of non-owned/nonexistent position")
+
         response = session.get(f"{API_URL}/api/portfolio/positions", timeout=TIMEOUT)
         positions = expect(response, 200, "list portfolio positions").get("positions")
-        if not isinstance(positions, list) or not any(p.get("id") == position_id for p in positions):
-            fail("list portfolio positions: created position was not returned")
+        if not isinstance(positions, list) or not any(
+            p.get("id") == position_id and p.get("quantity") == 0.0002 and p.get("average_entry_price") == 101000.0
+            for p in positions
+        ):
+            fail("list portfolio positions: updated position was not returned")
 
         response = session.get(f"{API_URL}/api/portfolio/summary", timeout=TIMEOUT)
         summary = expect(response, 200, "portfolio summary")
@@ -131,7 +164,8 @@ def main() -> None:
 
     print("PRODUCTION PORTFOLIO E2E: PASS")
     print(f"/api/auth/me: {me.get('email')}")
-    print("/api/portfolio/positions: create/list/delete 200/201/204")
+    print("/api/portfolio/positions: create/list/update/delete 200/201/204")
+    print("/api/portfolio/update: CSRF required; owner-scoped")
     print("/api/portfolio/summary: 200 with provider-backed quote")
     print("/api/portfolio/scenario: 200")
     print("/api/portfolio/risk-reward: 200")
