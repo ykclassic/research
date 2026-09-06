@@ -1,15 +1,19 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException
+from typing import Annotated
+
+from fastapi import APIRouter, Cookie, Depends, HTTPException
 from pydantic import BaseModel, Field
 
 from app.api.analysis import get_analysis
-from app.api.auth import _require_csrf, get_current_user_or_github_actions
+from app.api.auth import UserResponse, _require_csrf, get_current_user_or_github_actions
 from app.api.market_structure import get_market_structure
 from app.api.mtf import get_multi_timeframe_analysis
 from app.api.regime import get_regime
 from app.models.market import Timeframe
 from app.services.ai_research import AIResearchError, AIResearchService
+from app.services.research_history import create_history_record
+from app.services.supabase_data import DataServiceError
 
 router = APIRouter(
     prefix="/api/ai-research",
@@ -36,7 +40,11 @@ class AIResearchResponse(BaseModel):
 
 
 @router.post("/report", response_model=AIResearchResponse)
-async def create_ai_research(request: AIResearchRequest) -> AIResearchResponse:
+async def create_ai_research(
+    request: AIResearchRequest,
+    user: UserResponse | None = Depends(get_current_user_or_github_actions),
+    access_token: Annotated[str | None, Cookie(alias="mr_access_token")] = None,
+) -> AIResearchResponse:
     """Generate interpretation only after the deterministic research gate passes.
 
     Every value sent to the AI is produced server-side by the deterministic
@@ -65,7 +73,22 @@ async def create_ai_research(request: AIResearchRequest) -> AIResearchResponse:
             ],
         }
         ai_result = await ai_service.interpret(context, request.question)
-        return AIResearchResponse(symbol=analysis.symbol, timeframe=analysis.timeframe, deterministic_gate="PASSED", verified_context=context, report=ai_result["report"], model=ai_result["model"])
+        result = AIResearchResponse(symbol=analysis.symbol, timeframe=analysis.timeframe, deterministic_gate="PASSED", verified_context=context, report=ai_result["report"], model=ai_result["model"])
+        if user is not None and access_token:
+            try:
+                create_history_record(
+                    access_token,
+                    user.id,
+                    record_type="AI_ANALYSIS",
+                    symbol=result.symbol,
+                    query=request.question,
+                    title=f"AI analysis · {result.symbol}",
+                    payload=result.model_dump(mode="json"),
+                )
+            except DataServiceError:
+                # AI research remains available if persistence is temporarily unavailable.
+                pass
+        return result
     except HTTPException:
         raise
     except AIResearchError as exc:
