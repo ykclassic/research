@@ -5,6 +5,7 @@ import AIResearchTab from "./AIResearchTab";
 import NewsResearchTab from "./NewsResearchTab";
 import ResearchReportsTab from "./ResearchReportsTab";
 import ResearchHistoryTab from "./ResearchHistoryTab";
+import AlertsTab from "./AlertsTab";
 import NavigationChrome from "./NavigationChrome";
 import "./styles.css";
 import "./phase-pages.css";
@@ -15,6 +16,7 @@ import "./news-research.css";
 import "./research-reports-tab.css";
 import "./research-history.css";
 import "./research-history-tab.css";
+import "./alerts.css";
 import "./navigation.css";
 
 ReactDOM.createRoot(document.getElementById("root")!).render(
@@ -25,5 +27,6 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
     <NewsResearchTab />
     <ResearchReportsTab />
     <ResearchHistoryTab />
+    <AlertsTab />
   </React.StrictMode>,
 );
