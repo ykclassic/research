@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any
 
-from app.models.portfolio import PortfolioPosition, PortfolioPositionCreate, PortfolioPositionSnapshot, PortfolioSummary, PositionSide, RiskRewardRequest, RiskRewardResult, ScenarioResult
+from app.models.portfolio import PortfolioPosition, PortfolioPositionCreate, PortfolioPositionSnapshot, PortfolioPositionUpdate, PortfolioSummary, PositionSide, RiskRewardRequest, RiskRewardResult, ScenarioResult
 from app.services.quote_service import QuoteService
 from app.services.supabase_data import _request
 
@@ -22,6 +22,17 @@ def list_positions(access_token: str, user_id: str) -> list[PortfolioPosition]:
 def create_position(access_token: str, user_id: str, payload: PortfolioPositionCreate) -> PortfolioPosition:
     response = _request("POST", "portfolio_positions", access_token, json={**payload.model_dump(mode="json"), "user_id": user_id}, prefer="return=representation")
     return PortfolioPosition.model_validate(response.json()[0])
+
+
+def update_position(access_token: str, user_id: str, position_id: str, payload: PortfolioPositionUpdate) -> PortfolioPosition:
+    changes = payload.model_dump(exclude_unset=True, mode="json")
+    if not changes:
+        raise ValueError("At least one position field must be supplied for update.")
+    response = _request("PATCH", "portfolio_positions", access_token, params={"id": f"eq.{position_id}", "user_id": f"eq.{user_id}"}, json=changes, prefer="return=representation")
+    rows = response.json()
+    if not rows:
+        raise KeyError(position_id)
+    return PortfolioPosition.model_validate(rows[0])
 
 
 def delete_position(access_token: str, user_id: str, position_id: str) -> None:
