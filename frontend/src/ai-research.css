@@ -8,8 +8,20 @@
 .ai-generate:disabled { opacity: .6; cursor: wait; }
 .ai-policy, .ai-warning { display: flex; gap: 9px; align-items: flex-start; margin-top: 14px; padding: 12px; border-radius: 10px; background: rgba(127, 127, 127, .08); font-size: .86rem; line-height: 1.45; }
 .ai-report { min-height: 430px; }
-.report-body { line-height: 1.65; white-space: normal; }
-.report-body p { margin: 0 0 12px; }
+.report-body { line-height: 1.65; min-width: 0; }
+.markdown-report { overflow-wrap: anywhere; }
+.markdown-report h2, .markdown-report h3, .markdown-report h4 { line-height: 1.25; margin: 20px 0 10px; }
+.markdown-report h2:first-child, .markdown-report h3:first-child, .markdown-report h4:first-child { margin-top: 0; }
+.markdown-report h2 { font-size: 1.2rem; }
+.markdown-report h3 { font-size: 1.05rem; }
+.markdown-report h4 { font-size: .98rem; }
+.markdown-report p { margin: 0 0 13px; }
+.markdown-report ul, .markdown-report ol { margin: 0 0 15px; padding-left: 24px; }
+.markdown-report li { margin: 5px 0; padding-left: 3px; }
+.markdown-report blockquote { margin: 12px 0; padding: 9px 14px; border-left: 3px solid rgba(127, 127, 127, .45); opacity: .9; }
+.markdown-report hr { border: 0; border-top: 1px solid rgba(127, 127, 127, .2); margin: 18px 0; }
+.markdown-report strong { font-weight: 750; }
+.markdown-report code { padding: 1px 5px; border-radius: 5px; background: rgba(127, 127, 127, .12); font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: .9em; }
 .verified-context { margin-bottom: 16px; }
 .evidence-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
 .evidence-card { display: grid; gap: 5px; padding: 13px; border: 1px solid rgba(127, 127, 127, .2); border-radius: 10px; }
@@ -17,4 +29,4 @@
 .evidence-card span { text-transform: capitalize; opacity: .8; }
 .evidence-card small { opacity: .65; overflow-wrap: anywhere; }
 @media (max-width: 1000px) { .ai-grid { grid-template-columns: 1fr; } .evidence-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
-@media (max-width: 650px) { .evidence-grid { grid-template-columns: 1fr; } }
+@media (max-width: 650px) { .evidence-grid { grid-template-columns: 1fr; } .markdown-report h2 { font-size: 1.08rem; } }
