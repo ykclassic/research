@@ -1,5 +1,8 @@
+import inspect
+
 import pytest
 
+from app.api.alerts import enable_alert_rule
 from app.services.alerts import (
     _crossed,
     _normalize_channels,
@@ -39,3 +42,12 @@ def test_web_channel_is_always_available_and_unknown_channels_are_rejected():
     assert _normalize_channels(["EMAIL"]) == ["WEB", "EMAIL"]
     with pytest.raises(ValueError, match="Supported alert channels"):
         _normalize_channels(["SMS"])
+
+
+def test_enable_alert_rule_signature_keeps_required_dependencies_before_defaults():
+    parameters = list(inspect.signature(enable_alert_rule).parameters.values())
+    names = [parameter.name for parameter in parameters]
+    assert names == ["rule_id", "user", "enabled", "access_token"]
+    assert parameters[1].default is inspect.Parameter.empty
+    assert parameters[2].default is not inspect.Parameter.empty
+    assert parameters[3].default is not inspect.Parameter.empty
