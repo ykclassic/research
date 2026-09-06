@@ -1,8 +1,8 @@
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import pytest
 
-from app.models.news import EventType, NewsItem, SentimentLabel
+from app.models.news import EventType, SentimentLabel
 from app.services.news_research import NewsResearchService
 
 
@@ -42,24 +42,9 @@ def test_reaction_calculation_uses_prices_before_and_after_publication():
 
     service = NewsResearchService()
     base = datetime(2026, 9, 6, 10, 0, tzinfo=timezone.utc)
-    candles = tuple(
-        Candle(
-            timestamp=base,
-            open=100,
-            high=101,
-            low=99,
-            close=100,
-            volume=1,
-            symbol="NVDA",
-            timeframe=Timeframe.MINUTE_5,
-            source="finnhub",
-            is_complete=True,
-        )
-        for _ in []
-    )
     rows = []
     for index, close in enumerate((100, 101, 102, 103)):
-        timestamp = base.replace(minute=base.minute + index * 5)
+        timestamp = base + timedelta(minutes=index * 5)
         rows.append(Candle(
             timestamp=timestamp,
             open=close,
