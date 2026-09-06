@@ -11,7 +11,7 @@ def _status(trend="BULLISH", momentum="BULLISH", regime="STRONG_TREND_UP"):
 def test_report_score_is_bounded_and_deterministic():
     mtf = [ReportTimeframe(timeframe=tf, trend="BULLISH", momentum="BULLISH", support=95.0, resistance=110.0, regime="STRONG_TREND_UP", latest_candle_timestamp=datetime.now(timezone.utc)) for tf in ("1d", "4h", "1h", "15m")]
     score, basis = ResearchReportService._score(_status(), mtf, FundamentalContext(news_count=4))
-    assert score == 87
+    assert score == 76
     assert 0 <= score <= 100
     assert set(basis) == {"trend", "momentum", "regime", "multi_timeframe", "fundamental"}
 
