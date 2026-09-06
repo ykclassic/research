@@ -1,4 +1,5 @@
-from app.models.portfolio import PositionSide, RiskRewardRequest, ScenarioResult
+from app.models.portfolio import PortfolioPositionUpdate, PositionSide, RiskRewardRequest, ScenarioResult
+from app.services import portfolio
 from app.services.portfolio import risk_reward, scenario
 
 
@@ -39,3 +40,78 @@ def test_scenario_applies_directional_shock():
     assert result.projected_pnl_delta == -50
     assert result.projected_unrealized_pnl == -25
     assert result.affected_positions == 2
+
+
+def test_update_position_is_partial_and_scoped_to_authenticated_owner(monkeypatch):
+    calls = []
+
+    class Response:
+        def json(self):
+            return [{
+                "id": "position-1",
+                "user_id": "user-1",
+                "symbol": "BTC/USD",
+                "side": "LONG",
+                "quantity": 0.002,
+                "average_entry_price": 100000,
+                "notes": "updated",
+                "created_at": "2026-09-06T00:00:00Z",
+                "updated_at": "2026-09-06T00:01:00Z",
+            }]
+
+    def fake_request(method, resource, access_token, **kwargs):
+        calls.append((method, resource, access_token, kwargs))
+        return Response()
+
+    monkeypatch.setattr(portfolio, "_request", fake_request)
+    result = portfolio.update_position(
+        "session-token",
+        "user-1",
+        "position-1",
+        PortfolioPositionUpdate(quantity=0.002, notes="updated"),
+    )
+
+    assert result.quantity == 0.002
+    assert result.notes == "updated"
+    assert calls == [(
+        "PATCH",
+        "portfolio_positions",
+        "session-token",
+        {
+            "params": {"id": "eq.position-1", "user_id": "eq.user-1"},
+            "json": {"quantity": 0.002, "notes": "updated"},
+            "prefer": "return=representation",
+        },
+    )]
+
+
+def test_update_position_rejects_empty_patch(monkeypatch):
+    called = False
+
+    def fake_request(*args, **kwargs):
+        nonlocal called
+        called = True
+        raise AssertionError("empty update must not reach persistence")
+
+    monkeypatch.setattr(portfolio, "_request", fake_request)
+    try:
+        portfolio.update_position("session-token", "user-1", "position-1", PortfolioPositionUpdate())
+    except ValueError as exc:
+        assert "At least one position field" in str(exc)
+    else:
+        raise AssertionError("expected empty update to be rejected")
+    assert called is False
+
+
+def test_update_position_returns_not_found_when_owner_scoped_update_matches_nothing(monkeypatch):
+    class Response:
+        def json(self):
+            return []
+
+    monkeypatch.setattr(portfolio, "_request", lambda *args, **kwargs: Response())
+    try:
+        portfolio.update_position("session-token", "user-1", "position-owned-by-someone-else", PortfolioPositionUpdate(notes="nope"))
+    except KeyError as exc:
+        assert str(exc.value) == "position-owned-by-someone-else"
+    else:
+        raise AssertionError("expected owner-scoped update to return not found")
