@@ -19,6 +19,14 @@ class PortfolioPositionCreate(BaseModel):
     notes: str | None = Field(default=None, max_length=500)
 
 
+class PortfolioPositionUpdate(BaseModel):
+    symbol: str | None = Field(default=None, min_length=1, max_length=32)
+    side: PositionSide | None = None
+    quantity: float | None = Field(default=None, gt=0)
+    average_entry_price: float | None = Field(default=None, gt=0)
+    notes: str | None = Field(default=None, max_length=500)
+
+
 class PortfolioPosition(PortfolioPositionCreate):
     model_config = ConfigDict(frozen=True)
     id: str
