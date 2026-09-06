@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { BarChart3, BrainCircuit, ChevronRight, FileText, History, LayoutDashboard, List, Menu, Network, Settings, ShieldCheck, X, LogOut, Newspaper } from "lucide-react";
+import { BarChart3, Bell, BrainCircuit, ChevronRight, FileText, History, LayoutDashboard, List, Menu, Network, Settings, ShieldCheck, X, LogOut, Newspaper } from "lucide-react";
 import { getCurrentUser, logout, User } from "./api";
 
 type NavItem = { label: string; page: string; route: string; icon: typeof LayoutDashboard };
@@ -20,6 +20,7 @@ const GROUPS: NavGroup[] = [
     { label: "Research Reports", page: "research-reports", route: "/research/reports", icon: FileText },
     { label: "Research History", page: "research-history", route: "/research/history", icon: History },
   ] },
+  { label: "Monitoring", items: [{ label: "Alerts & Monitoring", page: "alerts", route: "/monitoring/alerts", icon: Bell }] },
   { label: "System", items: [{ label: "Settings", page: "settings", route: "/settings", icon: Settings }] },
 ];
 
@@ -31,6 +32,7 @@ function clickLegacyNavigation(page: string): boolean {
   if (page === "news-research") { const trigger = document.querySelector<HTMLButtonElement>(".news-tab-trigger"); if (trigger) { trigger.click(); return true; } return false; }
   if (page === "research-reports") { const trigger = document.querySelector<HTMLButtonElement>(".research-reports-tab-trigger"); if (trigger) { trigger.click(); return true; } return false; }
   if (page === "research-history") { const trigger = document.querySelector<HTMLButtonElement>(".research-history-tab-trigger"); if (trigger) { trigger.click(); return true; } return false; }
+  if (page === "alerts") { window.dispatchEvent(new Event("open-alerts")); return true; }
   if (page === "settings") return false;
   const labels: Record<string, string> = { market: "Market Data", watchlists: "Watchlists", analysis: "Technical Analysis", "market-structure": "Market Structure", mtf: "MTF Analysis", signals: "Signals" };
   const button = Array.from(document.querySelectorAll<HTMLButtonElement>(".main-nav .nav-button")).find(candidate => candidate.textContent?.trim() === labels[page]);
