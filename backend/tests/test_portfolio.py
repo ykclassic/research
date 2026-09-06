@@ -112,6 +112,6 @@ def test_update_position_returns_not_found_when_owner_scoped_update_matches_noth
     try:
         portfolio.update_position("session-token", "user-1", "position-owned-by-someone-else", PortfolioPositionUpdate(notes="nope"))
     except KeyError as exc:
-        assert str(exc.value) == "position-owned-by-someone-else"
+        assert exc.args == ("position-owned-by-someone-else",)
     else:
         raise AssertionError("expected owner-scoped update to return not found")
