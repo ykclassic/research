@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { BarChart3, BrainCircuit, ChevronRight, LayoutDashboard, List, Menu, Network, Settings, ShieldCheck, X, LogOut } from "lucide-react";
+import { BarChart3, BrainCircuit, ChevronRight, LayoutDashboard, List, Menu, Network, Settings, ShieldCheck, X, LogOut, Newspaper } from "lucide-react";
 import { getCurrentUser, logout, User } from "./api";
 
 type NavItem = { label: string; page: string; route: string; icon: typeof LayoutDashboard };
@@ -14,7 +14,10 @@ const GROUPS: NavGroup[] = [
     { label: "Multi-Timeframe", page: "mtf", route: "/analysis/multi-timeframe", icon: BarChart3 },
     { label: "Signals", page: "signals", route: "/analysis/signals", icon: ShieldCheck },
   ] },
-  { label: "Research", items: [{ label: "AI Market Research", page: "ai-research", route: "/research/ai", icon: BrainCircuit }] },
+  { label: "Research", items: [
+    { label: "AI Market Research", page: "ai-research", route: "/research/ai", icon: BrainCircuit },
+    { label: "News & Fundamentals", page: "news-research", route: "/research/news", icon: Newspaper },
+  ] },
   { label: "System", items: [{ label: "Settings", page: "settings", route: "/settings", icon: Settings }] },
 ];
 
@@ -26,6 +29,11 @@ function currentPage(): string { return pageByPath.get(window.location.pathname)
 function clickLegacyNavigation(page: string): boolean {
   if (page === "ai-research") {
     const trigger = document.querySelector<HTMLButtonElement>(".ai-tab-trigger");
+    if (trigger) { trigger.click(); return true; }
+    return false;
+  }
+  if (page === "news-research") {
+    const trigger = document.querySelector<HTMLButtonElement>(".news-tab-trigger");
     if (trigger) { trigger.click(); return true; }
     return false;
   }
@@ -70,7 +78,7 @@ export default function NavigationChrome() {
 
   const signOut = async () => {
     const legacyButton = document.querySelector<HTMLButtonElement>(".topbar .logout");
-    if (legacyButton) { legacyButton.click(); }
+    if (legacyButton) legacyButton.click();
     else { try { await logout(); } finally { setUser(null); } }
     setMobileOpen(false);
     window.history.replaceState({}, "", "/dashboard");

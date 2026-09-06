@@ -1,0 +1,47 @@
+.news-research-app main { padding-bottom: 48px; }
+.news-hero { margin-bottom: 18px; }
+.news-controls { display: flex; gap: 16px; align-items: end; flex-wrap: wrap; margin-bottom: 18px; }
+.news-controls label { min-width: 180px; display: grid; gap: 6px; font-size: 12px; color: var(--muted, #8ea2b8); }
+.news-controls select { width: 100%; }
+.coverage { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-left: auto; }
+.coverage span { border: 1px solid rgba(142,162,184,.2); border-radius: 999px; padding: 7px 10px; font-size: 12px; color: var(--muted, #8ea2b8); }
+.coverage strong { color: inherit; margin-left: 4px; }
+.news-list, .fundamental-list, .correlation-list { display: grid; gap: 12px; }
+.news-card, .fundamental-card, .correlation-card { border: 1px solid rgba(142,162,184,.16); border-radius: 12px; padding: 16px; background: rgba(8, 19, 33, .46); }
+.news-card h3, .fundamental-card h3, .correlation-card h3 { margin: 10px 0 8px; font-size: 15px; line-height: 1.45; }
+.news-card p, .fundamental-card p { margin: 0 0 12px; color: var(--muted, #9db0c4); line-height: 1.55; font-size: 13px; }
+.news-card-top, .correlation-head { display: flex; gap: 8px; align-items: center; justify-content: space-between; flex-wrap: wrap; }
+.news-card-top { justify-content: flex-start; }
+.news-badge { border-radius: 999px; padding: 4px 8px; font-size: 10px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; }
+.event-news, .event-other { background: rgba(142,162,184,.12); color: #b7c5d4; }
+.event-earnings { background: rgba(100,160,255,.12); color: #9fc5ff; }
+.event-economic, .event-macro { background: rgba(180,140,255,.12); color: #c9adff; }
+.event-regulatory { background: rgba(255,170,90,.12); color: #ffc27d; }
+.event-corporate { background: rgba(90,210,160,.12); color: #8fe0bf; }
+.sentiment-positive { background: rgba(80,210,145,.12); color: #88dfb6; }
+.sentiment-negative { background: rgba(255,105,105,.12); color: #ff9d9d; }
+.sentiment-neutral { background: rgba(142,162,184,.12); color: #b7c5d4; }
+.news-meta { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; color: var(--muted, #8ea2b8); font-size: 11px; }
+.news-meta a { display: inline-flex; align-items: center; gap: 4px; color: inherit; }
+.entity-row { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; margin-top: 12px; font-size: 11px; color: var(--muted, #8ea2b8); }
+.entity-row span { border: 1px solid rgba(142,162,184,.18); border-radius: 5px; padding: 3px 6px; color: #d8e3ee; }
+.event-importance { font-size: 11px; color: var(--muted, #8ea2b8); }
+.fundamental-grid { display: grid; grid-template-columns: repeat(6, minmax(90px, 1fr)); gap: 10px; margin: 14px 0; }
+.fundamental-grid div { display: grid; gap: 4px; }
+.fundamental-grid span, .correlation-metrics span { color: var(--muted, #8ea2b8); font-size: 10px; text-transform: uppercase; letter-spacing: .04em; }
+.fundamental-grid strong { font-size: 12px; overflow-wrap: anywhere; }
+.fundamental-card small { color: var(--muted, #8ea2b8); }
+.correlation-chain { display: flex; gap: 7px; align-items: center; flex-wrap: wrap; margin-bottom: 14px; color: var(--muted, #8ea2b8); font-size: 10px; text-transform: uppercase; letter-spacing: .05em; }
+.correlation-chain span { border: 1px solid rgba(142,162,184,.15); border-radius: 6px; padding: 4px 6px; }
+.correlation-chain b { opacity: .6; }
+.correlation-head > div { display: grid; gap: 3px; }
+.correlation-head strong { font-size: 15px; }
+.correlation-head span:not(.news-badge) { color: var(--muted, #8ea2b8); font-size: 11px; }
+.correlation-metrics { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-top: 14px; }
+.correlation-metrics > div { display: grid; gap: 4px; padding: 10px; border-radius: 8px; background: rgba(255,255,255,.025); }
+.correlation-metrics strong { font-size: 14px; }
+.correlation-metrics small { color: var(--muted, #8ea2b8); font-size: 10px; }
+.reaction-up { color: #8fe0bf; }
+.reaction-down { color: #ff9d9d; }
+@media (max-width: 900px) { .fundamental-grid { grid-template-columns: repeat(3, minmax(90px, 1fr)); } .correlation-metrics { grid-template-columns: 1fr; } .coverage { margin-left: 0; width: 100%; } }
+@media (max-width: 600px) { .fundamental-grid { grid-template-columns: repeat(2, minmax(90px, 1fr)); } .news-card, .fundamental-card, .correlation-card { padding: 12px; } .correlation-chain { gap: 4px; } }
