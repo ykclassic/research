@@ -1,4 +1,4 @@
-import { Fragment, ReactNode } from "react";
+import { ElementType, Fragment, ReactNode } from "react";
 
 export type MarkdownBlock =
   | { type: "heading"; level: number; content: string }
@@ -45,11 +45,11 @@ export function parseMarkdownBlocks(markdown: string): MarkdownBlock[] {
       continue;
     }
 
-    const heading = trimmed.match(/^#{1,6}\s+(.+)$/);
+    const heading = trimmed.match(/^(#{1,6})\s+(.+)$/);
     if (heading) {
       flushParagraph();
       flushLists();
-      blocks.push({ type: "heading", level: heading[0].match(/^#+/)![0].length, content: heading[1].trim() });
+      blocks.push({ type: "heading", level: heading[1].length, content: heading[2].trim() });
       continue;
     }
 
@@ -123,7 +123,7 @@ export function MarkdownReport({ markdown }: { markdown: string }) {
       {blocks.map((block, index) => {
         switch (block.type) {
           case "heading": {
-            const Heading = (`h${Math.min(Math.max(block.level, 2), 4)}`) as keyof JSX.IntrinsicElements;
+            const Heading = `h${Math.min(Math.max(block.level, 2), 4)}` as ElementType;
             return <Heading key={index}>{renderInline(block.content)}</Heading>;
           }
           case "unordered-list":
