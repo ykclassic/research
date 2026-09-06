@@ -4,8 +4,6 @@ on:
   push:
     branches:
       - main
-      - hotfix-post-merge-phase13-production-validation
-      - phase-13-portfolio-strict-crud
   workflow_dispatch:
 
 permissions:
