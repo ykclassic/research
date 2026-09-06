@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 
 from app.api.auth import get_current_user_or_github_actions
 from app.models.news import NewsResearchResponse
-from app.services.news_research import news_research
+from app.services.news_research_resilient import news_research
 
 router = APIRouter(
     prefix="/api/news",
