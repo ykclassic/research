@@ -53,15 +53,9 @@ def main() -> int:
     if me.get("email", "").lower() != EMAIL.lower():
         raise RuntimeError("Authenticated /api/auth/me returned an unexpected user")
 
-    csrf = check(session.get(f"{API_URL}/api/auth/csrf", timeout=30), 200, "Authenticated CSRF issuance")
-    csrf_token = session.headers.get("X-CSRF-Token") or session.cookies.get("mr_csrf")
-    if not csrf_token:
-        # The API intentionally returns the token as a response header/cookie; copy it explicitly.
-        csrf_token = csrf.get("message") if csrf.get("message", "").startswith("csrf:") else None
-    if not csrf_token:
-        # requests exposes response headers separately, so fetch it again without retaining secrets.
-        csrf_response = session.get(f"{API_URL}/api/auth/csrf", timeout=30)
-        csrf_token = csrf_response.headers.get("X-CSRF-Token") or session.cookies.get("mr_csrf")
+    csrf_response = session.get(f"{API_URL}/api/auth/csrf", timeout=30)
+    check(csrf_response, 200, "Authenticated CSRF issuance")
+    csrf_token = csrf_response.headers.get("X-CSRF-Token") or session.cookies.get("mr_csrf")
     if not csrf_token:
         raise RuntimeError("Production CSRF token was not issued")
 
@@ -73,7 +67,7 @@ def main() -> int:
     if not isinstance(history.get("items"), list):
         raise RuntimeError("Research history response does not contain an items array")
 
-    quote = check(
+    market = check(
         session.get(
             f"{API_URL}/api/market/quotes",
             params={"symbols": "BTC/USD", "refresh": "false"},
@@ -82,12 +76,13 @@ def main() -> int:
         200,
         "Authenticated market data",
     )
-    quotes = quote.get("quotes")
+    quotes = market.get("quotes")
     if not isinstance(quotes, list) or not quotes:
         raise RuntimeError("Authenticated market data returned no quotes")
 
+    regime_path = f"/api/regime/{quote('BTC/USD', safe='')}"
     regime = check(
-        session.get(f"{API_URL}/api/regime/{quote('BTC/USD')}", params={"timeframe": "1h", "limit": 250}, timeout=60),
+        session.get(f"{API_URL}{regime_path}", params={"timeframe": "1h", "limit": 250}, timeout=60),
         200,
         "Authenticated regime API",
     )
