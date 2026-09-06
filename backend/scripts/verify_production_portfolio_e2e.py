@@ -9,7 +9,6 @@ import requests
 
 
 API_URL = os.getenv("TEST_API_URL", "https://research-76vr.onrender.com").rstrip("/")
-ORIGIN = os.getenv("TEST_APP_URL", "https://adaptive-market-research-bot-2ok8ul.v2.appdeploy.ai").rstrip("/")
 EMAIL = os.getenv("TEST_EMAIL", "").strip()
 PASSWORD = os.getenv("TEST_PASSWORD", "")
 TIMEOUT = float(os.getenv("TEST_TIMEOUT_SECONDS", "30"))
@@ -32,12 +31,13 @@ def expect(response: requests.Response, status: int, label: str) -> dict[str, An
 
 
 def csrf_headers(session: requests.Session) -> dict[str, str]:
-    response = session.get(f"{API_URL}/api/auth/csrf", headers={"Origin": ORIGIN}, timeout=TIMEOUT)
+    response = session.get(f"{API_URL}/api/auth/csrf", timeout=TIMEOUT)
     expect(response, 200, "/api/auth/csrf")
     token = response.headers.get("X-CSRF-Token") or session.cookies.get("mr_csrf")
     if not token:
         fail("/api/auth/csrf: no CSRF token returned")
-    return {"Origin": ORIGIN, "X-CSRF-Token": token}
+    # Deliberately omit Origin: this verifies the signed-CSRF API-client path.
+    return {"X-CSRF-Token": token}
 
 
 def main() -> None:
@@ -47,14 +47,12 @@ def main() -> None:
     session = requests.Session()
     session.headers.update({"Accept": "application/json", "User-Agent": "production-portfolio-e2e/1.0"})
 
-    # Authentication must be established before any portfolio access.
     response = session.get(f"{API_URL}/api/portfolio/positions", timeout=TIMEOUT)
     expect(response, 401, "unauthenticated portfolio access")
 
     response = session.post(
         f"{API_URL}/api/auth/login",
         json={"email": EMAIL, "password": PASSWORD},
-        headers={"Origin": ORIGIN},
         timeout=TIMEOUT,
     )
     user = expect(response, 200, "/api/auth/login")
@@ -67,8 +65,6 @@ def main() -> None:
         fail("/api/auth/me: authenticated email does not match TEST_EMAIL")
 
     headers = csrf_headers(session)
-
-    # Use an unusual but valid test symbol so a leftover row is easy to recognize.
     payload = {
         "symbol": "BTC/USD",
         "side": "LONG",
@@ -78,12 +74,7 @@ def main() -> None:
     }
     position_id: str | None = None
     try:
-        response = session.post(
-            f"{API_URL}/api/portfolio/positions",
-            json=payload,
-            headers=headers,
-            timeout=TIMEOUT,
-        )
+        response = session.post(f"{API_URL}/api/portfolio/positions", json=payload, headers=headers, timeout=TIMEOUT)
         created = expect(response, 201, "create portfolio position")
         position_id = created.get("id")
         if not position_id:
@@ -112,41 +103,23 @@ def main() -> None:
         if not snapshot.get("quote_timestamp"):
             fail("portfolio summary: provider quote timestamp missing")
 
-        response = session.post(
-            f"{API_URL}/api/portfolio/scenario",
-            json={"price_change_percent": 10},
-            headers=headers,
-            timeout=TIMEOUT,
-        )
+        response = session.post(f"{API_URL}/api/portfolio/scenario", json={"price_change_percent": 10}, headers=headers, timeout=TIMEOUT)
         scenario = expect(response, 200, "portfolio scenario")
         if scenario.get("affected_positions", 0) < 1:
             fail("portfolio scenario: created position was not affected")
         if scenario.get("price_change_percent") != 10:
             fail("portfolio scenario: requested shock was not preserved")
 
-        response = session.post(
-            f"{API_URL}/api/portfolio/risk-reward",
-            json={"entry_price": 100000, "stop_loss": 99000, "take_profit": 102000, "side": "LONG"},
-            headers=headers,
-            timeout=TIMEOUT,
-        )
+        response = session.post(f"{API_URL}/api/portfolio/risk-reward", json={"entry_price": 100000, "stop_loss": 99000, "take_profit": 102000, "side": "LONG"}, headers=headers, timeout=TIMEOUT)
         rr = expect(response, 200, "portfolio risk-reward")
-        if rr.get("reward_risk_ratio") != 2:
-            fail(f"portfolio risk-reward: expected ratio 2, got {rr.get('reward_risk_ratio')}")
-        if rr.get("valid") is not True:
-            fail("portfolio risk-reward: expected 2:1 setup to be valid")
+        if rr.get("reward_risk_ratio") != 2 or rr.get("valid") is not True:
+            fail("portfolio risk-reward: expected valid 2:1 setup")
 
     finally:
         if position_id:
-            response = session.delete(
-                f"{API_URL}/api/portfolio/positions/{position_id}",
-                headers=headers,
-                timeout=TIMEOUT,
-            )
+            response = session.delete(f"{API_URL}/api/portfolio/positions/{position_id}", headers=headers, timeout=TIMEOUT)
             if response.status_code != 204:
                 fail(f"delete portfolio position: expected HTTP 204, got {response.status_code}: {response.text[:300]}")
-
-            # Confirm cleanup succeeded and the test cannot leave production data behind.
             for _ in range(3):
                 response = session.get(f"{API_URL}/api/portfolio/positions", timeout=TIMEOUT)
                 positions = expect(response, 200, "verify portfolio cleanup").get("positions", [])
