@@ -343,7 +343,7 @@ async def delete_account(
 async def logout(response: Response, access_token: Annotated[str | None, Cookie(alias=SESSION_COOKIE)] = None) -> None:
     if access_token:
         try:
-            sign_out(access_token, scope="local")
+            sign_out(access_token)
         except AuthServiceError:
             pass
     _clear_auth_cookies(response)
