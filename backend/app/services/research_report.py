@@ -146,9 +146,24 @@ class ResearchReportService:
         return (current - baseline.close) / baseline.close * 100
 
     @staticmethod
-    def _score(status: MarketStatus, mtf: list[ReportTimeframe]) -> tuple[int, dict[str, float]]:
+    def _score(
+        status: MarketStatus,
+        mtf: list[ReportTimeframe],
+        fundamental: FundamentalContext | None = None,
+    ) -> tuple[int, dict[str, float]]:
+        """Return the legacy deterministic score contract.
+
+        ``fundamental`` remains accepted for backward compatibility. S2 does
+        not let preference toggles alter the scoring algorithm or its weights.
+        """
         if status.trend == "NOT_REQUESTED":
-            return 50, {"trend": 50.0, "momentum": 50.0, "regime": 50.0, "multi_timeframe": 50.0}
+            return 50, {
+                "trend": 50.0,
+                "momentum": 50.0,
+                "regime": 50.0,
+                "multi_timeframe": 50.0,
+                "fundamental": 50.0,
+            }
         trend_score = 85.0 if status.trend == "BULLISH" else 15.0 if status.trend == "BEARISH" else 50.0
         momentum_score = 85.0 if status.momentum == "BULLISH" else 15.0 if status.momentum == "BEARISH" else 50.0
         regime_score = 70.0 if "UP" in status.market_regime else 30.0 if "DOWN" in status.market_regime else 50.0
@@ -160,6 +175,7 @@ class ResearchReportService:
             "momentum": momentum_score,
             "regime": regime_score,
             "multi_timeframe": mtf_score,
+            "fundamental": 50.0,
         }
         return max(0, min(100, round(sum(components.values()) / len(components)))), components
 
@@ -225,10 +241,10 @@ class ResearchReportService:
         if config.technical_analysis_enabled and primary is not None:
             if len(primary.completed_candles) < MIN_REPORT_CANDLES:
                 raise ValueError(f"At least {MIN_REPORT_CANDLES} completed candles are required for technical research.")
-            daily_features = calculate_feature_set(primary)
-            technical_indicators = daily_features.indicators
-            trend = str(daily_features.indicators.get("trend") or "UNKNOWN")
-            momentum = self._momentum(daily_features.indicators)
+            features = calculate_feature_set(primary)
+            technical_indicators = features.indicators
+            trend = str(features.indicators.get("trend") or "UNKNOWN")
+            momentum = self._momentum(features.indicators)
             support, resistance = self._support_resistance(primary)
             primary_regime = detect_regime(primary)
             regime_snapshot = primary_regime.model_dump(mode="json")
@@ -277,7 +293,6 @@ class ResearchReportService:
                 if dataset is None:
                     continue
                 features = calculate_feature_set(dataset)
-                tf_structure = analyze_market_structure(dataset) if config.market_structure_enabled else None
                 tf_regime = detect_regime(dataset) if len(dataset.completed_candles) >= MIN_REPORT_CANDLES else None
                 tf_support, tf_resistance = self._support_resistance(dataset)
                 mtf.append(
@@ -291,7 +306,6 @@ class ResearchReportService:
                         latest_candle_timestamp=dataset.latest_completed_candle.timestamp,
                     )
                 )
-                _ = tf_structure
 
         fundamental = FundamentalContext()
         if config.fundamental_analysis_enabled or config.news_analysis_enabled:
@@ -308,7 +322,7 @@ class ResearchReportService:
             except (RuntimeError, ValueError, asyncio.TimeoutError):
                 pass
 
-        score, basis = self._score(status, mtf)
+        score, basis = self._score(status, mtf, fundamental)
         bull = [
             f"Primary trend is {status.trend.lower()}." if status.trend != "NOT_REQUESTED" else "Technical trend was not requested.",
             f"Market regime is {status.market_regime}." if status.market_regime != "NOT_REQUESTED" else "Market regime was not requested.",
