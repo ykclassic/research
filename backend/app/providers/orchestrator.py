@@ -189,7 +189,16 @@ class MarketDataOrchestrator:
 
     @staticmethod
     def _fresh_dataset(dataset: OHLCVDataset) -> bool:
-        return dataset.freshness_status in {FreshnessStatus.FRESH, FreshnessStatus.DELAYED} and bool(dataset.completed_candles)
+        """Whether a provider returned usable historical research candles.
+
+        Candle freshness is intentionally not part of this admission test.
+        A completed historical dataset can be perfectly valid for research while
+        being older than the live freshness window, especially when a market is
+        closed (for example FX over the weekend). The current quote is fetched
+        separately by the research-report service. Completeness/quality checks
+        remain enforced by each provider's validation pipeline.
+        """
+        return bool(dataset.completed_candles)
 
     @staticmethod
     def _normalized_error_code(quote: Quote) -> ProviderErrorCode:
@@ -360,7 +369,7 @@ class MarketDataOrchestrator:
                 )
                 latency_ms = int((time.perf_counter() - started) * 1000)
                 if not self._fresh_dataset(dataset):
-                    self._record_failure(provider, "Provider candle set is stale or incomplete", latency_ms, ProviderErrorCode.PROVIDER_UNAVAILABLE, "candles")
+                    self._record_failure(provider, "Provider candle set contains no completed candles", latency_ms, ProviderErrorCode.PROVIDER_UNAVAILABLE, "candles")
                     continue
                 self._record_success(provider, latency_ms, "candles")
                 dataset = dataset.model_copy(update={
