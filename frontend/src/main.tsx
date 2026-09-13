@@ -1,11 +1,6 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
 import App from "./App";
-import AIResearchTab from "./AIResearchTab";
-import NewsResearchTab from "./NewsResearchTab";
-import ResearchReportsTab from "./ResearchReportsTab";
-import ResearchHistoryTab from "./ResearchHistoryTab";
-import AlertsTab from "./AlertsTab";
 import NavigationChrome from "./NavigationChrome";
 import "./styles.css";
 import "./phase-pages.css";
@@ -23,10 +18,5 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
     <App />
     <NavigationChrome />
-    <AIResearchTab />
-    <NewsResearchTab />
-    <ResearchReportsTab />
-    <ResearchHistoryTab />
-    <AlertsTab />
   </React.StrictMode>,
 );

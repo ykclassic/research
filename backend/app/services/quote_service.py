@@ -1,17 +1,38 @@
-from app.models import Quote
+import asyncio
+
+from app.models import Quote, QuoteStatus
 from app.providers.orchestrator import MarketDataOrchestrator, market_data
+from app.services.forex_quote_fallback import get_forex_quote
+from app.services.resilient_market_data import ResilientMarketDataOrchestrator
+from app.symbols import normalize_symbol
 
 
 class QuoteService:
     def __init__(self, orchestrator: MarketDataOrchestrator | None = None) -> None:
-        self.orchestrator = orchestrator or market_data
+        self.orchestrator = ResilientMarketDataOrchestrator(orchestrator or market_data)
         # Compatibility seam: existing tests and internal callers can inject a
         # provider-shaped object while the production boundary remains the
-        # orchestrator.
+        # orchestrator proxy.
         self.provider = self.orchestrator
 
     async def get_quote(self, symbol: str, force_refresh: bool = False, excluded_providers: set[str] | None = None) -> Quote:
-        return await self.orchestrator.get_quote(symbol, force_refresh=force_refresh, excluded_providers=excluded_providers)
+        quote = await self.orchestrator.get_quote(symbol, force_refresh=force_refresh, excluded_providers=excluded_providers)
+        if quote.status == QuoteStatus.UNAVAILABLE and normalize_symbol(symbol).asset_class == "forex":
+            fallback = await get_forex_quote(symbol)
+            if fallback is not None:
+                return fallback
+        return quote
 
     async def get_quotes(self, symbols: list[str], force_refresh: bool = False) -> list[Quote]:
-        return await self.orchestrator.get_quotes(symbols, force_refresh=force_refresh)
+        quotes = await self.orchestrator.get_quotes(symbols, force_refresh=force_refresh)
+        forex_indexes = [
+            index for index, quote in enumerate(quotes)
+            if quote.status == QuoteStatus.UNAVAILABLE and normalize_symbol(quote.symbol).asset_class == "forex"
+        ]
+        if not forex_indexes:
+            return quotes
+        fallbacks = await asyncio.gather(*(get_forex_quote(quotes[index].symbol) for index in forex_indexes))
+        for index, fallback in zip(forex_indexes, fallbacks):
+            if fallback is not None:
+                quotes[index] = fallback
+        return quotes
