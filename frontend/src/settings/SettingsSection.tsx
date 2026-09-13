@@ -9,7 +9,7 @@ export interface SettingsSectionProps {
   tone?: "default" | "danger";
 }
 
-export default function SettingsSection({ title, description, icon: Icon, children, tone = "default" }: SettingsSectionProps) {
+export function SettingsSection({ title, description, icon: Icon, children, tone = "default" }: SettingsSectionProps) {
   return <section className={`settings-section ${tone === "danger" ? "settings-section-danger" : ""}`}>
     <div className="settings-section-heading">
       <div className="settings-section-icon"><Icon size={18} /></div>
@@ -18,6 +18,8 @@ export default function SettingsSection({ title, description, icon: Icon, childr
     <div className="settings-section-body">{children}</div>
   </section>;
 }
+
+export default SettingsSection;
 
 export function SettingField({ label, description, children }: { label: string; description?: string; children: ReactNode }) {
   return <div className="setting-field"><div className="setting-field-copy"><strong>{label}</strong>{description && <span>{description}</span>}</div><div className="setting-field-control">{children}</div></div>;
