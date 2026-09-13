@@ -82,6 +82,8 @@
 .settings-data-action strong, .settings-data-action span { display:block; }
 .settings-data-action strong { color:#dbe8f7; margin-bottom:3px; }
 .settings-system-grid { display:grid; grid-template-columns:1fr 1fr; gap:8px; width:100%; }
+.settings-info-note { display:grid; gap:4px; margin-top:14px; padding:11px 12px; border:1px solid rgba(111,231,255,.1); border-radius:10px; background:rgba(111,231,255,.035); color:#7e93ac; font-size:10px; line-height:1.55; }
+.settings-info-note strong { color:#b8eaf4; font-size:10px; }
 .settings-save-bar { position:fixed; left:272px; right:0; bottom:0; z-index:1050; display:flex; align-items:center; justify-content:space-between; gap:15px; padding:11px 24px; border-top:1px solid rgba(255,255,255,.08); background:rgba(7,12,20,.96); backdrop-filter:blur(18px); transition:left .2s ease; }
 body.sidebar-collapsed .settings-save-bar { left:76px; }
 .settings-save-status { display:flex; align-items:center; gap:7px; min-width:0; color:#7288a2; font-size:10px; }
