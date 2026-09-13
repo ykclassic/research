@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import time
 from datetime import datetime, timezone
 
@@ -20,10 +21,18 @@ class KrakenPublicProvider(MarketDataProvider):
     native 15-minute, 1-hour, 4-hour, and daily OHLC intervals. The endpoint
     always includes the currently forming candle, so this provider explicitly
     removes incomplete candles before returning a dataset.
+
+    Kraken currently recommends keeping public REST market-data calls at one
+    request per second or slower. The provider therefore serializes all public
+    requests made by this instance and enforces a small safety margin. This is
+    important because research reports request four OHLC timeframes for the same
+    asset concurrently.
     """
 
     name = "kraken_public"
     base_url = "https://api.kraken.com/0/public"
+    REQUEST_INTERVAL_SECONDS = 1.05
+    MAX_RETRIES = 2
 
     _intervals = {
         Timeframe.MINUTE_15: 15,
@@ -37,6 +46,10 @@ class KrakenPublicProvider(MarketDataProvider):
         "ETH/USD": "ETHUSD",
         "SOL/USD": "SOLUSD",
     }
+
+    def __init__(self) -> None:
+        self._request_lock = asyncio.Lock()
+        self._last_request_at = 0.0
 
     @property
     def configured(self) -> bool:
@@ -56,6 +69,65 @@ class KrakenPublicProvider(MarketDataProvider):
                 return value
         raise ValueError(f"Kraken returned no OHLC rows for {pair}.")
 
+    @staticmethod
+    def _is_rate_limit_error(errors: object) -> bool:
+        if not isinstance(errors, list):
+            return False
+        return any("rate limit" in str(error).lower() for error in errors)
+
+    @staticmethod
+    def _retry_after_seconds(response: httpx.Response, attempt: int) -> float:
+        header = response.headers.get("Retry-After")
+        if header:
+            try:
+                return max(1.0, min(float(header), 10.0))
+            except ValueError:
+                pass
+        return min(2.0 * (attempt + 1), 5.0)
+
+    async def _request_json(self, endpoint: str, params: dict[str, str], timeout_seconds: float) -> dict:
+        async with self._request_lock:
+            for attempt in range(self.MAX_RETRIES + 1):
+                wait = self.REQUEST_INTERVAL_SECONDS - (time.monotonic() - self._last_request_at)
+                if wait > 0:
+                    await asyncio.sleep(wait)
+
+                try:
+                    async with httpx.AsyncClient(timeout=httpx.Timeout(timeout_seconds)) as client:
+                        response = await client.get(f"{self.base_url}/{endpoint}", params=params)
+                    self._last_request_at = time.monotonic()
+
+                    if response.status_code == 429:
+                        if attempt < self.MAX_RETRIES:
+                            await asyncio.sleep(self._retry_after_seconds(response, attempt))
+                            continue
+                        response.raise_for_status()
+
+                    if response.status_code >= 500 and attempt < self.MAX_RETRIES:
+                        await asyncio.sleep(min(2.0 * (attempt + 1), 5.0))
+                        continue
+
+                    response.raise_for_status()
+                    payload = response.json()
+                    if not isinstance(payload, dict):
+                        raise ValueError("Kraken returned an invalid JSON payload.")
+
+                    errors = payload.get("error")
+                    if errors:
+                        if self._is_rate_limit_error(errors) and attempt < self.MAX_RETRIES:
+                            await asyncio.sleep(min(2.0 * (attempt + 1), 5.0))
+                            continue
+                        raise ValueError(f"Kraken API error: {errors}")
+                    return payload
+                except (httpx.TimeoutException, httpx.NetworkError):
+                    if attempt >= self.MAX_RETRIES:
+                        raise
+                    await asyncio.sleep(min(2.0 * (attempt + 1), 5.0))
+                except httpx.HTTPStatusError:
+                    raise
+
+        raise RuntimeError("Kraken request failed after all retry attempts.")
+
     def _provider_pair(self, internal_symbol: str) -> str:
         mapping = normalize_symbol(internal_symbol)
         if mapping.asset_class != "crypto":
@@ -69,15 +141,10 @@ class KrakenPublicProvider(MarketDataProvider):
         mapping = normalize_symbol(internal_symbol)
         pair = self._provider_pair(internal_symbol)
         started = time.perf_counter()
-        async with httpx.AsyncClient(timeout=httpx.Timeout(8.0)) as client:
-            response = await client.get(f"{self.base_url}/Ticker", params={"pair": pair})
-        response.raise_for_status()
-        payload = response.json()
-        if payload.get("error"):
-            raise ValueError(f"Kraken ticker error: {payload['error']}")
+        payload = await self._request_json("Ticker", {"pair": pair}, timeout_seconds=8.0)
         result = payload.get("result")
         if not isinstance(result, dict):
-            raise ValueError("Kraken returned an invalid ticker response.")
+            raise ValueError("Kraken returned no ticker result.")
         row = next((value for value in result.values() if isinstance(value, dict)), None)
         if row is None:
             raise ValueError("Kraken returned no ticker data.")
@@ -126,12 +193,7 @@ class KrakenPublicProvider(MarketDataProvider):
         if start_date is not None:
             params["since"] = str(int(start_date.timestamp()))
 
-        async with httpx.AsyncClient(timeout=httpx.Timeout(10.0)) as client:
-            response = await client.get(f"{self.base_url}/OHLC", params=params)
-        response.raise_for_status()
-        payload = response.json()
-        if payload.get("error"):
-            raise ValueError(f"Kraken OHLC error: {payload['error']}")
+        payload = await self._request_json("OHLC", params, timeout_seconds=10.0)
         result = payload.get("result")
         if not isinstance(result, dict):
             raise ValueError("Kraken returned an invalid OHLC response.")
