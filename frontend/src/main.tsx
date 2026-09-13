@@ -13,6 +13,7 @@ import "./research-history.css";
 import "./research-history-tab.css";
 import "./alerts.css";
 import "./navigation.css";
+import "./settings.css";
 
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
