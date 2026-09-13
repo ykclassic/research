@@ -87,12 +87,14 @@ def _confidence(regime: MarketRegime, evidence: RegimeEvidence, thresholds: Regi
 
 
 def detect_regime(dataset: OHLCVDataset, thresholds: RegimeThresholds = DEFAULT_THRESHOLDS) -> MarketRegimeResult:
-    """Classify only completed candles; ignore an in-progress latest candle."""
+    """Classify completed candles using deterministic, auditable rules."""
+    if not dataset.latest_candle.is_complete:
+        raise ValueError("Regime detection requires completed candles only.")
     completed = list(dataset.completed_candles)
     if len(completed) < MINIMUM_CANDLES:
         raise ValueError(f"At least {MINIMUM_CANDLES} completed candles are required for regime detection.")
-    if not completed:
-        raise ValueError("Regime detection requires at least one completed candle.")
+    if len(completed) != len(dataset.candles):
+        raise ValueError("Regime detection requires completed candles only.")
 
     indicators = calculate_indicators(completed)
     closes = [c.close for c in completed]
@@ -117,7 +119,7 @@ def detect_regime(dataset: OHLCVDataset, thresholds: RegimeThresholds = DEFAULT_
         ema_50=ema50,
         ema_200=ema200,
         price_above_ema_200=price_above_ema200,
-        ema_50_above_ema_200=ema50_above_ema200,
+        ema_50_above_ema200=ema50_above_ema200,
         adx=adx,
         atr=atr,
         atr_percent=atr_percent,
