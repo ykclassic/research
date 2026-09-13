@@ -24,6 +24,7 @@ class ResilientMarketDataOrchestrator:
         *,
         start_date=None,
         end_date=None,
+        excluded_providers: set[str] | None = None,
     ) -> OHLCVDataset:
         try:
             return await self._delegate.get_candles(
@@ -32,6 +33,7 @@ class ResilientMarketDataOrchestrator:
                 limit,
                 start_date=start_date,
                 end_date=end_date,
+                excluded_providers=excluded_providers,
             )
         except (RuntimeError, asyncio.TimeoutError) as first_error:
             # Historical-range requests must remain deterministic and must not
@@ -40,7 +42,12 @@ class ResilientMarketDataOrchestrator:
                 raise
             recovery = MarketDataOrchestrator()
             try:
-                return await recovery.get_candles(symbol, timeframe, limit)
+                return await recovery.get_candles(
+                    symbol,
+                    timeframe,
+                    limit,
+                    excluded_providers=excluded_providers,
+                )
             except Exception as recovery_error:
                 raise first_error from recovery_error
 
