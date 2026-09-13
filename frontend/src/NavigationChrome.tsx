@@ -1,8 +1,11 @@
 import { useEffect, useState } from "react";
-import { BarChart3, Bell, BrainCircuit, ChevronRight, FileText, History, LayoutDashboard, List, Menu, Network, Settings, ShieldCheck, X, LogOut, Newspaper, PanelLeftClose, PanelLeftOpen } from "lucide-react";
+import { BarChart3, Bell, BrainCircuit, ChevronRight, FileText, History, LayoutDashboard, List, Menu, Network, Settings, ShieldCheck, X, LogOut, Newspaper, PanelLeftClose, PanelLeftOpen, type LucideIcon } from "lucide-react";
 import { getCurrentUser, logout, User } from "./api";
 
-const GROUPS = [
+type NavItem = { label: string; page: string; route: string; icon: LucideIcon };
+type NavGroup = { label: string; items: readonly NavItem[] };
+
+const GROUPS: readonly NavGroup[] = [
   { label: "Overview", items: [{ label: "Dashboard", page: "market", route: "/dashboard", icon: LayoutDashboard }] },
   { label: "Markets", items: [{ label: "Watchlists", page: "watchlists", route: "/markets/watchlists", icon: List }] },
   { label: "Analysis", items: [
@@ -19,9 +22,8 @@ const GROUPS = [
   ] },
   { label: "Monitoring", items: [{ label: "Alerts & Monitoring", page: "alerts", route: "/monitoring/alerts", icon: Bell }] },
   { label: "System", items: [{ label: "Settings", page: "settings", route: "/settings", icon: Settings }] },
-] as const;
+];
 
-type NavItem = (typeof GROUPS)[number]["items"][number];
 const pageByPath = new Map(GROUPS.flatMap(group => group.items.map(item => [item.route, item.page] as const)));
 
 function currentPage(): string {
