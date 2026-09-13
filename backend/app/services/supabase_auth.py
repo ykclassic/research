@@ -159,12 +159,33 @@ def get_user(access_token: str) -> dict[str, Any]:
     return response.json()
 
 
-def sign_out(access_token: str) -> None:
+def sign_out(access_token: str, scope: str = "local") -> None:
+    if scope not in {"local", "global", "others"}:
+        raise ValueError("Invalid sign-out scope.")
     base_url, _ = _require_config()
     try:
         response = httpx.post(
             f"{base_url}/auth/v1/logout",
+            params={"scope": scope},
             headers={**_headers(), "Authorization": f"Bearer {access_token}"},
+            timeout=settings.http_timeout_seconds,
+        )
+    except httpx.RequestError as exc:
+        raise AuthUnavailableError("Authentication service is unavailable.") from exc
+    if response.status_code >= 400:
+        _raise_auth_error(response)
+
+
+def delete_user_account(access_token: str) -> None:
+    """Delete the authenticated user's account through the RLS-protected RPC."""
+    if not access_token.strip():
+        raise AuthInvalidCredentialsError("Authentication required.")
+    base_url, _ = _require_config()
+    try:
+        response = httpx.post(
+            f"{base_url}/rest/v1/rpc/delete_my_account",
+            headers={**_headers(), "Authorization": f"Bearer {access_token}"},
+            json={},
             timeout=settings.http_timeout_seconds,
         )
     except httpx.RequestError as exc:
