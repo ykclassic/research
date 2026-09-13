@@ -4,7 +4,7 @@ import asyncio
 from datetime import datetime, timedelta, timezone
 
 from app.config import settings
-from app.models.market import Timeframe
+from app.models.market import OHLCVDataset, Timeframe
 from app.models.research_report import FundamentalContext, MarketStatus, ReportTimeframe, ResearchReport, SMCStructure
 from app.services.feature_engine import calculate_feature_set
 from app.services.market_structure import analyze_market_structure
@@ -25,6 +25,19 @@ class ResearchReportService:
     async def _dataset(self, symbol: str, timeframe: Timeframe, limit: int = 300):
         mapping = normalize_symbol(symbol)
         return await asyncio.wait_for(self.quote_service.orchestrator.get_candles(mapping.internal, timeframe, limit), timeout=settings.analysis_timeout_seconds)
+
+    @staticmethod
+    def _completed_dataset(dataset: OHLCVDataset) -> OHLCVDataset:
+        """Create the research snapshot from completed candles only.
+
+        Providers may legitimately return the currently-forming candle. Research
+        reports must never pass that candle into regime detection or other
+        deterministic research calculations that require closed bars.
+        """
+        completed = dataset.completed_candles
+        if not completed:
+            raise ValueError(f"No completed candles are available for {dataset.symbol} {dataset.timeframe.value}.")
+        return dataset.model_copy(update={"candles": completed})
 
     @staticmethod
     def _support_resistance(candles) -> tuple[float | None, float | None]:
@@ -81,10 +94,16 @@ class ResearchReportService:
 
     async def generate(self, symbol: str) -> ResearchReport:
         symbol = normalize_symbol(symbol).internal
-        datasets = await asyncio.gather(*(self._dataset(symbol, tf, 300) for tf in REPORT_TIMEFRAMES))
+        raw_datasets = await asyncio.gather(*(self._dataset(symbol, tf, 300) for tf in REPORT_TIMEFRAMES))
+        # The provider response can contain a still-forming latest candle. Build
+        # the report from a completed-candle snapshot so every deterministic
+        # calculation observes the same closed-bar contract as regime detection.
+        datasets = [self._completed_dataset(dataset) for dataset in raw_datasets]
         current_quote = await self.quote_service.get_quote(symbol, force_refresh=True)
         if current_quote.price is None: raise RuntimeError("Current quote is unavailable; report cannot present a current price.")
         daily, h1 = datasets[0], datasets[2]
+        if len(daily.completed_candles) < MIN_REPORT_CANDLES:
+            raise ValueError(f"At least {MIN_REPORT_CANDLES} completed candles are required for the research report.")
         daily_features = calculate_feature_set(daily); daily_structure = analyze_market_structure(daily); regime = detect_regime(daily)
         support, resistance = self._support_resistance(daily); momentum = self._momentum(daily_features.indicators); trend = str(daily_features.indicators.get("trend") or "UNKNOWN")
         status = MarketStatus(
