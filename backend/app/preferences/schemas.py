@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Literal
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 
 AssetClass = Literal["Crypto", "Forex", "Stocks"]
@@ -28,6 +28,18 @@ class ResearchPreferences(BaseModel):
     fundamental_analysis_enabled: bool
     news_analysis_enabled: bool
     ai_interpretation_enabled: bool
+
+    @field_validator("default_asset")
+    @classmethod
+    def normalize_default_asset(cls, value: str) -> str:
+        return value.strip().upper()
+
+    @model_validator(mode="after")
+    def validate_default_asset_class(self) -> "ResearchPreferences":
+        # Keep persistence validation independent of the symbol registry. The
+        # research resolver performs the authoritative registry check when a
+        # request is executed, while this model rejects obviously empty values.
+        return self
 
 
 class SignalPreferences(BaseModel):

@@ -5,45 +5,50 @@ from datetime import datetime, timedelta, timezone
 
 from app.config import settings
 from app.models.market import OHLCVDataset, Timeframe
-from app.models.research_report import FundamentalContext, MarketStatus, ReportTimeframe, ResearchReport, SMCStructure
+from app.models.research_report import (
+    FundamentalContext,
+    MarketStatus,
+    ReportTimeframe,
+    ResearchReport,
+    ResearchRequestConfiguration,
+    SMCStructure,
+)
 from app.providers.kraken_public import KrakenPublicProvider
 from app.services.feature_engine import calculate_feature_set
 from app.services.market_structure import analyze_market_structure
 from app.services.news_research_resilient import ResilientNewsResearchService
 from app.services.regime_detection import detect_regime
 from app.services.quote_service import QuoteService
+from app.services.research_preferences import ResearchRequestConfiguration as ResolvedResearchConfiguration
 from app.symbols import normalize_symbol
 
 REPORT_TIMEFRAMES = (Timeframe.DAY_1, Timeframe.HOUR_4, Timeframe.HOUR_1, Timeframe.MINUTE_15)
+TIMEFRAME_BY_PREFERENCE = {
+    "15m": Timeframe.MINUTE_15,
+    "1h": Timeframe.HOUR_1,
+    "4h": Timeframe.HOUR_4,
+    "1D": Timeframe.DAY_1,
+}
 MIN_REPORT_CANDLES = 220
 
 
 class ResearchReportService:
     def __init__(self) -> None:
         self.quote_service = QuoteService()
-        # Crypto reports use Kraken's credential-free public market data first.
-        # The paid-provider orchestrator remains the secondary fallback.
         self.kraken_public = KrakenPublicProvider()
-        # News is enrichment, not a hard dependency for deterministic reports.
-        # Use the resilient service so one failed Finnhub feed cannot abort the
-        # entire research report.
         self.news_service = ResilientNewsResearchService()
 
-    async def _dataset(self, symbol: str, timeframe: Timeframe, limit: int = 300):
+    async def _dataset(self, symbol: str, timeframe: Timeframe, limit: int):
         mapping = normalize_symbol(symbol)
         timeout = max(settings.analysis_timeout_seconds, settings.provider_timeout_seconds * 7)
 
         if mapping.asset_class == "crypto":
             try:
-                # Kraken provides the exact report hierarchy without consuming
-                # Twelve Data/Finnhub/Alpha Vantage candle quota.
                 return await asyncio.wait_for(
                     self.kraken_public.get_candles(mapping.internal, timeframe, limit),
                     timeout=settings.analysis_timeout_seconds,
                 )
             except Exception as primary_error:
-                # Preserve the existing multi-provider orchestrator as a true
-                # secondary path if Kraken is temporarily unavailable.
                 try:
                     return await asyncio.wait_for(
                         self.quote_service.orchestrator.get_candles(mapping.internal, timeframe, limit),
@@ -64,8 +69,6 @@ class ResearchReportService:
         mapping = normalize_symbol(symbol)
         if mapping.asset_class == "crypto":
             try:
-                # The report must have a genuinely current crypto price even
-                # when the quota-limited provider pool is exhausted.
                 return await asyncio.wait_for(
                     self.kraken_public.get_quote(mapping.internal),
                     timeout=settings.analysis_timeout_seconds,
@@ -82,12 +85,6 @@ class ResearchReportService:
 
     @staticmethod
     def _completed_dataset(dataset: OHLCVDataset) -> OHLCVDataset:
-        """Create the research snapshot from completed candles only.
-
-        Providers may legitimately return the currently-forming candle. Research
-        reports must never pass that candle into regime detection or other
-        deterministic research calculations that require closed bars.
-        """
         completed = dataset.completed_candles
         if not completed:
             raise ValueError(f"No completed candles are available for {dataset.symbol} {dataset.timeframe.value}.")
@@ -138,8 +135,8 @@ class ResearchReportService:
         )
 
     @staticmethod
-    def _change_24h(h1_dataset, current: float) -> float | None:
-        completed = list(h1_dataset.completed_candles)
+    def _change_24h(dataset: OHLCVDataset, current: float) -> float | None:
+        completed = list(dataset.completed_candles)
         if not completed or current <= 0:
             return None
         target = completed[-1].timestamp - timedelta(hours=24)
@@ -149,13 +146,30 @@ class ResearchReportService:
         return (current - baseline.close) / baseline.close * 100
 
     @staticmethod
-    def _score(status: MarketStatus, mtf: list[ReportTimeframe], fundamental: FundamentalContext) -> tuple[int, dict[str, float]]:
+    def _score(
+        status: MarketStatus,
+        mtf: list[ReportTimeframe],
+        fundamental: FundamentalContext | None = None,
+    ) -> tuple[int, dict[str, float]]:
+        """Return the legacy deterministic score contract.
+
+        ``fundamental`` remains accepted for backward compatibility. S2 does
+        not let preference toggles alter the scoring algorithm or its weights.
+        """
+        if status.trend == "NOT_REQUESTED":
+            return 50, {
+                "trend": 50.0,
+                "momentum": 50.0,
+                "regime": 50.0,
+                "multi_timeframe": 50.0,
+                "fundamental": 50.0,
+            }
         trend_score = 85.0 if status.trend == "BULLISH" else 15.0 if status.trend == "BEARISH" else 50.0
         momentum_score = 85.0 if status.momentum == "BULLISH" else 15.0 if status.momentum == "BEARISH" else 50.0
         regime_score = 70.0 if "UP" in status.market_regime else 30.0 if "DOWN" in status.market_regime else 50.0
         mtf_bull = sum(item.trend == "BULLISH" for item in mtf)
         mtf_bear = sum(item.trend == "BEARISH" for item in mtf)
-        mtf_score = 50.0 + 40.0 * ((mtf_bull - mtf_bear) / max(1, len(mtf)))
+        mtf_score = 50.0 + 40.0 * ((mtf_bull - mtf_bear) / max(1, len(mtf))) if mtf else 50.0
         components = {
             "trend": trend_score,
             "momentum": momentum_score,
@@ -165,88 +179,157 @@ class ResearchReportService:
         }
         return max(0, min(100, round(sum(components.values()) / len(components)))), components
 
-    async def generate(self, symbol: str) -> ResearchReport:
-        symbol = normalize_symbol(symbol).internal
-        raw_datasets = await asyncio.gather(*(self._dataset(symbol, tf, 300) for tf in REPORT_TIMEFRAMES))
-        # The provider response can contain a still-forming latest candle. Build
-        # the report from a completed-candle snapshot so every deterministic
-        # calculation observes the same closed-bar contract as regime detection.
-        datasets = [self._completed_dataset(dataset) for dataset in raw_datasets]
+    @staticmethod
+    def _configuration_model(config: ResolvedResearchConfiguration) -> ResearchRequestConfiguration:
+        return ResearchRequestConfiguration(
+            default_asset=config.default_asset,
+            default_asset_class=config.default_asset_class,
+            default_timeframe=config.default_timeframe,
+            analysis_depth=config.analysis_depth,
+            **config.requested_components,
+        )
+
+    async def generate(
+        self,
+        symbol: str | None = None,
+        configuration: ResolvedResearchConfiguration | None = None,
+    ) -> ResearchReport:
+        config = configuration or ResolvedResearchConfiguration(
+            default_asset="BTC/USD",
+            default_asset_class="Crypto",
+            default_timeframe="1h",
+            analysis_depth="Standard",
+            technical_analysis_enabled=True,
+            market_structure_enabled=True,
+            multi_timeframe_enabled=True,
+            fundamental_analysis_enabled=True,
+            news_analysis_enabled=True,
+            ai_interpretation_enabled=True,
+        )
+        requested_symbol = config.default_asset if not symbol or not symbol.strip() else symbol
+        symbol = normalize_symbol(requested_symbol).internal
+        primary_timeframe = TIMEFRAME_BY_PREFERENCE[config.primary_timeframe()]
+
+        required_timeframes: list[Timeframe] = []
+        if config.technical_analysis_enabled or config.market_structure_enabled or config.multi_timeframe_enabled:
+            if config.multi_timeframe_enabled:
+                required_timeframes = list(REPORT_TIMEFRAMES)
+                if primary_timeframe not in required_timeframes:
+                    required_timeframes.append(primary_timeframe)
+            else:
+                required_timeframes = [primary_timeframe]
+
+        raw_datasets = await asyncio.gather(
+            *(self._dataset(symbol, timeframe, config.data_limit) for timeframe in required_timeframes)
+        )
+        datasets = {dataset.timeframe: self._completed_dataset(dataset) for dataset in raw_datasets}
         current_quote = await self._current_quote(symbol)
         if current_quote.price is None:
             raise RuntimeError("Current quote is unavailable; report cannot present a current price.")
 
-        daily, h1 = datasets[0], datasets[2]
-        if len(daily.completed_candles) < MIN_REPORT_CANDLES:
-            raise ValueError(f"At least {MIN_REPORT_CANDLES} completed candles are required for the research report.")
+        primary = datasets.get(primary_timeframe)
+        technical_indicators: dict[str, object] = {}
+        regime_snapshot: dict[str, object] = {}
+        structure_label = "NOT_REQUESTED"
+        trend = "NOT_REQUESTED"
+        momentum = "NOT_REQUESTED"
+        support = None
+        resistance = None
+        primary_structure = None
+        primary_regime = None
 
-        daily_features = calculate_feature_set(daily)
-        daily_structure = analyze_market_structure(daily)
-        regime = detect_regime(daily)
-        support, resistance = self._support_resistance(daily)
-        momentum = self._momentum(daily_features.indicators)
-        trend = str(daily_features.indicators.get("trend") or "UNKNOWN")
+        if config.technical_analysis_enabled and primary is not None:
+            if len(primary.completed_candles) < MIN_REPORT_CANDLES:
+                raise ValueError(f"At least {MIN_REPORT_CANDLES} completed candles are required for technical research.")
+            features = calculate_feature_set(primary)
+            technical_indicators = features.indicators
+            trend = str(features.indicators.get("trend") or "UNKNOWN")
+            momentum = self._momentum(features.indicators)
+            support, resistance = self._support_resistance(primary)
+            primary_regime = detect_regime(primary)
+            regime_snapshot = primary_regime.model_dump(mode="json")
+
+        if config.market_structure_enabled and primary is not None:
+            primary_structure = analyze_market_structure(primary)
+            structure_label = self._structure_label(primary_structure.events)
+            if not config.technical_analysis_enabled:
+                support, resistance = self._support_resistance(primary)
+
+        if config.technical_analysis_enabled and primary_regime is None and primary is not None:
+            primary_regime = detect_regime(primary)
+            regime_snapshot = primary_regime.model_dump(mode="json")
+
+        market_regime = primary_regime.regime.value if primary_regime is not None else "NOT_REQUESTED"
+        volatility = None
+        if config.technical_analysis_enabled:
+            atr = technical_indicators.get("atr14")
+            if isinstance(atr, (int, float)) and current_quote.price > 0:
+                volatility = float(atr) / current_quote.price * 100
+
+        status_dataset = primary or next(iter(datasets.values()), None)
+        change_24h = self._change_24h(status_dataset, current_quote.price) if status_dataset else None
+        volume = (
+            getattr(current_quote, "volume", None)
+            if getattr(current_quote, "volume", None) is not None
+            else status_dataset.completed_candles[-1].volume if status_dataset else None
+        )
         status = MarketStatus(
             current_price=current_quote.price,
-            change_24h_percent=self._change_24h(h1, current_quote.price),
-            volume=(
-                getattr(current_quote, "volume", None)
-                if getattr(current_quote, "volume", None) is not None
-                else daily.completed_candles[-1].volume
-            ),
-            volatility_percent=(
-                daily_features.indicators.get("atr14") / current_quote.price * 100
-                if isinstance(daily_features.indicators.get("atr14"), float)
-                else None
-            ),
-            technical_structure=self._structure_label(daily_structure.events),
+            change_24h_percent=change_24h,
+            volume=volume,
+            volatility_percent=volatility,
+            technical_structure=structure_label,
             trend=trend,
             momentum=momentum,
             support=support,
             resistance=resistance,
-            market_regime=regime.regime.value,
+            market_regime=market_regime,
         )
 
         mtf: list[ReportTimeframe] = []
-        for dataset in datasets:
-            features = calculate_feature_set(dataset)
-            structure = analyze_market_structure(dataset)
-            tf_regime = detect_regime(dataset) if len(dataset.completed_candles) >= MIN_REPORT_CANDLES else None
-            tf_support, tf_resistance = self._support_resistance(dataset)
-            mtf.append(
-                ReportTimeframe(
-                    timeframe=dataset.timeframe.value,
-                    trend=str(features.indicators.get("trend") or "UNKNOWN"),
-                    momentum=self._momentum(features.indicators),
-                    support=tf_support,
-                    resistance=tf_resistance,
-                    regime=tf_regime.regime.value if tf_regime else "UNKNOWN",
-                    latest_candle_timestamp=dataset.latest_completed_candle.timestamp,
+        if config.multi_timeframe_enabled:
+            for timeframe in REPORT_TIMEFRAMES:
+                dataset = datasets.get(timeframe)
+                if dataset is None:
+                    continue
+                features = calculate_feature_set(dataset)
+                tf_regime = detect_regime(dataset) if len(dataset.completed_candles) >= MIN_REPORT_CANDLES else None
+                tf_support, tf_resistance = self._support_resistance(dataset)
+                mtf.append(
+                    ReportTimeframe(
+                        timeframe=dataset.timeframe.value,
+                        trend=str(features.indicators.get("trend") or "UNKNOWN"),
+                        momentum=self._momentum(features.indicators),
+                        support=tf_support,
+                        resistance=tf_resistance,
+                        regime=tf_regime.regime.value if tf_regime else "UNKNOWN",
+                        latest_candle_timestamp=dataset.latest_completed_candle.timestamp,
+                    )
                 )
-            )
-            _ = structure
 
-        try:
-            news = await self.news_service.research(symbol=symbol, days=1, limit=12)
-            fundamental = FundamentalContext(
-                news_count=len(news.news),
-                macro_count=sum(e.event_type.value == "MACRO" for e in news.fundamental_events),
-                event_count=len(news.fundamental_events),
-                headlines=[item.headline for item in news.news[:5]],
-            )
-        except (RuntimeError, ValueError, asyncio.TimeoutError):
-            # Fundamental/news context is enrichment. Market-data-backed report
-            # generation must remain available when the news provider is degraded.
-            fundamental = FundamentalContext()
+        fundamental = FundamentalContext()
+        if config.fundamental_analysis_enabled or config.news_analysis_enabled:
+            try:
+                news = await self.news_service.research(symbol=symbol, days=1, limit=12)
+                fundamental = FundamentalContext(
+                    news_count=len(news.news) if config.news_analysis_enabled else 0,
+                    macro_count=sum(e.event_type.value == "MACRO" for e in news.fundamental_events)
+                    if config.fundamental_analysis_enabled
+                    else 0,
+                    event_count=len(news.fundamental_events) if config.fundamental_analysis_enabled else 0,
+                    headlines=[item.headline for item in news.news[:5]] if config.news_analysis_enabled else [],
+                )
+            except (RuntimeError, ValueError, asyncio.TimeoutError):
+                pass
 
         score, basis = self._score(status, mtf, fundamental)
         bull = [
-            f"Daily trend is {status.trend.lower()}.",
-            f"Market regime is {status.market_regime}.",
-            f"{sum(x.trend == 'BULLISH' for x in mtf)}/{len(mtf)} timeframes are bullish.",
+            f"Primary trend is {status.trend.lower()}." if status.trend != "NOT_REQUESTED" else "Technical trend was not requested.",
+            f"Market regime is {status.market_regime}." if status.market_regime != "NOT_REQUESTED" else "Market regime was not requested.",
+            f"{sum(x.trend == 'BULLISH' for x in mtf)}/{len(mtf)} timeframes are bullish." if mtf else "Multi-timeframe analysis was not requested.",
         ]
         bear = [
-            f"Daily momentum is {status.momentum.lower()}.",
+            f"Primary momentum is {status.momentum.lower()}." if status.momentum != "NOT_REQUESTED" else "Technical momentum was not requested.",
             f"Resistance is near {resistance:.6g}." if resistance else "Resistance is unavailable.",
             "A regime transition or structural break would weaken the thesis.",
         ]
@@ -256,24 +339,26 @@ class ResearchReportService:
             "The research score is deterministic and is not a probability of profit.",
         ]
         invalidation = [
-            f"Bull thesis invalidation: sustained price below support {support:.6g}."
-            if support
-            else "Bull thesis invalidation: loss of the latest validated support.",
+            f"Bull thesis invalidation: sustained price below support {support:.6g}." if support else "Bull thesis invalidation: loss of the latest validated support.",
             "Bear thesis invalidation: confirmed bullish structure break above resistance.",
         ]
-        interpretation = (
-            f"{symbol} currently has a {status.trend.lower()} technical trend, "
-            f"{status.momentum.lower()} momentum, and a {status.market_regime} regime. "
-            "The report combines deterministic market structure, multi-timeframe evidence, "
-            "and available fundamental context; it does not infer causation from headlines."
-        )
+        interpretation = None
+        if config.ai_interpretation_enabled:
+            interpretation = (
+                f"{symbol} currently has a {status.trend.lower()} technical trend, "
+                f"{status.momentum.lower()} momentum, and a {status.market_regime} regime. "
+                "The interpretation is assembled from the requested deterministic evidence and "
+                "does not infer causation from headlines."
+            )
+
         return ResearchReport(
             symbol=symbol,
             generated_at=datetime.now(timezone.utc),
+            request_configuration=self._configuration_model(config),
             market_status=status,
-            indicators=daily_features.indicators,
-            regime_snapshot=regime.model_dump(mode="json"),
-            smc_structure=self._smc(daily_structure.events),
+            indicators=technical_indicators,
+            regime_snapshot=regime_snapshot,
+            smc_structure=self._smc(primary_structure.events) if primary_structure else SMCStructure(),
             multi_timeframe=mtf,
             fundamental_context=fundamental,
             ai_interpretation=interpretation,

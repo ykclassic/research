@@ -75,6 +75,8 @@ async def update_preferences(
     try:
         record = preferences_service.update(_access_token(access_token), user.id, payload)
         return _response(record)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     except PreferencesRepositoryError as exc:
         raise _map_error(exc) from exc
 
@@ -87,6 +89,8 @@ async def reset_preferences(
     try:
         record = preferences_service.reset(_access_token(access_token), user.id)
         return _response(record)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     except PreferencesRepositoryError as exc:
         raise _map_error(exc) from exc
 
