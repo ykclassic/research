@@ -66,7 +66,6 @@ export default function NavigationChrome() {
   }, [collapsed, isMobile]);
 
   const navigate = (item: NavItem) => {
-    if (item.page === "settings") return;
     if (window.location.pathname !== item.route) window.history.pushState({}, "", item.route);
     setPage(item.page);
     setMobileOpen(false);
@@ -102,9 +101,8 @@ export default function NavigationChrome() {
           {group.items.map(item => {
             const Icon = item.icon;
             const active = page === item.page;
-            const disabled = item.page === "settings";
-            return <button key={item.page} type="button" className={`sidebar-item ${active ? "active" : ""} ${disabled ? "disabled" : ""}`} onClick={() => navigate(item)} disabled={disabled} title={disabled ? "Coming soon" : collapsed && !isMobile ? item.label : undefined}>
-              <Icon size={17} /><span>{item.label}</span>{disabled ? <span className="coming-soon">Soon</span> : active ? <ChevronRight size={15} /> : null}
+            return <button key={item.page} type="button" className={`sidebar-item ${active ? "active" : ""}`} onClick={() => navigate(item)} title={collapsed && !isMobile ? item.label : undefined}>
+              <Icon size={17} /><span>{item.label}</span>{active ? <ChevronRight size={15} /> : null}
             </button>;
           })}
         </div>)}
