@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from app.preferences.models import default_preferences
-from app.preferences.repository import UserPreferencesRecord, get_preferences, upsert_preferences
+from app.preferences.models import UserPreferencesRecord, default_preferences
+from app.preferences.repository import get_preferences, upsert_preferences
 from app.preferences.schemas import UserPreferences
 
 
