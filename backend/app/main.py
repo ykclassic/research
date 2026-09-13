@@ -27,6 +27,7 @@ from app.api.strategies import router as strategies_router
 from app.api.strategy_selection import router as strategy_selection_router
 from app.api.watchlists import router as watchlists_router
 from app.config import settings
+from app.preferences.router import router as preferences_router
 
 
 @asynccontextmanager
@@ -62,6 +63,7 @@ async def security_headers(request: Request, call_next):
 
 
 app.include_router(auth_router)
+app.include_router(preferences_router)
 app.include_router(market_router)
 app.include_router(providers_router)
 app.include_router(watchlists_router)
