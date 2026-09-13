@@ -69,13 +69,14 @@
 .app-sidebar.collapsed .sidebar-footer { justify-content: center; padding-left: 0; padding-right: 0; }
 
 .app > main { margin-left: 272px; padding-top: 72px; box-sizing: border-box; transition: margin-left .2s ease; }
-.app-chrome-header.sidebar-collapsed ~ .app-sidebar + .sidebar-backdrop { display: none; }
-.sidebar-backdrop { display: none; }
+body.sidebar-collapsed .app > main { margin-left: 76px; }
 
 @media (min-width: 901px) {
-  .app-sidebar.collapsed ~ .sidebar-backdrop { display: none; }
-  .app-sidebar.collapsed + .sidebar-backdrop { display: none; }
+  .dashboard-hero { min-height: 180px; }
+  .dashboard-market-panel { width: 100%; max-width: none; }
 }
+
+.sidebar-backdrop { display: none; }
 
 @media (max-width: 900px) {
   .app-chrome-header, .app-chrome-header.sidebar-collapsed { left: 0; padding: 0 16px; }
@@ -90,13 +91,13 @@
   .app-sidebar.collapsed .sidebar-brand { justify-content: flex-start; padding-left: 10px; padding-right: 10px; }
   .app-sidebar.collapsed .sidebar-footer { justify-content: flex-start; padding-left: 10px; padding-right: 10px; }
   .sidebar-backdrop { display: block; position: fixed; inset: 0; z-index: 1150; border: 0; background: rgba(0,0,0,.48); }
-  .app > main { margin-left: 0; padding-top: 72px; }
+  .app > main, body.sidebar-collapsed .app > main { margin-left: 0; padding-top: 72px; width: 100%; }
   .chrome-user > span { display: none; }
 }
 
 @media (max-width: 560px) {
   .app-chrome-header { height: 64px; }
-  .app > main { padding-top: 64px; }
+  .app > main, body.sidebar-collapsed .app > main { padding-top: 64px; }
   .chrome-heading strong { font-size: 16px; }
   .chrome-signout { padding: 7px 9px; }
 }
