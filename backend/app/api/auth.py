@@ -4,7 +4,7 @@ import hashlib
 import hmac
 import secrets
 from functools import lru_cache
-from typing import Annotated, Any
+from typing import Annotated, Any, Literal
 
 import jwt
 from fastapi import APIRouter, Cookie, Depends, Header, HTTPException, Response, status
@@ -19,6 +19,7 @@ from app.services.supabase_auth import (
     AuthResetTokenError,
     AuthServiceError,
     AuthUnavailableError,
+    delete_user_account,
     get_user,
     request_password_reset,
     sign_in,
@@ -49,10 +50,22 @@ class PasswordResetConfirm(BaseModel):
     password: str = Field(min_length=8, max_length=128)
 
 
+class PasswordChangeRequest(BaseModel):
+    current_password: str = Field(min_length=8, max_length=128)
+    new_password: str = Field(min_length=8, max_length=128)
+
+
+class AccountDeletionRequest(BaseModel):
+    confirmation: Literal["DELETE"]
+
+
 class UserResponse(BaseModel):
     id: str
     email: EmailStr
     created_at: str | None = None
+    email_confirmed_at: str | None = None
+    last_sign_in_at: str | None = None
+    account_status: Literal["active", "email_unconfirmed"] = "active"
 
 
 class MessageResponse(BaseModel):
@@ -114,7 +127,15 @@ def _require_csrf(
 
 def _map_user(payload: dict[str, Any]) -> UserResponse:
     user = payload.get("user", payload)
-    return UserResponse(id=str(user["id"]), email=user["email"], created_at=user.get("created_at"))
+    email_confirmed_at = user.get("email_confirmed_at")
+    return UserResponse(
+        id=str(user["id"]),
+        email=user["email"],
+        created_at=user.get("created_at"),
+        email_confirmed_at=email_confirmed_at,
+        last_sign_in_at=user.get("last_sign_in_at"),
+        account_status="active" if email_confirmed_at else "email_unconfirmed",
+    )
 
 
 def _auth_error(exc: AuthServiceError) -> HTTPException:
@@ -196,13 +217,7 @@ def require_github_actions(authorization: Annotated[str | None, Header(alias="Au
 async def register(credentials: Credentials) -> UserResponse:
     try:
         payload = sign_up(credentials.email.strip().lower(), credentials.password)
-        user = payload.get("user", payload)
-        # Supabase can deliberately return a successful signup response with
-        # an empty identities array when the email already belongs to an
-        # account. The previous frontend treated that response as a new
-        # registration and silently switched to Sign In. Surface the state
-        # explicitly so the user knows the account already exists.
-        identities = user.get("identities") if isinstance(user, dict) else None
+        identities = payload.get("user", {}).get("identities") if isinstance(payload.get("user"), dict) else None
         if isinstance(identities, list) and not identities:
             raise HTTPException(status_code=409, detail="The email is already tied to an account, please sign in.")
     except HTTPException:
@@ -261,16 +276,74 @@ async def password_reset_confirm(payload: PasswordResetConfirm) -> MessageRespon
     return MessageResponse(message="Password updated successfully. You can now sign in with your new password.")
 
 
+@router.post("/password/change", response_model=MessageResponse, dependencies=[Depends(_require_csrf)])
+async def password_change(
+    payload: PasswordChangeRequest,
+    user: Annotated[UserResponse, Depends(get_current_user)],
+    access_token: Annotated[str | None, Cookie(alias=SESSION_COOKIE)] = None,
+) -> MessageResponse:
+    if payload.current_password == payload.new_password:
+        raise HTTPException(status_code=400, detail="New password must differ from the current password.")
+    token = access_token or ""
+    try:
+        update_password(token, payload.new_password, current_password=payload.current_password)
+    except AuthServiceError as exc:
+        raise _auth_error(exc) from exc
+    return MessageResponse(message="Password updated successfully.")
+
+
 @router.get("/me", response_model=UserResponse)
 async def me(user: Annotated[UserResponse, Depends(get_current_user)]) -> UserResponse:
     return user
+
+
+@router.post("/sessions/sign-out-others", response_model=MessageResponse, dependencies=[Depends(_require_csrf)])
+async def sign_out_other_sessions(
+    user: Annotated[UserResponse, Depends(get_current_user)],
+    access_token: Annotated[str | None, Cookie(alias=SESSION_COOKIE)] = None,
+) -> MessageResponse:
+    token = access_token or ""
+    try:
+        sign_out(token, scope="others")
+    except AuthServiceError as exc:
+        raise _auth_error(exc) from exc
+    return MessageResponse(message="All other active sessions have been signed out.")
+
+
+@router.post("/sessions/sign-out-all", response_model=None, status_code=status.HTTP_204_NO_CONTENT, dependencies=[Depends(_require_csrf)])
+async def sign_out_all_sessions(
+    response: Response,
+    access_token: Annotated[str | None, Cookie(alias=SESSION_COOKIE)] = None,
+) -> None:
+    if access_token:
+        try:
+            sign_out(access_token, scope="global")
+        except AuthServiceError:
+            pass
+    _clear_auth_cookies(response)
+
+
+@router.delete("/account", response_model=None, status_code=status.HTTP_204_NO_CONTENT, dependencies=[Depends(_require_csrf)])
+async def delete_account(
+    payload: AccountDeletionRequest,
+    response: Response,
+    user: Annotated[UserResponse, Depends(get_current_user)],
+    access_token: Annotated[str | None, Cookie(alias=SESSION_COOKIE)] = None,
+) -> None:
+    if payload.confirmation != "DELETE":
+        raise HTTPException(status_code=400, detail="Account deletion confirmation is required.")
+    try:
+        delete_user_account(access_token or "")
+    except AuthServiceError as exc:
+        raise _auth_error(exc) from exc
+    _clear_auth_cookies(response)
 
 
 @router.post("/logout", response_model=None, status_code=status.HTTP_204_NO_CONTENT, dependencies=[Depends(_require_csrf)])
 async def logout(response: Response, access_token: Annotated[str | None, Cookie(alias=SESSION_COOKIE)] = None) -> None:
     if access_token:
         try:
-            sign_out(access_token)
+            sign_out(access_token, scope="local")
         except AuthServiceError:
             pass
     _clear_auth_cookies(response)
