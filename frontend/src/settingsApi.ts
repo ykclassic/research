@@ -4,9 +4,9 @@ export interface AccountInfo {
   id: string;
   email: string;
   created_at: string | null;
-  email_confirmed_at: string | null;
-  last_sign_in_at: string | null;
-  account_status: "active" | "email_unconfirmed";
+  email_confirmed_at?: string | null;
+  last_sign_in_at?: string | null;
+  account_status?: "active" | "email_unconfirmed";
 }
 
 export interface ResearchPreferences {
@@ -154,20 +154,13 @@ async function request<T>(path: string, init: RequestInit = {}, mutation = false
   try {
     response = await fetch(`${API_BASE}${path}`, { ...init, headers, credentials: "include", signal: controller.signal });
   } catch (error) {
-    if (error instanceof DOMException && error.name === "AbortError") {
-      throw new ApiError("The application server did not respond in time.", 0);
-    }
+    if (error instanceof DOMException && error.name === "AbortError") throw new ApiError("The application server did not respond in time.", 0);
     throw new ApiError("Unable to reach the application server.", 0);
-  } finally {
-    globalThis.clearTimeout(timeout);
-  }
+  } finally { globalThis.clearTimeout(timeout); }
 
   if (!response.ok) {
     let message = `Request failed: ${response.status}`;
-    try {
-      const body = await response.json() as { detail?: string };
-      if (body.detail) message = body.detail;
-    } catch { /* ignore non-JSON errors */ }
+    try { const body = await response.json() as { detail?: string }; if (body.detail) message = body.detail; } catch { /* ignore non-JSON errors */ }
     if (mutation && response.status === 403 && message === "CSRF validation failed.") {
       storeCsrf(null);
       const csrf = await requestCsrfToken();
@@ -182,54 +175,14 @@ async function request<T>(path: string, init: RequestInit = {}, mutation = false
   return await response.json() as T;
 }
 
-export async function getAccountInfo(): Promise<AccountInfo> {
-  return request<AccountInfo>("/api/auth/me");
-}
-
-export async function getPreferences(): Promise<UserPreferences> {
-  return request<UserPreferences>("/api/preferences");
-}
-
-export async function savePreferences(preferences: PreferencesDraft): Promise<UserPreferences> {
-  return request<UserPreferences>("/api/preferences", { method: "PUT", body: JSON.stringify(preferences) }, true);
-}
-
-export async function resetPreferences(): Promise<UserPreferences> {
-  return request<UserPreferences>("/api/preferences/reset", { method: "POST" }, true);
-}
-
-export async function changePassword(currentPassword: string, newPassword: string): Promise<string> {
-  return (await request<{ message: string }>("/api/auth/password/change", {
-    method: "POST",
-    body: JSON.stringify({ current_password: currentPassword, new_password: newPassword }),
-  }, true)).message;
-}
-
-export async function requestAccountPasswordReset(email: string): Promise<string> {
-  return (await request<{ message: string }>("/api/auth/password-reset/request", {
-    method: "POST",
-    body: JSON.stringify({ email }),
-  })).message;
-}
-
-export async function signOutOtherSessions(): Promise<string> {
-  return (await request<{ message: string }>("/api/auth/sessions/sign-out-others", { method: "POST" }, true)).message;
-}
-
-export async function signOutAllSessions(): Promise<void> {
-  await request<void>("/api/auth/sessions/sign-out-all", { method: "POST" }, true);
-  storeCsrf(null);
-}
-
-export async function deleteResearchHistory(): Promise<string> {
-  return (await request<{ message: string }>("/api/preferences/data/research-history", { method: "DELETE" }, true)).message;
-}
-
-export async function deleteAllWatchlists(): Promise<string> {
-  return (await request<{ message: string }>("/api/preferences/data/watchlists", { method: "DELETE" }, true)).message;
-}
-
-export async function deleteAccount(): Promise<void> {
-  await request<void>("/api/auth/account", { method: "DELETE", body: JSON.stringify({ confirmation: "DELETE" }) }, true);
-  storeCsrf(null);
-}
+export async function getAccountInfo(): Promise<AccountInfo> { return request<AccountInfo>("/api/auth/me"); }
+export async function getPreferences(): Promise<UserPreferences> { return request<UserPreferences>("/api/preferences"); }
+export async function savePreferences(preferences: PreferencesDraft): Promise<UserPreferences> { return request<UserPreferences>("/api/preferences", { method: "PUT", body: JSON.stringify(preferences) }, true); }
+export async function resetPreferences(): Promise<UserPreferences> { return request<UserPreferences>("/api/preferences/reset", { method: "POST" }, true); }
+export async function changePassword(currentPassword: string, newPassword: string): Promise<string> { return (await request<{ message: string }>("/api/auth/password/change", { method: "POST", body: JSON.stringify({ current_password: currentPassword, new_password: newPassword }) }, true)).message; }
+export async function requestAccountPasswordReset(email: string): Promise<string> { return (await request<{ message: string }>("/api/auth/password-reset/request", { method: "POST", body: JSON.stringify({ email }) })).message; }
+export async function signOutOtherSessions(): Promise<string> { return (await request<{ message: string }>("/api/auth/sessions/sign-out-others", { method: "POST" }, true)).message; }
+export async function signOutAllSessions(): Promise<void> { await request<void>("/api/auth/sessions/sign-out-all", { method: "POST" }, true); storeCsrf(null); }
+export async function deleteResearchHistory(): Promise<string> { return (await request<{ message: string }>("/api/preferences/data/research-history", { method: "DELETE" }, true)).message; }
+export async function deleteAllWatchlists(): Promise<string> { return (await request<{ message: string }>("/api/preferences/data/watchlists", { method: "DELETE" }, true)).message; }
+export async function deleteAccount(): Promise<void> { await request<void>("/api/auth/account", { method: "DELETE", body: JSON.stringify({ confirmation: "DELETE" }) }, true); storeCsrf(null); }
