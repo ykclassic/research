@@ -26,7 +26,7 @@ export default function AccountSecuritySection({ account, onLogout }: Props) {
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [deleteConfirmation, setDeleteConfirmation] = useState("");
 
-  const run = async (key: string, action: () => Promise<void>, success: string) => {
+  const run = async (key: string, action: () => Promise<unknown>, success: string) => {
     setBusy(key); setError(null); setMessage(null);
     try { await action(); setMessage(success); }
     catch (value) { setError(value instanceof Error ? value.message : "The action failed."); }
@@ -82,10 +82,10 @@ export default function AccountSecuritySection({ account, onLogout }: Props) {
     <SettingsSection title="Danger zone" description="Destructive actions permanently remove user-owned data." icon={Trash2} tone="danger">
       <div className="settings-danger-warning"><AlertTriangle size={17} /><span>These actions cannot be undone. Account deletion also removes all user-owned application data through database cascades.</span></div>
       <SettingField label="Delete research history" description="Permanently remove saved reports, searches and AI analyses for this account.">
-        <button className="settings-secondary-button danger-outline" disabled={busy !== null} onClick={() => { if (window.confirm("Delete all research history? This cannot be undone.")) void run("history-delete", deleteResearchHistory, "Research history deleted."); }}>{busy === "history-delete" ? "Deleting…" : "Delete research history"}</button>
+        <button className="settings-secondary-button danger-outline" disabled={busy !== null} onClick={() => { if (window.confirm("Delete all research history? This cannot be undone.")) void run("history-delete", async () => { await deleteResearchHistory(); }, "Research history deleted."); }}>{busy === "history-delete" ? "Deleting…" : "Delete research history"}</button>
       </SettingField>
       <SettingField label="Delete all watchlists" description="Permanently remove every watchlist and its symbols.">
-        <button className="settings-secondary-button danger-outline" disabled={busy !== null} onClick={() => { if (window.confirm("Delete all watchlists? This cannot be undone.")) void run("watchlist-delete", deleteAllWatchlists, "All watchlists deleted."); }}>{busy === "watchlist-delete" ? "Deleting…" : "Delete all watchlists"}</button>
+        <button className="settings-secondary-button danger-outline" disabled={busy !== null} onClick={() => { if (window.confirm("Delete all watchlists? This cannot be undone.")) void run("watchlist-delete", async () => { await deleteAllWatchlists(); }, "All watchlists deleted."); }}>{busy === "watchlist-delete" ? "Deleting…" : "Delete all watchlists"}</button>
       </SettingField>
       <SettingField label="Permanent account deletion" description="Delete the authentication account, saved preferences and all cascading user-owned data.">
         <button className="settings-secondary-button danger-button" disabled={busy !== null} onClick={() => { setDeleteOpen(true); setDeleteConfirmation(""); setError(null); setMessage(null); }}>Delete account</button>
