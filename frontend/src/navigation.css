@@ -68,8 +68,19 @@
 .app-sidebar.collapsed .sidebar-item.active { border-color: transparent; }
 .app-sidebar.collapsed .sidebar-footer { justify-content: center; padding-left: 0; padding-right: 0; }
 
-.app > main { margin-left: 272px; padding-top: 72px; box-sizing: border-box; transition: margin-left .2s ease; }
-body.sidebar-collapsed .app > main { margin-left: 76px; }
+.app > main {
+  width: min(1240px, calc(100% - 288px));
+  margin-left: 272px;
+  margin-right: 16px;
+  padding-top: 72px;
+  box-sizing: border-box;
+  transition: width .2s ease, margin-left .2s ease;
+}
+body.sidebar-collapsed .app > main {
+  width: min(1240px, calc(100% - 92px));
+  margin-left: 76px;
+  margin-right: 16px;
+}
 
 @media (min-width: 901px) {
   .dashboard-hero { min-height: 180px; }
@@ -91,7 +102,7 @@ body.sidebar-collapsed .app > main { margin-left: 76px; }
   .app-sidebar.collapsed .sidebar-brand { justify-content: flex-start; padding-left: 10px; padding-right: 10px; }
   .app-sidebar.collapsed .sidebar-footer { justify-content: flex-start; padding-left: 10px; padding-right: 10px; }
   .sidebar-backdrop { display: block; position: fixed; inset: 0; z-index: 1150; border: 0; background: rgba(0,0,0,.48); }
-  .app > main, body.sidebar-collapsed .app > main { margin-left: 0; padding-top: 72px; width: 100%; }
+  .app > main, body.sidebar-collapsed .app > main { width: 100%; margin-left: 0; margin-right: 0; padding-top: 72px; }
   .chrome-user > span { display: none; }
 }
 
