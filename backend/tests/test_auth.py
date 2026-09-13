@@ -54,6 +54,24 @@ def test_duplicate_registration_is_rejected(client):
         )
 
     assert response.status_code == 409
+    assert response.json()["detail"] == "The email is already tied to an account, please sign in."
+
+
+def test_duplicate_registration_from_supabase_empty_identities_is_rejected(client):
+    user = {
+        "id": "u1",
+        "email": "user@example.com",
+        "created_at": "2026-01-01T00:00:00Z",
+        "identities": [],
+    }
+    with patch("app.api.auth.sign_up", return_value={"user": user}):
+        response = client.post(
+            "/api/auth/register",
+            json={"email": "user@example.com", "password": "correct-horse-battery"},
+        )
+
+    assert response.status_code == 409
+    assert response.json()["detail"] == "The email is already tied to an account, please sign in."
 
 
 def test_login_creates_auth_session(client):
