@@ -11,9 +11,10 @@ import NewsResearchPage from "./NewsResearchPage";
 import ResearchReportsPage from "./ResearchReportsPage";
 import ResearchHistoryPage from "./ResearchHistoryPage";
 import AlertsPage from "./AlertsPage";
+import SettingsPage from "./SettingsPage";
 
 const SYMBOLS = ["BTC/USD", "ETH/USD", "SOL/USD", "EUR/USD", "GBP/USD", "USD/JPY", "NVDA", "AAPL", "MSFT", "SPY"];
-export type AppPage = "market" | "watchlists" | "analysis" | "market-structure" | "mtf" | "signals" | "portfolio" | "ai-research" | "news-research" | "research-reports" | "research-history" | "alerts";
+export type AppPage = "market" | "watchlists" | "analysis" | "market-structure" | "mtf" | "signals" | "portfolio" | "ai-research" | "news-research" | "research-reports" | "research-history" | "alerts" | "settings";
 
 type AuthMode = "login" | "register" | "forgot" | "reset";
 
@@ -30,6 +31,7 @@ const ROUTES: Record<AppPage, string> = {
   "research-reports": "/research/reports",
   "research-history": "/research/history",
   alerts: "/monitoring/alerts",
+  settings: "/settings",
 };
 
 const PAGE_BY_ROUTE = new Map(Object.entries(ROUTES).map(([page, route]) => [route, page as AppPage]));
@@ -200,6 +202,7 @@ function App(){
   if(page==="news-research")return <NewsResearchPage onLogout={onLogout}/>;
   if(page==="research-reports")return <ResearchReportsPage/>;
   if(page==="research-history")return <ResearchHistoryPage/>;
+  if(page==="settings")return <SettingsPage user={user} onLogout={onLogout} setPage={navigate}/>;
   return <AlertsPage/>;
 }
 
