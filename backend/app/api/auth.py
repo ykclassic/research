@@ -65,7 +65,7 @@ class UserResponse(BaseModel):
     created_at: str | None = None
     email_confirmed_at: str | None = None
     last_sign_in_at: str | None = None
-    account_status: Literal["active", "email_unconfirmed"] = "active"
+    account_status: Literal["active", "email_unconfirmed"] | None = None
 
 
 class MessageResponse(BaseModel):
@@ -82,11 +82,7 @@ def _cookie_secure() -> bool:
 
 
 def _csrf_token(access_token: str) -> str:
-    return hmac.new(
-        settings.csrf_secret.encode("utf-8"),
-        access_token.encode("utf-8"),
-        hashlib.sha256,
-    ).hexdigest()
+    return hmac.new(settings.csrf_secret.encode("utf-8"), access_token.encode("utf-8"), hashlib.sha256).hexdigest()
 
 
 def _set_auth_cookies(response: Response, access_token: str) -> str:
@@ -134,7 +130,7 @@ def _map_user(payload: dict[str, Any]) -> UserResponse:
         created_at=user.get("created_at"),
         email_confirmed_at=email_confirmed_at,
         last_sign_in_at=user.get("last_sign_in_at"),
-        account_status="active" if email_confirmed_at else "email_unconfirmed",
+        account_status="active" if email_confirmed_at else None,
     )
 
 
@@ -284,9 +280,8 @@ async def password_change(
 ) -> MessageResponse:
     if payload.current_password == payload.new_password:
         raise HTTPException(status_code=400, detail="New password must differ from the current password.")
-    token = access_token or ""
     try:
-        update_password(token, payload.new_password, current_password=payload.current_password)
+        update_password(access_token or "", payload.new_password, current_password=payload.current_password)
     except AuthServiceError as exc:
         raise _auth_error(exc) from exc
     return MessageResponse(message="Password updated successfully.")
