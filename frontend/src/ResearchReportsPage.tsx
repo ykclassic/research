@@ -39,12 +39,13 @@ export default function ResearchReportsPage() {
   const hasFundamental = config?.fundamental_analysis ?? true;
   const hasNews = config?.news_analysis ?? true;
   const hasAi = config?.ai_interpretation ?? true;
+  const reportTitle = report?.symbol ?? (symbol || "Personalized Market Research");
 
   return <section className="research-report-page">
     <div className="report-hero">
       <div>
         <div className="eyebrow">Phase 10 · Research Reports</div>
-        <h1>{report?.symbol ?? symbol || "Personalized Market Research"}</h1>
+        <h1>{reportTitle}</h1>
         <p>Research requests use your saved Research Preferences. Enabled components are requested without changing the underlying analytical algorithms.</p>
       </div>
       <div className="report-controls">
