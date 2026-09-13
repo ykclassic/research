@@ -87,14 +87,12 @@ def _confidence(regime: MarketRegime, evidence: RegimeEvidence, thresholds: Regi
 
 
 def detect_regime(dataset: OHLCVDataset, thresholds: RegimeThresholds = DEFAULT_THRESHOLDS) -> MarketRegimeResult:
-    """Classify completed candles using deterministic, auditable rules."""
-    if not dataset.latest_candle.is_complete:
-        raise ValueError("Regime detection requires completed candles only.")
+    """Classify only completed candles; ignore an in-progress latest candle."""
     completed = list(dataset.completed_candles)
     if len(completed) < MINIMUM_CANDLES:
         raise ValueError(f"At least {MINIMUM_CANDLES} completed candles are required for regime detection.")
-    if len(completed) != len(dataset.candles):
-        raise ValueError("Regime detection requires completed candles only.")
+    if not completed:
+        raise ValueError("Regime detection requires at least one completed candle.")
 
     indicators = calculate_indicators(completed)
     closes = [c.close for c in completed]
@@ -154,12 +152,6 @@ def detect_regime(dataset: OHLCVDataset, thresholds: RegimeThresholds = DEFAULT_
     else:
         regime, rule_id, rule = MarketRegime.UNKNOWN, "R8", "no deterministic regime rule satisfied"
 
-    # Twelve Data's time-series endpoint does not expose a separate fetch/update
-    # timestamp. When the dataset has no provider metadata, the latest candle
-    # timestamp is the authoritative timestamp of the freshest provider-sourced
-    # observation used by the regime engine. This prevents the API contract from
-    # silently emitting null freshness metadata and lets production verification
-    # enforce a timeframe-aware freshness SLA.
     provider_timestamp = dataset.provider_timestamp or completed[-1].timestamp
 
     return MarketRegimeResult(
