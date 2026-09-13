@@ -47,11 +47,13 @@ export default function NavigationChrome() {
 
   useEffect(() => {
     const sync = () => setPage(currentPage());
+    const handleResize = () => setIsMobile(window.innerWidth <= 900);
     window.addEventListener("popstate", sync);
-    window.addEventListener("resize", () => setIsMobile(window.innerWidth <= 900));
+    window.addEventListener("resize", handleResize);
     sync();
     return () => {
       window.removeEventListener("popstate", sync);
+      window.removeEventListener("resize", handleResize);
     };
   }, []);
 
