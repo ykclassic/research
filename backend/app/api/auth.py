@@ -213,7 +213,7 @@ def require_github_actions(authorization: Annotated[str | None, Header(alias="Au
     _verify_github_oidc_token(token.strip())
 
 
-@router.post("/register", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
+@router.post("/register", response_model=UserResponse, response_model_exclude_none=True, status_code=status.HTTP_201_CREATED)
 async def register(credentials: Credentials) -> UserResponse:
     try:
         payload = sign_up(credentials.email.strip().lower(), credentials.password)
@@ -232,7 +232,7 @@ async def register(credentials: Credentials) -> UserResponse:
     return _map_user(payload)
 
 
-@router.post("/login", response_model=UserResponse)
+@router.post("/login", response_model=UserResponse, response_model_exclude_none=True)
 async def login(credentials: Credentials, response: Response) -> UserResponse:
     try:
         payload = sign_in(credentials.email.strip().lower(), credentials.password)
@@ -292,7 +292,7 @@ async def password_change(
     return MessageResponse(message="Password updated successfully.")
 
 
-@router.get("/me", response_model=UserResponse)
+@router.get("/me", response_model=UserResponse, response_model_exclude_none=True)
 async def me(user: Annotated[UserResponse, Depends(get_current_user)]) -> UserResponse:
     return user
 
