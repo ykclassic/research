@@ -196,11 +196,23 @@ def require_github_actions(authorization: Annotated[str | None, Header(alias="Au
 async def register(credentials: Credentials) -> UserResponse:
     try:
         payload = sign_up(credentials.email.strip().lower(), credentials.password)
+        user = payload.get("user", payload)
+        # Supabase can deliberately return a successful signup response with
+        # an empty identities array when the email already belongs to an
+        # account. The previous frontend treated that response as a new
+        # registration and silently switched to Sign In. Surface the state
+        # explicitly so the user knows the account already exists.
+        identities = user.get("identities") if isinstance(user, dict) else None
+        if isinstance(identities, list) and not identities:
+            raise HTTPException(status_code=409, detail="The email is already tied to an account, please sign in.")
+    except HTTPException:
+        raise
     except AuthServiceError as exc:
         detail = str(exc)
         code = 503 if isinstance(exc, (AuthConfigurationError, AuthUnavailableError)) else 400
         if "already" in detail.lower() or "registered" in detail.lower():
             code = 409
+            detail = "The email is already tied to an account, please sign in."
         raise HTTPException(status_code=code, detail=detail) from exc
     return _map_user(payload)
 
