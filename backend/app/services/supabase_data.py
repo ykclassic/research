@@ -165,6 +165,14 @@ def delete_watchlist(access_token: str, user_id: str, watchlist_id: str) -> None
         raise DataRequestError("Watchlist was not deleted.")
 
 
+def delete_all_watchlists(access_token: str, user_id: str) -> None:
+    _request("DELETE", "watchlists", access_token, params={"user_id": f"eq.{user_id}"})
+
+
+def delete_research_history(access_token: str, user_id: str) -> None:
+    _request("DELETE", "research_history", access_token, params={"user_id": f"eq.{user_id}"})
+
+
 def add_symbol(access_token: str, user_id: str, watchlist_id: str, symbol: str) -> dict[str, Any]:
     owned = _request(
         "GET",
