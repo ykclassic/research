@@ -1,6 +1,7 @@
 import asyncio
 
 from app.models import Quote, QuoteStatus
+from app.models.market import OHLCVDataset, Timeframe
 from app.providers.orchestrator import MarketDataOrchestrator, market_data
 from app.services.forex_quote_fallback import get_forex_quote
 from app.symbols import normalize_symbol
@@ -35,3 +36,37 @@ class QuoteService:
             if fallback is not None:
                 quotes[index] = fallback
         return quotes
+
+    async def get_candles(
+        self,
+        symbol: str,
+        timeframe: Timeframe,
+        limit: int,
+        *,
+        start_date=None,
+        end_date=None,
+    ) -> OHLCVDataset:
+        """Retrieve canonical candles with one controlled recovery attempt.
+
+        The production orchestrator intentionally owns provider health and
+        circuit breaking. If every provider is temporarily rejected because a
+        shared in-process circuit is open, a fresh orchestrator instance gives
+        the request one isolated recovery attempt without changing the normal
+        provider ordering or retrying indefinitely.
+        """
+        try:
+            return await self.orchestrator.get_candles(
+                symbol,
+                timeframe,
+                limit,
+                start_date=start_date,
+                end_date=end_date,
+            )
+        except (RuntimeError, asyncio.TimeoutError) as first_error:
+            if start_date is not None or end_date is not None:
+                raise
+            recovery_orchestrator = MarketDataOrchestrator()
+            try:
+                return await recovery_orchestrator.get_candles(symbol, timeframe, limit)
+            except Exception as recovery_error:
+                raise first_error from recovery_error
