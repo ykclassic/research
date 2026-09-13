@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+
 from pydantic import BaseModel, Field
 
 
@@ -41,16 +42,32 @@ class MarketStatus(BaseModel):
     market_regime: str
 
 
+class ResearchRequestConfiguration(BaseModel):
+    """Auditable record of which research components were requested."""
+
+    default_asset: str
+    default_asset_class: str
+    default_timeframe: str
+    analysis_depth: str
+    technical_analysis: bool
+    market_structure: bool
+    multi_timeframe: bool
+    fundamental_analysis: bool
+    news_analysis: bool
+    ai_interpretation: bool
+
+
 class ResearchReport(BaseModel):
     symbol: str
     generated_at: datetime
+    request_configuration: ResearchRequestConfiguration | None = None
     market_status: MarketStatus
     indicators: dict[str, object] = Field(default_factory=dict)
     regime_snapshot: dict[str, object] = Field(default_factory=dict)
     smc_structure: SMCStructure
     multi_timeframe: list[ReportTimeframe]
     fundamental_context: FundamentalContext
-    ai_interpretation: str
+    ai_interpretation: str | None = None
     bull_case: list[str]
     bear_case: list[str]
     key_risks: list[str]
