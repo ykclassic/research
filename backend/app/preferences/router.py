@@ -47,7 +47,6 @@ def _response(record) -> UserPreferencesResponse:
         alert_preferences=record.alert_preferences,
         market_data_preferences=record.market_data_preferences,
         display_preferences=record.display_preferences,
-        timezone=record.display_preferences.get("timezone", "UTC"),
         ai_preferences=record.ai_preferences,
         privacy_preferences=record.privacy_preferences,
         created_at=record.created_at,
