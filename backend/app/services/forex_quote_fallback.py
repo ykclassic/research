@@ -7,21 +7,31 @@ import httpx
 from app.config import settings
 from app.models import Quote, QuoteStatus
 from app.models.market import CompletenessStatus, FreshnessStatus
+from app.providers.alpha_vantage import AlphaVantageProvider
 from app.providers.base import freshness_for_age
-from app.providers.errors import ProviderErrorCode
 from app.symbols import normalize_symbol
 
 
 async def get_forex_quote(symbol: str) -> Quote | None:
-    """Fetch a direct Twelve Data forex exchange rate when normal routing fails.
+    """Recover a major FX quote without consuming the normal Twelve Data quote budget.
 
-    The fallback is intentionally limited to forex. It avoids changing the
-    canonical provider routing for other asset classes and gives major FX pairs
-    an independent recovery path when a batch quote response is incomplete or
-    a primary provider is temporarily unavailable.
+    Alpha Vantage is preferred when configured because its currency exchange-rate
+    endpoint is a separate provider budget. Twelve Data's direct exchange-rate
+    endpoint remains the second recovery path when Alpha Vantage is unavailable.
     """
     mapping = normalize_symbol(symbol)
-    if mapping.asset_class != "forex" or not settings.twelve_data_api_key.strip():
+    if mapping.asset_class != "forex":
+        return None
+
+    if settings.alpha_vantage_api_key.strip():
+        try:
+            quote = await AlphaVantageProvider().get_quote(mapping.internal)
+            if quote.status != QuoteStatus.UNAVAILABLE:
+                return quote.model_copy(update={"fallback_used": True})
+        except Exception:
+            pass
+
+    if not settings.twelve_data_api_key.strip():
         return None
 
     started = datetime.now(timezone.utc)
