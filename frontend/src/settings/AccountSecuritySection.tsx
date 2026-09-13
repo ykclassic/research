@@ -4,16 +4,13 @@ import type { AccountInfo } from "../settingsApi";
 import { changePassword, deleteAccount, deleteAllWatchlists, deleteResearchHistory, requestAccountPasswordReset, signOutAllSessions, signOutOtherSessions } from "../settingsApi";
 import { SettingField, SettingsSection } from "./SettingsSection";
 
-function formatDate(value: string | null): string {
+function formatDate(value: string | null | undefined): string {
   if (!value) return "Unavailable";
   const date = new Date(value);
   return Number.isNaN(date.getTime()) ? "Unavailable" : date.toLocaleString();
 }
 
-interface Props {
-  account: AccountInfo;
-  onLogout: () => void;
-}
+interface Props { account: AccountInfo; onLogout: () => void; }
 
 export default function AccountSecuritySection({ account, onLogout }: Props) {
   const [passwordOpen, setPasswordOpen] = useState(false);
@@ -51,7 +48,7 @@ export default function AccountSecuritySection({ account, onLogout }: Props) {
       <div className="settings-info-grid">
         <div><span>Email address</span><strong>{account.email}</strong></div>
         <div><span>Account creation date</span><strong>{formatDate(account.created_at)}</strong></div>
-        <div><span>Account status</span><strong className="settings-status-ok">● {account.account_status === "active" ? "Active" : "Email unconfirmed"}</strong></div>
+        <div><span>Account status</span><strong className="settings-status-ok">● {account.email_confirmed_at || account.account_status === "active" ? "Active" : "Email unconfirmed"}</strong></div>
         <div><span>Last login</span><strong>{formatDate(account.last_sign_in_at)}</strong></div>
       </div>
       <SettingField label="Sign out of all sessions" description="Revoke all Supabase refresh sessions, including this browser.">
