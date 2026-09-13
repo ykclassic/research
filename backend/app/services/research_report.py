@@ -24,7 +24,13 @@ class ResearchReportService:
 
     async def _dataset(self, symbol: str, timeframe: Timeframe, limit: int = 300):
         mapping = normalize_symbol(symbol)
-        return await asyncio.wait_for(self.quote_service.orchestrator.get_candles(mapping.internal, timeframe, limit), timeout=settings.analysis_timeout_seconds)
+        # MarketDataOrchestrator has independent provider fallback. Its candle
+        # path may legitimately try all configured providers, so the report
+        # boundary must not impose the old 10-second single-provider ceiling.
+        return await asyncio.wait_for(
+            self.quote_service.orchestrator.get_candles(mapping.internal, timeframe, limit),
+            timeout=max(settings.analysis_timeout_seconds, settings.provider_timeout_seconds * 7),
+        )
 
     @staticmethod
     def _completed_dataset(dataset: OHLCVDataset) -> OHLCVDataset:
@@ -109,7 +115,7 @@ class ResearchReportService:
         status = MarketStatus(
             current_price=current_quote.price,
             change_24h_percent=self._change_24h(h1, current_quote.price),
-            volume=current_quote.volume if current_quote.volume is not None else daily.completed_candles[-1].volume,
+            volume=getattr(current_quote, "volume", None) if getattr(current_quote, "volume", None) is not None else daily.completed_candles[-1].volume,
             volatility_percent=(daily_features.indicators.get("atr14") / current_quote.price * 100) if isinstance(daily_features.indicators.get("atr14"), float) else None,
             technical_structure=self._structure_label(daily_structure.events), trend=trend, momentum=momentum, support=support, resistance=resistance, market_regime=regime.regime.value,
         )
