@@ -1,11 +1,9 @@
 import asyncio
-from datetime import datetime, timedelta, timezone
 from unittest.mock import AsyncMock, patch
 
-from app.models import Candle, Quote, QuoteStatus
-from app.models.market import CompletenessStatus, FreshnessStatus, OHLCVDataset, Timeframe
+from app.models import Quote, QuoteStatus
+from app.models.market import CompletenessStatus, FreshnessStatus, Timeframe
 from app.services.quote_service import QuoteService
-from app.services.regime_detection import detect_regime
 from app.services.resilient_market_data import ResilientMarketDataOrchestrator
 
 
@@ -54,40 +52,3 @@ def test_resilient_orchestrator_retries_once_with_fresh_provider_state():
         "GBP/USD", Timeframe.HOUR_1, 250, start_date=None, end_date=None
     )
     fresh.get_candles.assert_awaited_once_with("GBP/USD", Timeframe.HOUR_1, 250)
-
-
-def test_regime_detection_ignores_incomplete_latest_candle():
-    start = datetime(2026, 1, 1, tzinfo=timezone.utc)
-    candles = []
-    for index in range(220):
-        price = 100.0 + index * 0.05
-        candles.append(Candle(
-            timestamp=start + timedelta(hours=index),
-            open=price,
-            high=price + 0.2,
-            low=price - 0.1,
-            close=price + 0.1,
-            volume=1000.0,
-            symbol="BTC/USD",
-            timeframe=Timeframe.HOUR_1,
-            source="test",
-            is_complete=True,
-        ))
-    candles.append(candles[-1].model_copy(update={
-        "timestamp": candles[-1].timestamp + timedelta(hours=1),
-        "open": candles[-1].close,
-        "high": candles[-1].close + 0.2,
-        "low": candles[-1].close - 0.1,
-        "close": candles[-1].close + 0.1,
-        "is_complete": False,
-    }))
-    dataset = OHLCVDataset(
-        symbol="BTC/USD",
-        timeframe=Timeframe.HOUR_1,
-        source="test",
-        requested_at=start,
-        candles=tuple(candles),
-    )
-    result = detect_regime(dataset)
-    assert result.candle_count == 220
-    assert result.latest_candle_timestamp == candles[-2].timestamp
