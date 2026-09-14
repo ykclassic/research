@@ -128,29 +128,8 @@ async def get_analysis(
 
     try:
         mapping = normalize_symbol(symbol)
-        if mapping.asset_class == "crypto" and start is None and end is None:
-            try:
-                dataset = await asyncio.wait_for(
-                    kraken_public.get_candles(mapping.internal, timeframe, limit),
-                    timeout=settings.analysis_timeout_seconds,
-                )
-            except Exception as primary_exc:
-                try:
-                    dataset = await asyncio.wait_for(
-                        quote_service.orchestrator.get_candles(mapping.internal, timeframe, limit),
-                        timeout=settings.analysis_timeout_seconds,
-                    )
-                except Exception as fallback_exc:
-                    raise RuntimeError(
-                        f"Primary crypto candle provider failed: {primary_exc}; "
-                        f"orchestrated fallback failed: {fallback_exc}"
-                    ) from fallback_exc
-        elif start is None and end is None:
-            dataset = await asyncio.wait_for(
-                quote_service.orchestrator.get_candles(mapping.internal, timeframe, limit),
-                timeout=settings.analysis_timeout_seconds,
-            )
-        elif mapping.asset_class == "crypto":
+        use_public_crypto_provider = settings.app_env.lower() == "production" and mapping.asset_class == "crypto"
+        if use_public_crypto_provider:
             try:
                 dataset = await asyncio.wait_for(
                     kraken_public.get_candles(
@@ -179,6 +158,11 @@ async def get_analysis(
                         f"Primary crypto candle provider failed: {primary_exc}; "
                         f"orchestrated fallback failed: {fallback_exc}"
                     ) from fallback_exc
+        elif start is None and end is None:
+            dataset = await asyncio.wait_for(
+                quote_service.orchestrator.get_candles(mapping.internal, timeframe, limit),
+                timeout=settings.analysis_timeout_seconds,
+            )
         else:
             dataset = await asyncio.wait_for(
                 quote_service.orchestrator.get_candles(
