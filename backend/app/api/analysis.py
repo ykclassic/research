@@ -12,6 +12,7 @@ from app.config import settings
 from app.models import Quote
 from app.models.market import CompletenessStatus, FreshnessStatus, Timeframe
 from app.preferences.service import preferences_service
+from app.providers.kraken_public import KrakenPublicProvider
 from app.services.feature_engine import calculate_feature_set
 from app.services.indicator_series import calculate_indicator_panes
 from app.services.quote_service import QuoteService
@@ -20,6 +21,7 @@ from app.symbols import normalize_symbol
 
 router = APIRouter(prefix="/api/analysis", tags=["analysis"], dependencies=[Depends(get_current_user_or_github_actions)])
 quote_service = QuoteService()
+kraken_public = KrakenPublicProvider()
 
 
 class CandleResponse(BaseModel):
@@ -126,7 +128,37 @@ async def get_analysis(
 
     try:
         mapping = normalize_symbol(symbol)
-        if start is None and end is None:
+        use_public_crypto_provider = settings.app_env.lower() == "production" and mapping.asset_class == "crypto"
+        if use_public_crypto_provider:
+            try:
+                dataset = await asyncio.wait_for(
+                    kraken_public.get_candles(
+                        mapping.internal,
+                        timeframe,
+                        limit,
+                        start_date=start,
+                        end_date=end,
+                    ),
+                    timeout=settings.analysis_timeout_seconds,
+                )
+            except Exception as primary_exc:
+                try:
+                    dataset = await asyncio.wait_for(
+                        quote_service.orchestrator.get_candles(
+                            mapping.internal,
+                            timeframe,
+                            limit,
+                            start_date=start,
+                            end_date=end,
+                        ),
+                        timeout=settings.analysis_timeout_seconds,
+                    )
+                except Exception as fallback_exc:
+                    raise RuntimeError(
+                        f"Primary crypto candle provider failed: {primary_exc}; "
+                        f"orchestrated fallback failed: {fallback_exc}"
+                    ) from fallback_exc
+        elif start is None and end is None:
             dataset = await asyncio.wait_for(
                 quote_service.orchestrator.get_candles(mapping.internal, timeframe, limit),
                 timeout=settings.analysis_timeout_seconds,
