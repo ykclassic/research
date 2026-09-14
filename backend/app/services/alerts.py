@@ -9,6 +9,7 @@ from app.preferences.models import default_preferences
 from app.preferences.repository import get_preferences
 from app.services.market_structure import analyze_market_structure
 from app.services.quote_service import QuoteService
+from app.services.settings_integration import frequency_allows, market_data_policy, validate_dataset_policy, validate_quote_policy
 from app.services.supabase_data import DataNotFoundError, _request
 from app.services.technical_analysis import calculate_indicators
 from app.symbols import normalize_symbol
@@ -180,6 +181,7 @@ async def evaluate_rules(access_token: str, user_id: str) -> list[dict[str, Any]
     if preferences.get("frequency") == "Off":
         return []
     rules = list_rules(access_token, user_id, enabled=True)
+    policy = market_data_policy(get_preferences(access_token, user_id))
     cache: dict[tuple[str, str], tuple[Any, Any, Any]] = {}
     triggered: list[dict[str, Any]] = []
     now = datetime.now(timezone.utc)
@@ -193,10 +195,12 @@ async def evaluate_rules(access_token: str, user_id: str) -> list[dict[str, Any]
                 mapping = normalize_symbol(rule["symbol"])
                 timeframe = Timeframe(rule["timeframe"])
                 dataset = await asyncio.wait_for(quote_service.orchestrator.get_candles(mapping.internal, timeframe, 250), timeout=20)
+                validate_dataset_policy(dataset, policy)
                 completed = dataset.completed_candles
                 if len(completed) < 30:
                     continue
                 quote = await asyncio.wait_for(quote_service.get_quote(mapping.internal, force_refresh=True), timeout=20)
+                validate_quote_policy(quote, policy)
                 if quote.price is None:
                     continue
                 indicators = calculate_indicators(list(completed))
@@ -245,7 +249,7 @@ async def evaluate_rules(access_token: str, user_id: str) -> list[dict[str, Any]
             state["last_price"] = current_price
             state["last_observed_at"] = observation_time.isoformat()
             _request("PATCH", "alert_rules", access_token, params={"id": f"eq.{rule['id']}", "user_id": f"eq.{user_id}"}, json={"state": state})
-            if not active or not _cooldown_elapsed(rule, now):
+            if not active or not _cooldown_elapsed(rule, now) or not frequency_allows(rule.get("last_triggered_at"), preferences, now):
                 continue
             event_payload = {"rule_id": rule["id"], "symbol": rule["symbol"], "condition_type": condition, "timeframe": rule["timeframe"], "current_price": current_price, "rsi14": rsi, "regime": regime, "observed_at": observation_time.isoformat(), "delivery_frequency": preferences.get("frequency", "Immediate")}
             channels = _global_channels(preferences)
