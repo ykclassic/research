@@ -5,9 +5,11 @@ from datetime import datetime, timezone
 from typing import Any
 
 from app.config import settings
-from app.main import app
 from app.preferences.service import preferences_service
 from app.services.market_data_health import market_data_health
+
+
+APPLICATION_VERSION = "1.18.0"
 
 
 async def system_status(access_token: str, user_id: str) -> dict[str, Any]:
@@ -29,7 +31,7 @@ async def system_status(access_token: str, user_id: str) -> dict[str, Any]:
         cache = market.get("cache", {})
         cache_status = str(cache.get("status", "UNKNOWN"))
         cache_health = "HEALTHY" if cache_status in {"AVAILABLE", "EMPTY"} else "DEGRADED"
-    except Exception as exc:
+    except Exception:
         market = None
         market_status = "UNAVAILABLE"
         last_sync = None
@@ -37,11 +39,10 @@ async def system_status(access_token: str, user_id: str) -> dict[str, Any]:
         cache = {"status": "UNKNOWN", "quote_entries": 0, "candle_entries": 0}
         market_providers = []
         database_status = "DEGRADED"
-        _ = exc
 
     return {
         "checked_at": checked_at,
-        "application_version": app.version,
+        "application_version": APPLICATION_VERSION,
         "environment": settings.app_env,
         "api_connection": {"status": "CONNECTED", "message": "Application API is responding."},
         "authentication": {"status": "OPERATIONAL", "message": "Authenticated user session is valid."},
