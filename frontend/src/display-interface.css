@@ -1,0 +1,132 @@
+/* Phase S5 presentation layer. Analytical calculations remain server-side. */
+:root[data-density="compact"] .quote-row { padding-top: 9px; padding-bottom: 9px; }
+:root[data-density="compact"] .panel-head { padding-top: 13px; padding-bottom: 10px; }
+:root[data-density="compact"] .sidebar-item { padding-top: 7px; padding-bottom: 7px; }
+
+:root[data-reduced-motion="true"] *,
+:root[data-reduced-motion="true"] *::before,
+:root[data-reduced-motion="true"] *::after {
+  animation-duration: 0.001ms !important;
+  animation-iteration-count: 1 !important;
+  scroll-behavior: auto !important;
+  transition-duration: 0.001ms !important;
+}
+
+:root[data-accessible-contrast="true"] body {
+  text-rendering: optimizeLegibility;
+}
+:root[data-accessible-contrast="true"] .panel,
+:root[data-accessible-contrast="true"] .settings-section,
+:root[data-accessible-contrast="true"] .settings-nav,
+:root[data-accessible-contrast="true"] .settings-toggle,
+:root[data-accessible-contrast="true"] .settings-input,
+:root[data-accessible-contrast="true"] .settings-select {
+  border-color: rgba(255,255,255,.22);
+}
+:root[data-accessible-contrast="true"] .panel-head span,
+:root[data-accessible-contrast="true"] .settings-section-heading p,
+:root[data-accessible-contrast="true"] .setting-field-copy span,
+:root[data-accessible-contrast="true"] .timestamp,
+:root[data-accessible-contrast="true"] .settings-info-note,
+:root[data-accessible-contrast="true"] .settings-health-panel {
+  color: #a9bad0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root:not([data-reduced-motion="false"]) *,
+  :root:not([data-reduced-motion="false"]) *::before,
+  :root:not([data-reduced-motion="false"]) *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+    transition-duration: 0.001ms !important;
+  }
+}
+
+/* The existing workspace is dark-first. These focused overrides make the Light option real
+   without duplicating the application's entire stylesheet. */
+:root[data-theme="light"] body,
+:root[data-theme="light"] .app {
+  color: #172033;
+  background: #f4f7fb;
+}
+:root[data-theme="light"] .app {
+  background: radial-gradient(circle at 20% 0%, #e9f6fb 0, #f4f7fb 38%);
+}
+:root[data-theme="light"] .app-chrome-header,
+:root[data-theme="light"] .app-sidebar,
+:root[data-theme="light"] .topbar {
+  background: rgba(255,255,255,.94);
+  border-color: rgba(15,23,42,.10);
+}
+:root[data-theme="light"] .chrome-heading strong,
+:root[data-theme="light"] .chrome-user span,
+:root[data-theme="light"] .sidebar-brand-copy strong,
+:root[data-theme="light"] .nav-group-label,
+:root[data-theme="light"] .sidebar-item,
+:root[data-theme="light"] h1,
+:root[data-theme="light"] h2,
+:root[data-theme="light"] h3,
+:root[data-theme="light"] .symbol,
+:root[data-theme="light"] .price {
+  color: #172033;
+}
+:root[data-theme="light"] .panel,
+:root[data-theme="light"] .settings-section,
+:root[data-theme="light"] .settings-nav,
+:root[data-theme="light"] .auth-card {
+  background: rgba(255,255,255,.96);
+  border-color: rgba(15,23,42,.10);
+  box-shadow: 0 10px 30px rgba(15,23,42,.06);
+}
+:root[data-theme="light"] .hero,
+:root[data-theme="light"] .settings-hero {
+  background: linear-gradient(135deg, rgba(14,165,233,.09), rgba(255,255,255,.92));
+  border-color: rgba(14,165,233,.18);
+}
+:root[data-theme="light"] .hero p,
+:root[data-theme="light"] .settings-hero p,
+:root[data-theme="light"] .panel-head span,
+:root[data-theme="light"] .timestamp,
+:root[data-theme="light"] .settings-section-heading p,
+:root[data-theme="light"] .setting-field-copy span,
+:root[data-theme="light"] .settings-info-note,
+:root[data-theme="light"] .settings-health-panel,
+:root[data-theme="light"] footer {
+  color: #52627a;
+}
+:root[data-theme="light"] .settings-subheading,
+:root[data-theme="light"] .setting-field-copy strong {
+  color: #24324a;
+}
+:root[data-theme="light"] .settings-input,
+:root[data-theme="light"] .settings-select,
+:root[data-theme="light"] .refresh,
+:root[data-theme="light"] .logout,
+:root[data-theme="light"] .settings-toggle,
+:root[data-theme="light"] .settings-secondary-button {
+  background: #fff;
+  color: #24324a;
+  border-color: rgba(15,23,42,.14);
+}
+:root[data-theme="light"] .quote-row:hover,
+:root[data-theme="light"] .quote-row.selected,
+:root[data-theme="light"] .settings-toggle:hover,
+:root[data-theme="light"] .sidebar-item:hover {
+  background: rgba(15,23,42,.045);
+}
+:root[data-theme="light"] .settings-nav-item,
+:root[data-theme="light"] .settings-nav-item:hover {
+  color: #52627a;
+}
+:root[data-theme="light"] .settings-nav-item:hover,
+:root[data-theme="light"] .settings-nav-item:focus-visible {
+  color: #172033;
+}
+:root[data-theme="light"] .settings-save-bar {
+  background: rgba(255,255,255,.96);
+  border-color: rgba(15,23,42,.10);
+}
+:root[data-theme="light"] .auth-page {
+  background: radial-gradient(circle at 50% 0%, #e9f6fb 0, #f4f7fb 48%);
+}
