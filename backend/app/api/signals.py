@@ -14,8 +14,9 @@ from app.preferences.models import default_preferences
 from app.preferences.service import preferences_service
 from app.providers.kraken_public import KrakenPublicProvider
 from app.services.candle_freshness import require_current_completed_candles
-from app.services.signal_engine import generate_crypto_signal
 from app.services.quote_service import QuoteService
+from app.services.settings_integration import market_data_policy, validate_dataset_policy
+from app.services.signal_engine import generate_crypto_signal
 from app.symbols import SYMBOLS, normalize_symbol
 
 router = APIRouter(prefix="/api/signals", tags=["signals"])
@@ -25,7 +26,7 @@ CRYPTO_SYMBOLS = tuple(symbol for symbol, mapping in SYMBOLS.items() if mapping.
 REQUIRED_TIMEFRAMES = (Timeframe.DAY_1, Timeframe.HOUR_4, Timeframe.HOUR_1, Timeframe.MINUTE_15)
 
 
-async def _load_crypto_dataset(symbol: str, timeframe: Timeframe, limit: int) -> OHLCVDataset:
+async def _load_crypto_dataset(symbol: str, timeframe: Timeframe, limit: int, policy=None) -> OHLCVDataset:
     try:
         dataset = await asyncio.wait_for(
             kraken_public.get_candles(symbol, timeframe, limit),
@@ -41,6 +42,8 @@ async def _load_crypto_dataset(symbol: str, timeframe: Timeframe, limit: int) ->
             raise RuntimeError(
                 f"{symbol} {timeframe.value}: primary crypto provider failed ({primary_exc}); fallback failed ({fallback_exc})"
             ) from fallback_exc
+    if policy is not None:
+        validate_dataset_policy(dataset, policy)
     return require_current_completed_candles(dataset)
 
 
@@ -48,23 +51,24 @@ def _default_signal_preferences() -> dict[str, object]:
     return dict(default_preferences()["signal_preferences"])
 
 
-def _resolve_signal_preferences(user: UserResponse | None, access_token: str | None) -> dict[str, object]:
+def _resolve_signal_preferences(user: UserResponse | None, access_token: str | None) -> tuple[dict[str, object], object | None]:
     if user is None or not access_token:
-        return _default_signal_preferences()
+        return _default_signal_preferences(), None
     record = preferences_service.get_or_create(access_token, user.id)
-    return dict(record.signal_preferences)
+    return dict(record.signal_preferences), record
 
 
 async def _generate(
     symbol: str,
     limit: int,
     signal_preferences: dict[str, object] | None = None,
+    policy=None,
 ) -> CryptoSignal:
     mapping = normalize_symbol(symbol)
     if mapping.asset_class != "crypto":
         raise ValueError("Signals are currently available for crypto pairs only.")
     results = await asyncio.gather(
-        *(_load_crypto_dataset(mapping.internal, timeframe, limit) for timeframe in REQUIRED_TIMEFRAMES),
+        *(_load_crypto_dataset(mapping.internal, timeframe, limit, policy) for timeframe in REQUIRED_TIMEFRAMES),
         return_exceptions=True,
     )
     failures = [
@@ -90,11 +94,12 @@ async def get_crypto_signals(
     access_token: Annotated[str | None, Cookie(alias="mr_access_token")] = None,
 ) -> CryptoSignalList:
     try:
-        signal_preferences = _resolve_signal_preferences(user, access_token)
+        signal_preferences, record = _resolve_signal_preferences(user, access_token)
+        policy = market_data_policy(record)
     except Exception as exc:
         raise HTTPException(status_code=503, detail="Signal preferences are temporarily unavailable.") from exc
     results = await asyncio.gather(
-        *(_generate(symbol, limit, signal_preferences) for symbol in CRYPTO_SYMBOLS),
+        *(_generate(symbol, limit, signal_preferences, policy) for symbol in CRYPTO_SYMBOLS),
         return_exceptions=True,
     )
     signals = [result for result in results if isinstance(result, CryptoSignal) and result.research_eligible]
@@ -115,8 +120,8 @@ async def get_crypto_signal(
     access_token: Annotated[str | None, Cookie(alias="mr_access_token")] = None,
 ) -> CryptoSignal:
     try:
-        signal_preferences = _resolve_signal_preferences(user, access_token)
-        signal = await _generate(symbol, limit, signal_preferences)
+        signal_preferences, record = _resolve_signal_preferences(user, access_token)
+        signal = await _generate(symbol, limit, signal_preferences, market_data_policy(record))
         if not signal.research_eligible:
             raise HTTPException(
                 status_code=404,
