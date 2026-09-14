@@ -75,6 +75,9 @@ class MarketDataPreferences(BaseModel):
     reject_stale_data: bool
     require_completed_candles: bool
     allow_cached_data_fallback: bool
+    crypto_enabled: bool
+    forex_enabled: bool
+    stocks_enabled: bool
 
 
 class DisplayPreferences(BaseModel):
