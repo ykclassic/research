@@ -39,7 +39,7 @@ DEFAULT_ALERT_PREFERENCES: dict[str, Any] = {
 }
 
 DEFAULT_MARKET_DATA_PREFERENCES: dict[str, Any] = {
-    "maximum_data_age_seconds": 300,
+    "maximum_data_age_seconds": 30,
     "reject_stale_data": True,
     "require_completed_candles": True,
     "allow_cached_data_fallback": True,
