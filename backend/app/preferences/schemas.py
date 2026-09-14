@@ -15,6 +15,9 @@ Density = Literal["compact", "comfortable"]
 MarketTimestamps = Literal["utc", "local", "exchange"]
 AnalysisStyle = Literal["Concise", "Analytical", "Detailed"]
 InterpretationRisk = Literal["Conservative", "Balanced", "Aggressive"]
+DecimalPrecision = Literal["auto", "0", "2", "4", "6"]
+LargeNumberFormat = Literal["compact", "full"]
+ChartType = Literal["candlestick", "line", "area"]
 
 
 class ResearchPreferences(BaseModel):
@@ -78,13 +81,31 @@ class DisplayPreferences(BaseModel):
     theme: Theme
     density: Density
     sidebar_collapsed: bool
-    default_landing_page: str = Field(min_length=1, max_length=120)
+    default_landing_page: Literal[
+        "/dashboard",
+        "/markets/watchlists",
+        "/analysis/technical",
+        "/analysis/signals",
+        "/research/ai",
+        "/research/reports",
+    ]
     currency: Literal["USD"]
+    decimal_precision: DecimalPrecision
+    percentage_format: Literal["1.25%", "1.3%", "1%"]
+    large_number_format: LargeNumberFormat
     timezone: str = Field(min_length=1, max_length=64)
     market_timestamps: MarketTimestamps
     date_format: Literal["DD/MM/YYYY", "MM/DD/YYYY", "YYYY-MM-DD"]
     time_format: Literal["12-hour", "24-hour"]
+    chart_type: ChartType
+    show_volume: bool
+    show_indicators: bool
+    show_grid: bool
+    remember_zoom: bool
+    auto_refresh: bool
     reduce_animations: bool
+    reduced_motion: bool
+    accessible_contrast: bool
 
 
 class AIOutputSections(BaseModel):
