@@ -4,7 +4,7 @@ import asyncio
 from datetime import datetime, timedelta, timezone
 
 from app.config import settings
-from app.models import QuoteStatus
+from app.models import Quote, QuoteStatus
 from app.models.market import OHLCVDataset, Timeframe
 from app.models.research_report import FundamentalContext, MarketStatus, ReportTimeframe, ResearchReport, ResearchRequestConfiguration, SMCStructure
 from app.providers.kraken_public import KrakenPublicProvider
@@ -28,7 +28,7 @@ class ResearchReportService:
         self.news_service = ResilientNewsResearchService()
 
     @staticmethod
-    def _validate_quote_policy(quote, config: ResolvedResearchConfiguration) -> None:
+    def _validate_quote_policy(quote: Quote, config: ResolvedResearchConfiguration) -> None:
         age = quote.freshness_age_seconds
         if age is None and quote.provider_timestamp is not None:
             age = max(0.0, (datetime.now(timezone.utc) - quote.provider_timestamp).total_seconds())
@@ -39,8 +39,7 @@ class ResearchReportService:
 
     @staticmethod
     def _validate_dataset_policy(dataset: OHLCVDataset, config: ResolvedResearchConfiguration) -> None:
-        completed = dataset.completed_candles
-        if config.require_completed_candles and not completed:
+        if config.require_completed_candles and not dataset.completed_candles:
             raise RuntimeError(f"No completed candles are available for {dataset.symbol} {dataset.timeframe.value}.")
         age = dataset.freshness_age_seconds
         if age is None and dataset.provider_timestamp is not None:
@@ -52,41 +51,49 @@ class ResearchReportService:
 
     async def _dataset(self, symbol: str, timeframe: Timeframe, limit: int, config: ResolvedResearchConfiguration | None = None):
         mapping = normalize_symbol(symbol)
-        config = config or ResolvedResearchConfiguration(default_asset="BTC/USD", default_asset_class="Crypto", default_timeframe="1h", analysis_depth="Standard", technical_analysis_enabled=True, market_structure_enabled=True, multi_timeframe_enabled=True, fundamental_analysis_enabled=True, news_analysis_enabled=True, ai_interpretation_enabled=True)
+        if config is None:
+            config = ResolvedResearchConfiguration(default_asset="BTC/USD", default_asset_class="Crypto", default_timeframe="1h", analysis_depth="Standard", technical_analysis_enabled=True, market_structure_enabled=True, multi_timeframe_enabled=True, fundamental_analysis_enabled=True, news_analysis_enabled=True, ai_interpretation_enabled=True)
+            validate_policy = False
+        else:
+            validate_policy = True
         timeout = max(settings.analysis_timeout_seconds, settings.provider_timeout_seconds * 7)
         if mapping.asset_class == "crypto":
             try:
                 dataset = await asyncio.wait_for(self.kraken_public.get_candles(mapping.internal, timeframe, limit), timeout=settings.analysis_timeout_seconds)
-                self._validate_dataset_policy(dataset, config)
+                if validate_policy: self._validate_dataset_policy(dataset, config)
                 return dataset
             except Exception as primary_error:
                 try:
                     dataset = await asyncio.wait_for(self.quote_service.orchestrator.get_candles(mapping.internal, timeframe, limit), timeout=timeout)
-                    self._validate_dataset_policy(dataset, config)
+                    if validate_policy: self._validate_dataset_policy(dataset, config)
                     return dataset
                 except Exception as fallback_error:
                     raise RuntimeError(f"Crypto candle acquisition failed for {mapping.internal} {timeframe.value}: primary={primary_error}; fallback={fallback_error}") from fallback_error
         dataset = await asyncio.wait_for(self.quote_service.orchestrator.get_candles(mapping.internal, timeframe, limit), timeout=timeout)
-        self._validate_dataset_policy(dataset, config)
+        if validate_policy: self._validate_dataset_policy(dataset, config)
         return dataset
 
     async def _current_quote(self, symbol: str, config: ResolvedResearchConfiguration | None = None):
-        config = config or ResolvedResearchConfiguration(default_asset="BTC/USD", default_asset_class="Crypto", default_timeframe="1h", analysis_depth="Standard", technical_analysis_enabled=True, market_structure_enabled=True, multi_timeframe_enabled=True, fundamental_analysis_enabled=True, news_analysis_enabled=True, ai_interpretation_enabled=True)
+        if config is None:
+            config = ResolvedResearchConfiguration(default_asset="BTC/USD", default_asset_class="Crypto", default_timeframe="1h", analysis_depth="Standard", technical_analysis_enabled=True, market_structure_enabled=True, multi_timeframe_enabled=True, fundamental_analysis_enabled=True, news_analysis_enabled=True, ai_interpretation_enabled=True)
+            validate_policy = False
+        else:
+            validate_policy = True
         mapping = normalize_symbol(symbol)
         if mapping.asset_class == "crypto":
             try:
                 quote = await asyncio.wait_for(self.kraken_public.get_quote(mapping.internal), timeout=settings.analysis_timeout_seconds)
-                self._validate_quote_policy(quote, config)
+                if validate_policy: self._validate_quote_policy(quote, config)
                 return quote
             except Exception as primary_error:
                 try:
                     quote = await self.quote_service.get_quote(mapping.internal, force_refresh=True)
-                    self._validate_quote_policy(quote, config)
+                    if validate_policy: self._validate_quote_policy(quote, config)
                     return quote
                 except Exception as fallback_error:
                     raise RuntimeError(f"Current crypto quote acquisition failed for {mapping.internal}: primary={primary_error}; fallback={fallback_error}") from fallback_error
         quote = await self.quote_service.get_quote(mapping.internal, force_refresh=True)
-        self._validate_quote_policy(quote, config)
+        if validate_policy: self._validate_quote_policy(quote, config)
         return quote
 
     @staticmethod
