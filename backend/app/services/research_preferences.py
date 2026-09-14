@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from app.preferences.models import UserPreferencesRecord, default_preferences
-from app.preferences.schemas import ResearchPreferences
+from app.preferences.schemas import MarketDataPreferences, ResearchPreferences
 from app.symbols import normalize_symbol
 
 
@@ -26,6 +26,10 @@ class ResearchRequestConfiguration:
     fundamental_analysis_enabled: bool
     news_analysis_enabled: bool
     ai_interpretation_enabled: bool
+    maximum_data_age_seconds: int = 30
+    reject_stale_data: bool = True
+    require_completed_candles: bool = True
+    allow_cached_data_fallback: bool = True
 
     @property
     def requested_components(self) -> dict[str, bool]:
@@ -64,12 +68,16 @@ def resolve_research_preferences(
     record: UserPreferencesRecord | None,
 ) -> ResearchRequestConfiguration:
     """Resolve persisted preferences, falling back to canonical defaults."""
+    defaults = default_preferences()
     if record is None:
-        payload: dict[str, Any] = default_preferences()["research_preferences"]
+        research_payload: dict[str, Any] = defaults["research_preferences"]
+        market_data_payload: dict[str, Any] = defaults["market_data_preferences"]
     else:
-        payload = record.research_preferences
+        research_payload = record.research_preferences
+        market_data_payload = record.market_data_preferences
 
-    preferences = ResearchPreferences.model_validate(payload)
+    preferences = ResearchPreferences.model_validate(research_payload)
+    market_data = MarketDataPreferences.model_validate(market_data_payload)
     normalized_asset = normalize_symbol(preferences.default_asset).internal
     expected_class = _asset_class_for_symbol(normalized_asset)
     if expected_class != preferences.default_asset_class:
@@ -89,6 +97,10 @@ def resolve_research_preferences(
         fundamental_analysis_enabled=preferences.fundamental_analysis_enabled,
         news_analysis_enabled=preferences.news_analysis_enabled,
         ai_interpretation_enabled=preferences.ai_interpretation_enabled,
+        maximum_data_age_seconds=market_data.maximum_data_age_seconds,
+        reject_stale_data=market_data.reject_stale_data,
+        require_completed_candles=market_data.require_completed_candles,
+        allow_cached_data_fallback=market_data.allow_cached_data_fallback,
     )
 
 
