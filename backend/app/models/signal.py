@@ -28,7 +28,9 @@ class CryptoSignal(BaseModel):
     symbol: str
     signal: SignalDirection
     score: float = Field(ge=-1, le=1)
+    confidence: float = Field(ge=0, le=1)
     confluence: float = Field(ge=0, le=1)
+    risk_reward: float = Field(ge=0)
     price: float = Field(gt=0)
     calculated_at: datetime
     latest_candle_timestamp: datetime
@@ -36,6 +38,7 @@ class CryptoSignal(BaseModel):
     components: tuple[SignalComponent, ...]
     evidence: tuple[str, ...] = ()
     research_eligible: bool = True
+    qualification_reasons: tuple[str, ...] = ()
 
 
 class CryptoSignalList(BaseModel):
