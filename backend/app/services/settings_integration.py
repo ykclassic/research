@@ -70,8 +70,20 @@ def _age_seconds(timestamp: datetime | None) -> float | None:
     return max(0.0, (datetime.now(timezone.utc) - timestamp.astimezone(timezone.utc)).total_seconds())
 
 
+def _completed_candles(dataset: Any) -> list[Any]:
+    """Return completed candles while remaining compatible with legacy test doubles."""
+    completed = getattr(dataset, "completed_candles", None)
+    if completed is not None:
+        return list(completed)
+    candles = getattr(dataset, "candles", None)
+    if candles is None:
+        return []
+    return [candle for candle in candles if getattr(candle, "is_complete", True)]
+
+
 def validate_dataset_policy(dataset: Any, policy: MarketDataPolicy) -> None:
-    if policy.require_completed_candles and not dataset.completed_candles:
+    completed = _completed_candles(dataset)
+    if policy.require_completed_candles and not completed:
         raise ValueError(
             f"No completed candles are available for {dataset.symbol} {dataset.timeframe.value}."
         )
@@ -82,9 +94,10 @@ def validate_dataset_policy(dataset: Any, policy: MarketDataPolicy) -> None:
     if policy.reject_stale_data and (
         freshness == "STALE" or (age is not None and age > policy.maximum_data_age_seconds)
     ):
+        age_display = "unknown" if age is None else f"{age:.1f}s"
         raise ValueError(
             f"Market candles for {dataset.symbol} {dataset.timeframe.value} are stale "
-            f"({age:.1f}s); maximum acceptable age is {policy.maximum_data_age_seconds}s."
+            f"({age_display}); maximum acceptable age is {policy.maximum_data_age_seconds}s."
         )
     if not policy.allow_cached_data_fallback and getattr(dataset, "cache_hit", False) and getattr(dataset, "fallback_used", False):
         raise ValueError(
@@ -100,8 +113,9 @@ def validate_quote_policy(quote: Any, policy: MarketDataPolicy) -> None:
     if policy.reject_stale_data and (
         status == "STALE" or (age is not None and age > policy.maximum_data_age_seconds)
     ):
+        age_display = "unknown" if age is None else f"{age:.1f}s"
         raise ValueError(
-            f"Market quote for {quote.symbol} is stale ({age:.1f}s); maximum acceptable age is {policy.maximum_data_age_seconds}s."
+            f"Market quote for {quote.symbol} is stale ({age_display}); maximum acceptable age is {policy.maximum_data_age_seconds}s."
         )
     if not policy.allow_cached_data_fallback and getattr(quote, "cache_hit", False) and getattr(quote, "fallback_used", False):
         raise ValueError(
@@ -130,4 +144,6 @@ def frequency_allows(last_triggered_at: str | None, preferences: dict[str, Any],
         previous = datetime.fromisoformat(last_triggered_at.replace("Z", "+00:00"))
     except ValueError:
         return True
+    if previous.tzinfo is None or previous.utcoffset() is None:
+        previous = previous.replace(tzinfo=timezone.utc)
     return now - previous >= timedelta(seconds=window)
