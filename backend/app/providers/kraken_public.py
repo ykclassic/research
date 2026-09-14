@@ -17,16 +17,9 @@ from app.symbols import normalize_symbol
 class KrakenPublicProvider(MarketDataProvider):
     """Public Kraken spot market-data fallback for crypto research.
 
-    Kraken's public market-data endpoints require no API credentials and expose
-    native 15-minute, 1-hour, 4-hour, and daily OHLC intervals. The endpoint
-    always includes the currently forming candle, so this provider explicitly
-    removes incomplete candles before returning a dataset.
-
-    Kraken currently recommends keeping public REST market-data calls at one
-    request per second or slower. The provider therefore serializes all public
-    requests made by this instance and enforces a small safety margin. This is
-    important because research reports request four OHLC timeframes for the same
-    asset concurrently.
+    Public requests are serialized and rate-limited because the provider is
+    used as a production fallback and research may request multiple timeframes.
+    Incomplete candles are removed before analytical datasets are returned.
     """
 
     name = "kraken_public"
@@ -42,6 +35,16 @@ class KrakenPublicProvider(MarketDataProvider):
     }
 
     _pairs = {
+        "BTC/USDT": "XBTUSDT",
+        "ETH/USDT": "ETHUSDT",
+        "BNB/USDT": "BNBUSDT",
+        "XRP/USDT": "XRPUSDT",
+        "LINK/USDT": "LINKUSDT",
+        "SOL/USDT": "SOLUSDT",
+        "DOGE/USDT": "DOGEUSDT",
+        "ADA/USDT": "ADAUSDT",
+        "SUI/USDT": "SUIUSDT",
+        "LTC/USDT": "LTCUSDT",
         "BTC/USD": "XBTUSD",
         "ETH/USD": "ETHUSD",
         "SOL/USD": "SOLUSD",
@@ -111,7 +114,6 @@ class KrakenPublicProvider(MarketDataProvider):
                     payload = response.json()
                     if not isinstance(payload, dict):
                         raise ValueError("Kraken returned an invalid JSON payload.")
-
                     errors = payload.get("error")
                     if errors:
                         if self._is_rate_limit_error(errors) and attempt < self.MAX_RETRIES:
@@ -125,7 +127,6 @@ class KrakenPublicProvider(MarketDataProvider):
                     await asyncio.sleep(min(2.0 * (attempt + 1), 5.0))
                 except httpx.HTTPStatusError:
                     raise
-
         raise RuntimeError("Kraken request failed after all retry attempts.")
 
     def _provider_pair(self, internal_symbol: str) -> str:
@@ -197,7 +198,6 @@ class KrakenPublicProvider(MarketDataProvider):
         result = payload.get("result")
         if not isinstance(result, dict):
             raise ValueError("Kraken returned an invalid OHLC response.")
-
         rows = self._parse_pair_result(result, pair)
         now = datetime.now(timezone.utc)
         candles: list[Candle] = []

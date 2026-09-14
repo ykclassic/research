@@ -1,6 +1,7 @@
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import { AlertTriangle, LogOut, Plus, RefreshCw, ShieldCheck, Trash2 } from "lucide-react";
 import { ApiError, confirmPasswordReset, createWatchlist, deleteWatchlist, getCurrentUser, getQuotes, getWatchlists, login, logout, Quote, register, requestPasswordReset, removeWatchlistSymbol, User, Watchlist } from "./api";
+import { getMarketUniverse, MarketUniverse } from "./settingsApi";
 import TechnicalAnalysisPage from "./TechnicalAnalysisPage";
 import MarketStructurePage from "./MarketStructurePage";
 import MTFAnalysisPage from "./MTFAnalysisPage";
@@ -13,7 +14,6 @@ import ResearchHistoryPage from "./ResearchHistoryPage";
 import AlertsPage from "./AlertsPage";
 import SettingsPage from "./SettingsPage";
 
-const SYMBOLS = ["BTC/USD", "ETH/USD", "SOL/USD", "EUR/USD", "GBP/USD", "USD/JPY", "NVDA", "AAPL", "MSFT", "SPY"];
 export type AppPage = "market" | "watchlists" | "analysis" | "market-structure" | "mtf" | "signals" | "portfolio" | "ai-research" | "news-research" | "research-reports" | "research-history" | "alerts" | "settings";
 
 type AuthMode = "login" | "register" | "forgot" | "reset";
@@ -116,7 +116,7 @@ function AuthScreen({ onAuthenticated }: { onAuthenticated: (u: User) => void })
     {error && <div className="error auth-error" role="alert"><AlertTriangle size={17}/>{error}</div>}
     {notice && <div className="auth-success" role="status">{notice}</div>}
     <form className="auth-form" onSubmit={submit}>
-      {mode !== "reset" && <label>Email<input type="email" value={email} onChange={e=>setEmail(e.target.value)} required autoComplete={mode === "login" ? "email" : "email"}/></label>}
+      {mode !== "reset" && <label>Email<input type="email" value={email} onChange={e=>setEmail(e.target.value)} required autoComplete="email"/></label>}
       {mode !== "forgot" && <label>Password<input type="password" minLength={8} value={password} onChange={e=>setPassword(e.target.value)} required autoComplete={mode === "login" ? "current-password" : "new-password"}/></label>}
       {mode === "reset" && <label>Confirm password<input type="password" minLength={8} value={confirmation} onChange={e=>setConfirmation(e.target.value)} required autoComplete="new-password"/></label>}
       <button className="auth-submit" disabled={busy}>{busy ? "Please wait…" : submitLabel}</button>
@@ -138,20 +138,47 @@ function Header({ user, page, setPage, onLogout }: { user: User; page: AppPage; 
 }
 
 function MarketPage({ user, onLogout, setPage }: { user: User; onLogout: ()=>void; setPage:(p:AppPage)=>void }) {
-  const [quotes,setQuotes]=useState<Quote[]>([]); const [error,setError]=useState<string|null>(null); const [refreshing,setRefreshing]=useState(false);
-  const load=useCallback(async(force=false)=>{try{setError(null);if(force)setRefreshing(true);setQuotes(await getQuotes(SYMBOLS,force));}catch(e){if(e instanceof ApiError&&e.status===401){onLogout();return;}setError(e instanceof Error?e.message:"Unable to retrieve market data.");}finally{setRefreshing(false);}},[onLogout]);
+  const [quotes,setQuotes]=useState<Quote[]>([]);
+  const [universe,setUniverse]=useState<MarketUniverse|null>(null);
+  const [error,setError]=useState<string|null>(null);
+  const [refreshing,setRefreshing]=useState(false);
+
+  const load=useCallback(async(force=false)=>{
+    try{
+      setError(null);
+      if(force)setRefreshing(true);
+      const nextUniverse = await getMarketUniverse();
+      setUniverse(nextUniverse);
+      setQuotes(nextUniverse.enabled_symbols.length ? await getQuotes(nextUniverse.enabled_symbols,force) : []);
+    }catch(e){
+      if(e instanceof ApiError&&e.status===401){onLogout();return;}
+      setError(e instanceof Error?e.message:"Unable to retrieve market data.");
+    }finally{setRefreshing(false);}
+  },[onLogout]);
+
   useEffect(()=>{void load();},[load]);
-  return <div className="app"><Header user={user} page="market" setPage={setPage} onLogout={onLogout}/><main><section className="hero dashboard-hero"><div><div className="eyebrow">Phase 1 · Live market data</div><h2>Validated market snapshots.</h2><p>Only provider-validated quotes are presented as current market data.</p></div><div className="hero-stat"><ShieldCheck size={20}/><strong>{quotes.filter(q=>q.status==="LIVE").length}</strong><span>live quotes</span></div></section>{error&&<div className="error"><AlertTriangle size={17}/>{error}</div>}<section className="panel dashboard-market-panel"><div className="panel-head"><div><h3>Market scanner</h3><span>Provider timestamp and provenance are preserved.</span></div><button className="refresh" onClick={()=>void load(true)} disabled={refreshing}><RefreshCw size={16}/>{refreshing?"Refreshing":"Refresh prices"}</button></div><div className="quotes">{quotes.map(q=><div className="quote-row" key={q.symbol}><div className="symbol">{q.symbol}</div><div className="price">{formatPrice(q.price)}</div><div className={`status ${q.status.toLowerCase()}`}><span className="dot"/>{q.status}</div><div className="timestamp">{q.source??"—"} · {formatTime(q.timestamp)}</div></div>)}</div></section><footer>Research and decision support only. No autonomous trading.</footer></main></div>;
+
+  return <div className="app"><Header user={user} page="market" setPage={setPage} onLogout={onLogout}/><main>
+    <section className="hero dashboard-hero"><div><div className="eyebrow">Phase 1 · Live market data</div><h2>Validated market snapshots.</h2><p>Only provider-validated quotes are presented as current market data.</p></div><div className="hero-stat"><ShieldCheck size={20}/><strong>{quotes.filter(q=>q.status==="LIVE").length}</strong><span>live quotes</span></div></section>
+    {error&&<div className="error"><AlertTriangle size={17}/>{error}</div>}
+    {universe && <div className="market-coverage-summary">Showing {universe.enabled_symbols.length} of {universe.symbols.crypto.length + universe.symbols.forex.length + universe.symbols.stocks.length} configured markets.</div>}
+    <section className="panel dashboard-market-panel"><div className="panel-head"><div><h3>Market scanner</h3><span>Provider timestamp and provenance are preserved.</span></div><button className="refresh" onClick={()=>void load(true)} disabled={refreshing}><RefreshCw size={16}/>{refreshing?"Refreshing":"Refresh prices"}</button></div>
+      {!universe && !error && <div className="settings-health-empty">Loading configured markets…</div>}
+      {universe && universe.enabled_symbols.length===0 && <div className="settings-health-empty">All market classes are disabled. Enable at least one market in Settings → Market Data.</div>}
+      <div className="quotes">{quotes.map(q=><div className="quote-row" key={q.symbol}><div className="symbol">{q.symbol}</div><div className="price">{formatPrice(q.price)}</div><div className={`status ${q.status.toLowerCase()}`}><span className="dot"/>{q.status}</div><div className="timestamp">{q.source??"—"} · {formatTime(q.timestamp)}</div></div>)}</div>
+    </section><footer>Research and decision support only. No autonomous trading.</footer>
+  </main></div>;
 }
 
 function WatchlistsPage({ user, onLogout, setPage }: { user: User; onLogout: ()=>void; setPage:(p:AppPage)=>void }) {
-  const [lists,setLists]=useState<Watchlist[]>([]); const [active,setActive]=useState<string|null>(null); const [error,setError]=useState<string|null>(null); const [name,setName]=useState(""); const [symbol,setSymbol]=useState(SYMBOLS[0]);
-  const load=useCallback(async()=>{try{const next=await getWatchlists();setLists(next);setActive(cur=>next.some(w=>w.id===cur)?cur:next[0]?.id??null);}catch(e){if(e instanceof ApiError&&e.status===401)onLogout();else setError(e instanceof Error?e.message:"Unable to load watchlists.");}},[onLogout]);
-  useEffect(()=>{void load();},[load]); const current=lists.find(w=>w.id===active)??lists[0];
+  const [lists,setLists]=useState<Watchlist[]>([]); const [active,setActive]=useState<string|null>(null); const [error,setError]=useState<string|null>(null); const [name,setName]=useState(""); const [symbol,setSymbol]=useState(""); const [universe,setUniverse]=useState<MarketUniverse|null>(null);
+  const load=useCallback(async()=>{try{const [nextLists,nextUniverse]=await Promise.all([getWatchlists(),getMarketUniverse()]);setLists(nextLists);setUniverse(nextUniverse);setSymbol(cur=>cur||nextUniverse.enabled_symbols[0]||nextUniverse.symbols.crypto[0]||nextUniverse.symbols.forex[0]||nextUniverse.symbols.stocks[0]||"");setActive(cur=>nextLists.some(w=>w.id===cur)?cur:nextLists[0]?.id??null);}catch(e){if(e instanceof ApiError&&e.status===401)onLogout();else setError(e instanceof Error?e.message:"Unable to load watchlists.");}},[onLogout]);
+  useEffect(()=>{void load();},[load]); const current=lists.find(w=>w.id===active)??lists[0]; const allSymbols=universe?[...universe.symbols.crypto,...universe.symbols.forex,...universe.symbols.stocks]:[];
   const add=async()=>{if(!name.trim())return;try{await createWatchlist(name.trim());setName("");await load();}catch(e){setError(e instanceof Error?e.message:"Unable to create watchlist.");}};
   const remove=async(id:string)=>{try{await deleteWatchlist(id);await load();}catch(e){setError(e instanceof Error?e.message:"Unable to delete watchlist.");}};
   const removeSymbol=async(s:string)=>{if(!current)return;try{await removeWatchlistSymbol(current.id,s);await load();}catch(e){setError(e instanceof Error?e.message:"Unable to remove symbol.");}};
-  return <div className="app"><Header user={user} page="watchlists" setPage={setPage} onLogout={onLogout}/><main><section className="hero"><div><div className="eyebrow">Phase 2 · Watchlists</div><h2>Persistent research lists.</h2><p>Watchlists are isolated to the authenticated account.</p></div></section>{error&&<div className="error"><AlertTriangle size={17}/>{error}</div>}<section className="workspace-grid"><aside className="panel"><div className="panel-head"><h3>Watchlists</h3></div><div className="inline-form"><input placeholder="New watchlist" value={name} onChange={e=>setName(e.target.value)}/><button onClick={()=>void add()}><Plus size={15}/>Create</button></div>{lists.map(w=><div className="quote-row" key={w.id}><button className="watchlist-select" onClick={()=>setActive(w.id)}>{w.name} ({w.watchlist_items.length})</button><button className="icon-button danger" onClick={()=>void remove(w.id)}><Trash2 size={14}/></button></div>)}</aside><section className="panel"><div className="panel-head"><div><h3>{current?.name??"Select a watchlist"}</h3><span>Symbols</span></div>{current&&<div className="inline-form"><select value={symbol} onChange={e=>setSymbol(e.target.value)}>{SYMBOLS.map(s=><option key={s}>{s}</option>)}</select><button onClick={()=>void (async()=>{try{const {addWatchlistSymbol}=await import("./api");await addWatchlistSymbol(current.id,symbol);await load();}catch(e){setError(e instanceof Error?e.message:"Unable to add symbol.");}})()}><Plus size={15}/>Add</button></div>}</div>{current?.watchlist_items.map(i=><div className="quote-row" key={i.id}><div className="symbol">{i.symbol}</div><button className="icon-button danger" onClick={()=>void removeSymbol(i.symbol)}><Trash2 size={14}/></button></div>)}</section></section><footer>Research and decision support only.</footer></main></div>;
+  const addSymbol=async()=>{if(!current||!symbol)return;try{const {addWatchlistSymbol}=await import("./api");await addWatchlistSymbol(current.id,symbol);await load();}catch(e){setError(e instanceof Error?e.message:"Unable to add symbol.");}};
+  return <div className="app"><Header user={user} page="watchlists" setPage={setPage} onLogout={onLogout}/><main><section className="hero"><div><div className="eyebrow">Phase 2 · Watchlists</div><h2>Persistent research lists.</h2><p>Watchlists are isolated to the authenticated account.</p></div></section>{error&&<div className="error"><AlertTriangle size={17}/>{error}</div>}<section className="workspace-grid"><aside className="panel"><div className="panel-head"><h3>Watchlists</h3></div><div className="inline-form"><input placeholder="New watchlist" value={name} onChange={e=>setName(e.target.value)}/><button onClick={()=>void add()}><Plus size={15}/>Create</button></div>{lists.map(w=><div className="quote-row" key={w.id}><button className="watchlist-select" onClick={()=>setActive(w.id)}>{w.name} ({w.watchlist_items.length})</button><button className="icon-button danger" onClick={()=>void remove(w.id)}><Trash2 size={14}/></button></div>)}</aside><section className="panel"><div className="panel-head"><div><h3>{current?.name??"Select a watchlist"}</h3><span>Symbols</span></div>{current&&<div className="inline-form"><select value={symbol} onChange={e=>setSymbol(e.target.value)} disabled={!allSymbols.length}>{allSymbols.map(s=><option key={s}>{s}</option>)}</select><button onClick={()=>void addSymbol()} disabled={!symbol}><Plus size={15}/>Add</button></div>}</div>{current?.watchlist_items.map(i=><div className="quote-row" key={i.id}><div className="symbol">{i.symbol}</div><button className="icon-button danger" onClick={()=>void removeSymbol(i.symbol)}><Trash2 size={14}/></button></div>)}</section></section><footer>Research and decision support only.</footer></main></div>;
 }
 
 function App(){

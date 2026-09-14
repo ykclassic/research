@@ -7,7 +7,7 @@ from typing import Any
 from app.preferences.models import UserPreferencesRecord, default_preferences
 from app.preferences.repository import get_preferences
 from app.preferences.schemas import MarketDataPreferences, ResearchPreferences
-from app.symbols import normalize_symbol
+from app.symbols import normalize_symbol, symbols_for_asset_classes
 
 
 @dataclass(frozen=True)
@@ -16,6 +16,21 @@ class MarketDataPolicy:
     reject_stale_data: bool
     require_completed_candles: bool
     allow_cached_data_fallback: bool
+
+
+@dataclass(frozen=True)
+class MarketCoverage:
+    crypto_enabled: bool
+    forex_enabled: bool
+    stocks_enabled: bool
+
+    @property
+    def enabled_symbols(self) -> tuple[str, ...]:
+        return symbols_for_asset_classes(
+            crypto=self.crypto_enabled,
+            forex=self.forex_enabled,
+            stocks=self.stocks_enabled,
+        )
 
 
 def merged_preferences(access_token: str, user_id: str) -> UserPreferencesRecord | None:
@@ -43,6 +58,16 @@ def market_data_policy(record: UserPreferencesRecord | None) -> MarketDataPolicy
     )
 
 
+def market_coverage(record: UserPreferencesRecord | None) -> MarketCoverage:
+    payload = record.market_data_preferences if record is not None else default_preferences()["market_data_preferences"]
+    value = MarketDataPreferences.model_validate(payload)
+    return MarketCoverage(
+        crypto_enabled=value.crypto_enabled,
+        forex_enabled=value.forex_enabled,
+        stocks_enabled=value.stocks_enabled,
+    )
+
+
 def default_timeframe(record: UserPreferencesRecord | None, fallback: str = "1h") -> str:
     try:
         return research_preferences(record).default_timeframe
@@ -50,7 +75,7 @@ def default_timeframe(record: UserPreferencesRecord | None, fallback: str = "1h"
         return fallback
 
 
-def default_asset(record: UserPreferencesRecord | None, fallback: str = "BTC/USD") -> str:
+def default_asset(record: UserPreferencesRecord | None, fallback: str = "BTC/USDT") -> str:
     try:
         return normalize_symbol(research_preferences(record).default_asset).internal
     except ValueError:
@@ -82,11 +107,6 @@ def validate_dataset_policy(dataset: Any, policy: MarketDataPolicy) -> None:
     age = getattr(dataset, "freshness_age_seconds", None)
     freshness = getattr(getattr(dataset, "freshness_status", None), "value", None)
     timeframe_seconds = getattr(getattr(dataset, "timeframe", None), "seconds", 0) or 0
-    # Candle freshness is measured from the close of the latest completed
-    # candle. A 1h candle can therefore legitimately be 30+ seconds old while
-    # still representing the current completed market state. Apply the user's
-    # tolerance after the timeframe duration rather than comparing candle age
-    # directly with the point-in-time quote threshold.
     stale = age is not None and (
         freshness == "STALE" or age > timeframe_seconds + policy.maximum_data_age_seconds
     )

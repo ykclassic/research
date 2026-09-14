@@ -43,6 +43,9 @@ DEFAULT_MARKET_DATA_PREFERENCES: dict[str, Any] = {
     "reject_stale_data": True,
     "require_completed_candles": True,
     "allow_cached_data_fallback": True,
+    "crypto_enabled": True,
+    "forex_enabled": True,
+    "stocks_enabled": True,
 }
 
 DEFAULT_DISPLAY_PREFERENCES: dict[str, Any] = {
