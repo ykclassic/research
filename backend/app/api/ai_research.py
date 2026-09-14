@@ -11,6 +11,10 @@ from app.api.market_structure import get_market_structure
 from app.api.mtf import get_multi_timeframe_analysis
 from app.api.regime import get_regime
 from app.models.market import Timeframe
+from app.preferences.models import default_preferences
+from app.preferences.repository import PreferencesRepositoryError
+from app.preferences.schemas import AIPreferences
+from app.preferences.service import preferences_service
 from app.services.ai_research import AIResearchError, AIResearchService
 from app.services.research_history import create_history_record
 from app.services.supabase_data import DataServiceError
@@ -39,18 +43,39 @@ class AIResearchResponse(BaseModel):
     model: str
 
 
+def _ai_preferences(
+    user: UserResponse | None,
+    access_token: str | None,
+) -> AIPreferences:
+    if user is None:
+        return AIPreferences.model_validate(default_preferences()["ai_preferences"])
+    if not access_token:
+        raise HTTPException(status_code=401, detail="Authentication required.")
+    try:
+        record = preferences_service.get_or_create(access_token, user.id)
+        return AIPreferences.model_validate(record.ai_preferences)
+    except ValueError as exc:
+        raise HTTPException(status_code=503, detail="Saved AI preferences are invalid; AI research is temporarily unavailable.") from exc
+    except PreferencesRepositoryError as exc:
+        raise HTTPException(status_code=503, detail="AI preferences could not be loaded.") from exc
+
+
 @router.post("/report", response_model=AIResearchResponse)
 async def create_ai_research(
     request: AIResearchRequest,
     user: UserResponse | None = Depends(get_current_user_or_github_actions),
     access_token: Annotated[str | None, Cookie(alias="mr_access_token")] = None,
 ) -> AIResearchResponse:
-    """Generate interpretation only after the deterministic research gate passes.
+    """Generate interpretation only after deterministic research gates pass.
 
-    Every value sent to the AI is produced server-side by the deterministic
-    market-data, feature, regime, structure, and MTF layers. The client cannot
-    submit its own market facts to this endpoint.
+    S6 preferences affect AI presentation only. They cannot change the
+    deterministic market-data, feature, regime, structure, MTF, validation,
+    or safety layers used to build the verified context.
     """
+    preferences = _ai_preferences(user, access_token)
+    if not preferences.enabled:
+        raise HTTPException(status_code=409, detail="AI research is disabled in Settings.")
+
     try:
         analysis = await get_analysis(request.symbol, request.timeframe, request.limit)
         if not analysis.data_quality.research_eligible:
@@ -64,7 +89,7 @@ async def create_ai_research(
             raise HTTPException(status_code=409, detail="AI research is disabled because the deterministic multi-timeframe context is incomplete.")
 
         context = {
-            "context_version": "1.0",
+            "context_version": "1.1",
             "evidence": [
                 {"id": "TA", "type": "deterministic_technical_analysis", "source": analysis.source, "timeframe": analysis.timeframe.value, "latest_candle_timestamp": analysis.latest_candle_timestamp, "candle_count": analysis.candle_count, "current_quote": analysis.current_quote.model_dump(mode="json"), "indicators": analysis.indicators, "data_quality": analysis.data_quality.model_dump(mode="json")},
                 {"id": "REGIME", "type": "deterministic_market_regime", "source": regime.source, "timeframe": regime.timeframe.value, "latest_candle_timestamp": regime.latest_candle_timestamp, "candle_count": regime.candle_count, "regime": regime.regime.value, "confidence": regime.confidence, "evidence": regime.evidence.model_dump(mode="json"), "thresholds": regime.thresholds.model_dump(mode="json"), "rule_id": regime.rule_id},
@@ -72,7 +97,7 @@ async def create_ai_research(
                 {"id": "MTF", "type": "deterministic_multi_timeframe_research", "calculated_at": mtf.calculated_at, "timeframes": [item.model_dump(mode="json") for item in mtf.timeframes], "research": mtf.research.model_dump(mode="json")},
             ],
         }
-        ai_result = await ai_service.interpret(context, request.question)
+        ai_result = await ai_service.interpret(context, request.question, preferences)
         result = AIResearchResponse(symbol=analysis.symbol, timeframe=analysis.timeframe, deterministic_gate="PASSED", verified_context=context, report=ai_result["report"], model=ai_result["model"])
         if user is not None and access_token:
             try:
