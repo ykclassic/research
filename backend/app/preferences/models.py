@@ -5,7 +5,7 @@ from typing import Any
 
 
 DEFAULT_RESEARCH_PREFERENCES: dict[str, Any] = {
-    "default_asset": "BTC/USD",
+    "default_asset": "BTC/USDT",
     "default_asset_class": "Crypto",
     "default_timeframe": "1h",
     "analysis_depth": "Standard",
@@ -43,6 +43,9 @@ DEFAULT_MARKET_DATA_PREFERENCES: dict[str, Any] = {
     "reject_stale_data": True,
     "require_completed_candles": True,
     "allow_cached_data_fallback": True,
+    "crypto_enabled": True,
+    "forex_enabled": True,
+    "stocks_enabled": True,
 }
 
 DEFAULT_DISPLAY_PREFERENCES: dict[str, Any] = {
