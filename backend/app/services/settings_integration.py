@@ -62,14 +62,6 @@ def analysis_limit(record: UserPreferencesRecord | None, fallback: int = 250) ->
     return {"Quick": 220, "Standard": 300, "Comprehensive": 500}.get(depth, fallback)
 
 
-def _age_seconds(timestamp: datetime | None) -> float | None:
-    if timestamp is None:
-        return None
-    if timestamp.tzinfo is None or timestamp.utcoffset() is None:
-        timestamp = timestamp.replace(tzinfo=timezone.utc)
-    return max(0.0, (datetime.now(timezone.utc) - timestamp.astimezone(timezone.utc)).total_seconds())
-
-
 def _completed_candles(dataset: Any) -> list[Any]:
     """Return completed candles while remaining compatible with legacy test doubles."""
     completed = getattr(dataset, "completed_candles", None)
@@ -88,8 +80,6 @@ def validate_dataset_policy(dataset: Any, policy: MarketDataPolicy) -> None:
             f"No completed candles are available for {dataset.symbol} {dataset.timeframe.value}."
         )
     age = getattr(dataset, "freshness_age_seconds", None)
-    if age is None:
-        age = _age_seconds(getattr(dataset, "provider_timestamp", None))
     freshness = getattr(getattr(dataset, "freshness_status", None), "value", None)
     if policy.reject_stale_data and (
         freshness == "STALE" or (age is not None and age > policy.maximum_data_age_seconds)
@@ -107,8 +97,6 @@ def validate_dataset_policy(dataset: Any, policy: MarketDataPolicy) -> None:
 
 def validate_quote_policy(quote: Any, policy: MarketDataPolicy) -> None:
     age = getattr(quote, "freshness_age_seconds", None)
-    if age is None:
-        age = _age_seconds(getattr(quote, "provider_timestamp", None))
     status = getattr(getattr(quote, "status", None), "value", getattr(quote, "status", None))
     if policy.reject_stale_data and (
         status == "STALE" or (age is not None and age > policy.maximum_data_age_seconds)
