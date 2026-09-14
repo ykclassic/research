@@ -43,6 +43,11 @@
 .settings-range { display:flex; align-items:center; gap:10px; width:100%; }
 .settings-range input { width:100%; accent-color:#6fe7ff; }
 .settings-range strong { min-width:45px; text-align:right; color:#6fe7ff; font-size:12px; }
+.settings-confidence-range { padding:13px 14px; border:1px solid rgba(111,231,255,.16); border-radius:12px; background:rgba(111,231,255,.045); }
+.settings-confidence-range > span { color:#7187a1; font-size:9px; font-variant-numeric:tabular-nums; }
+.settings-confidence-range strong { min-width:52px; font-size:16px; }
+.settings-prominent-control { margin:0 -4px; padding:4px 4px 0; }
+.settings-prominent-control .setting-field { border-bottom-color:rgba(111,231,255,.12); }
 .settings-chip-group { display:flex; flex-wrap:wrap; justify-content:flex-end; gap:6px; }
 .settings-chip { border:1px solid rgba(255,255,255,.1); border-radius:8px; background:#071625; color:#8498b1; padding:7px 9px; font-size:10px; }
 .settings-chip.active { border-color:rgba(111,231,255,.35); background:rgba(111,231,255,.08); color:#6fe7ff; }
