@@ -55,7 +55,11 @@ def _resolve_signal_preferences(user: UserResponse | None, access_token: str | N
     return dict(record.signal_preferences)
 
 
-async def _generate(symbol: str, limit: int, signal_preferences: dict[str, object]) -> CryptoSignal:
+async def _generate(
+    symbol: str,
+    limit: int,
+    signal_preferences: dict[str, object] | None = None,
+) -> CryptoSignal:
     mapping = normalize_symbol(symbol)
     if mapping.asset_class != "crypto":
         raise ValueError("Signals are currently available for crypto pairs only.")
@@ -63,11 +67,20 @@ async def _generate(symbol: str, limit: int, signal_preferences: dict[str, objec
         *(_load_crypto_dataset(mapping.internal, timeframe, limit) for timeframe in REQUIRED_TIMEFRAMES),
         return_exceptions=True,
     )
-    failures = [f"{timeframe.value}: {result}" for timeframe, result in zip(REQUIRED_TIMEFRAMES, results) if isinstance(result, BaseException)]
+    failures = [
+        f"{timeframe.value}: {result}"
+        for timeframe, result in zip(REQUIRED_TIMEFRAMES, results)
+        if isinstance(result, BaseException)
+    ]
     if failures:
         raise RuntimeError("Signal candle load failed: " + " | ".join(failures))
-    datasets = {timeframe: result for timeframe, result in zip(REQUIRED_TIMEFRAMES, results) if isinstance(result, OHLCVDataset)}
-    return generate_crypto_signal(datasets, signal_preferences)
+    datasets = {
+        timeframe: result
+        for timeframe, result in zip(REQUIRED_TIMEFRAMES, results)
+        if isinstance(result, OHLCVDataset)
+    }
+    preferences = signal_preferences if signal_preferences is not None else _default_signal_preferences()
+    return generate_crypto_signal(datasets, preferences)
 
 
 @router.get("", response_model=CryptoSignalList)
@@ -80,7 +93,10 @@ async def get_crypto_signals(
         signal_preferences = _resolve_signal_preferences(user, access_token)
     except Exception as exc:
         raise HTTPException(status_code=503, detail="Signal preferences are temporarily unavailable.") from exc
-    results = await asyncio.gather(*(_generate(symbol, limit, signal_preferences) for symbol in CRYPTO_SYMBOLS), return_exceptions=True)
+    results = await asyncio.gather(
+        *(_generate(symbol, limit, signal_preferences) for symbol in CRYPTO_SYMBOLS),
+        return_exceptions=True,
+    )
     signals = [result for result in results if isinstance(result, CryptoSignal) and result.research_eligible]
     failures = [str(result) for result in results if isinstance(result, BaseException)]
     if not signals:
@@ -102,7 +118,13 @@ async def get_crypto_signal(
         signal_preferences = _resolve_signal_preferences(user, access_token)
         signal = await _generate(symbol, limit, signal_preferences)
         if not signal.research_eligible:
-            raise HTTPException(status_code=404, detail={"message": "Signal does not meet the configured preferences.", "reasons": signal.qualification_reasons})
+            raise HTTPException(
+                status_code=404,
+                detail={
+                    "message": "Signal does not meet the configured preferences.",
+                    "reasons": signal.qualification_reasons,
+                },
+            )
         return signal
     except HTTPException:
         raise
