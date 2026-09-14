@@ -126,16 +126,22 @@ async def get_analysis(
 
     try:
         mapping = normalize_symbol(symbol)
-        dataset = await asyncio.wait_for(
-            quote_service.orchestrator.get_candles(
-                mapping.internal,
-                timeframe,
-                limit,
-                start_date=start,
-                end_date=end,
-            ),
-            timeout=settings.analysis_timeout_seconds,
-        )
+        if start is None and end is None:
+            dataset = await asyncio.wait_for(
+                quote_service.orchestrator.get_candles(mapping.internal, timeframe, limit),
+                timeout=settings.analysis_timeout_seconds,
+            )
+        else:
+            dataset = await asyncio.wait_for(
+                quote_service.orchestrator.get_candles(
+                    mapping.internal,
+                    timeframe,
+                    limit,
+                    start_date=start,
+                    end_date=end,
+                ),
+                timeout=settings.analysis_timeout_seconds,
+            )
         validate_dataset_policy(dataset, policy)
         current_quote = await asyncio.wait_for(
             quote_service.get_quote(mapping.internal, force_refresh=True),
