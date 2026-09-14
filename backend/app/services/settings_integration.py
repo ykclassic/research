@@ -81,11 +81,20 @@ def validate_dataset_policy(dataset: Any, policy: MarketDataPolicy) -> None:
         )
     age = getattr(dataset, "freshness_age_seconds", None)
     freshness = getattr(getattr(dataset, "freshness_status", None), "value", None)
-    stale = age is not None and (freshness == "STALE" or age > policy.maximum_data_age_seconds)
+    timeframe_seconds = getattr(getattr(dataset, "timeframe", None), "seconds", 0) or 0
+    # Candle freshness is measured from the close of the latest completed
+    # candle. A 1h candle can therefore legitimately be 30+ seconds old while
+    # still representing the current completed market state. Apply the user's
+    # tolerance after the timeframe duration rather than comparing candle age
+    # directly with the point-in-time quote threshold.
+    stale = age is not None and (
+        freshness == "STALE" or age > timeframe_seconds + policy.maximum_data_age_seconds
+    )
     if policy.reject_stale_data and stale:
         raise ValueError(
             f"Market candles for {dataset.symbol} {dataset.timeframe.value} are stale "
-            f"({age:.1f}s); maximum acceptable age is {policy.maximum_data_age_seconds}s."
+            f"({age:.1f}s since candle close); allowed timeframe age is "
+            f"{timeframe_seconds + policy.maximum_data_age_seconds}s."
         )
     if not policy.allow_cached_data_fallback and getattr(dataset, "cache_hit", False) and getattr(dataset, "fallback_used", False):
         raise ValueError(
