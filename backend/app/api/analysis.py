@@ -229,7 +229,7 @@ async def get_analysis(
         raise HTTPException(status_code=503, detail=str(exc)) from exc
 
 
-@router.get("/{symbol:path}")
+@router.get("/{symbol:path}", response_model=AnalysisResponse)
 async def analysis_route(
     symbol: str,
     timeframe: Timeframe | None = Query(None),
