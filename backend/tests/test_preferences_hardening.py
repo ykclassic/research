@@ -16,8 +16,7 @@ def _record(**overrides):
     values = default_preferences()
     values.update(overrides)
     return SimpleNamespace(
-        id="pref-1",
-        user_id="user-a",
+        id="pref-1", user_id="user-a",
         research_preferences=deepcopy(values["research_preferences"]),
         signal_preferences=deepcopy(values["signal_preferences"]),
         alert_preferences=deepcopy(values["alert_preferences"]),
@@ -25,8 +24,7 @@ def _record(**overrides):
         display_preferences=deepcopy(values["display_preferences"]),
         ai_preferences=deepcopy(values["ai_preferences"]),
         privacy_preferences=deepcopy(values["privacy_preferences"]),
-        created_at="2026-01-01T00:00:00Z",
-        updated_at="2026-01-01T00:00:00Z",
+        created_at="2026-01-01T00:00:00Z", updated_at="2026-01-01T00:00:00Z",
     )
 
 
@@ -61,6 +59,15 @@ def test_invalid_values_are_rejected():
     values = default_preferences()
     values["display_preferences"]["theme"] = "<script>alert(1)</script>"
     with pytest.raises(ValidationError):
+        UserPreferences.model_validate(values)
+
+
+def test_timezone_must_be_valid_iana_identifier():
+    values = default_preferences()
+    values["display_preferences"]["timezone"] = "Africa/Lagos"
+    assert UserPreferences.model_validate(values).display_preferences.timezone == "Africa/Lagos"
+    values["display_preferences"]["timezone"] = "../../etc/passwd"
+    with pytest.raises(ValidationError, match="valid IANA timezone"):
         UserPreferences.model_validate(values)
 
 
@@ -99,8 +106,7 @@ def test_update_persists_validated_full_document():
     with patch("app.preferences.service.upsert_preferences", return_value=saved) as upsert:
         result = PreferencesService().update("token-a", "user-a", values)
     assert result is saved
-    payload = upsert.call_args.args[2]
-    assert payload["research_preferences"]["default_timeframe"] == "4h"
+    assert upsert.call_args.args[2]["research_preferences"]["default_timeframe"] == "4h"
 
 
 def test_reset_restores_defaults():
@@ -108,8 +114,7 @@ def test_reset_restores_defaults():
     with patch("app.preferences.service.upsert_preferences", return_value=saved) as upsert:
         result = PreferencesService().reset("token-a", "user-a")
     assert result is saved
-    payload = upsert.call_args.args[2]
-    assert payload == default_preferences()
+    assert upsert.call_args.args[2] == default_preferences()
 
 
 def test_user_id_is_not_taken_from_mutable_payload():
@@ -135,7 +140,6 @@ def test_concurrent_update_document_has_deterministic_full_payload_contract():
     with patch("app.preferences.service.upsert_preferences", side_effect=save):
         service.update("token-a", "user-a", first)
         service.update("token-a", "user-a", second)
-
     assert len(calls) == 2
     assert all(call[1] == "user-a" for call in calls)
     assert calls[0][2]["research_preferences"]["default_timeframe"] == "4h"
