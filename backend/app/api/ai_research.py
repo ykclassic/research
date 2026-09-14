@@ -17,36 +17,39 @@ from app.preferences.schemas import AIPreferences
 from app.preferences.service import preferences_service
 from app.services.ai_research import AIResearchError, AIResearchService
 from app.services.research_history import create_history_record
+from app.services.research_preferences import resolve_research_preferences
 from app.services.supabase_data import DataServiceError
+from app.services.news_research_resilient import ResilientNewsResearchService
 
 router = APIRouter(prefix="/api/ai-research", tags=["ai-research"], dependencies=[Depends(get_current_user_or_github_actions), Depends(_require_csrf)])
 ai_service = AIResearchService()
+news_service = ResilientNewsResearchService()
 
 
 class AIResearchRequest(BaseModel):
     symbol: str = Field(min_length=3, max_length=32)
-    timeframe: Timeframe = Timeframe.HOUR_1
-    limit: int = Field(default=250, ge=50, le=5000)
+    timeframe: Timeframe | None = None
+    limit: int | None = Field(default=None, ge=50, le=5000)
     question: str | None = Field(default=None, max_length=2000)
 
 
 class AIResearchResponse(BaseModel):
     symbol: str
-    timeframe: Timeframe
+    timeframe: Timeframe | None
     deterministic_gate: str
     verified_context: dict
     report: str
     model: str
 
 
-def _ai_preferences(user: UserResponse | None, access_token: str | None) -> AIPreferences:
+def _ai_preferences(user: UserResponse | None, access_token: str | None) -> tuple[AIPreferences, object | None]:
     if user is None:
-        return AIPreferences.model_validate(default_preferences()["ai_preferences"])
+        return AIPreferences.model_validate(default_preferences()["ai_preferences"]), None
     if not access_token:
         raise HTTPException(status_code=401, detail="Authentication required.")
     try:
         record = preferences_service.get_or_create(access_token, user.id)
-        return AIPreferences.model_validate(record.ai_preferences)
+        return AIPreferences.model_validate(record.ai_preferences), record
     except ValueError as exc:
         raise HTTPException(status_code=503, detail="Saved AI preferences are invalid; AI research is temporarily unavailable.") from exc
     except PreferencesRepositoryError as exc:
@@ -59,50 +62,69 @@ async def create_ai_research(
     user: UserResponse | None = Depends(get_current_user_or_github_actions),
     access_token: Annotated[str | None, Cookie(alias="mr_access_token")] = None,
 ) -> AIResearchResponse:
-    """Generate interpretation only after deterministic research gates pass.
-
-    S6 preferences affect AI presentation only. They cannot change the deterministic
-    market-data, feature, regime, structure, MTF, validation, or safety layers.
-    """
-    preferences = _ai_preferences(user, access_token)
+    """Generate AI interpretation from only the research components enabled in Settings."""
+    preferences, preference_record = _ai_preferences(user, access_token)
     if not preferences.enabled:
         raise HTTPException(status_code=409, detail="AI research is disabled in Settings.")
 
-    try:
-        analysis = await get_analysis(request.symbol, request.timeframe, request.limit)
-        if not analysis.data_quality.research_eligible:
-            raise HTTPException(status_code=409, detail="AI research is disabled because the deterministic analysis dataset did not pass the research-eligibility gate.")
-        regime = await get_regime(request.symbol, request.timeframe, max(request.limit, 220))
-        structure = await get_market_structure(request.symbol, request.timeframe, request.limit)
-        mtf = await get_multi_timeframe_analysis(request.symbol, request.limit)
-        if analysis.latest_candle_timestamp != structure.latest_candle_timestamp:
-            raise HTTPException(status_code=409, detail="AI research is disabled because the deterministic analysis and structure snapshots are not temporally aligned.")
-        if mtf.symbol != analysis.symbol or len(mtf.timeframes) != 4:
-            raise HTTPException(status_code=409, detail="AI research is disabled because the deterministic multi-timeframe context is incomplete.")
+    research_config = resolve_research_preferences(preference_record)
+    if not research_config.ai_interpretation_enabled:
+        raise HTTPException(status_code=409, detail="AI interpretation is disabled in Research Preferences.")
 
-        context = {
-            "context_version": "1.1",
-            "evidence": [
-                {"id": "TA", "type": "deterministic_technical_analysis", "source": analysis.source, "timeframe": analysis.timeframe.value, "latest_candle_timestamp": analysis.latest_candle_timestamp, "candle_count": analysis.candle_count, "current_quote": analysis.current_quote.model_dump(mode="json"), "indicators": analysis.indicators, "data_quality": analysis.data_quality.model_dump(mode="json")},
-                {"id": "REGIME", "type": "deterministic_market_regime", "source": regime.source, "timeframe": regime.timeframe.value, "latest_candle_timestamp": regime.latest_candle_timestamp, "candle_count": regime.candle_count, "regime": regime.regime.value, "confidence": regime.confidence, "evidence": regime.evidence.model_dump(mode="json"), "thresholds": regime.thresholds.model_dump(mode="json"), "rule_id": regime.rule_id},
-                {"id": "STRUCTURE", "type": "deterministic_market_structure", "source": structure.source, "timeframe": structure.timeframe.value, "latest_candle_timestamp": structure.latest_candle_timestamp, "candle_count": structure.candle_count, "events": [event.model_dump(mode="json") for event in structure.events]},
-                {"id": "MTF", "type": "deterministic_multi_timeframe_research", "calculated_at": mtf.calculated_at, "timeframes": [item.model_dump(mode="json") for item in mtf.timeframes], "research": mtf.research.model_dump(mode="json")},
-            ],
-        }
+    timeframe = request.timeframe or Timeframe(research_config.default_timeframe)
+    limit = request.limit or research_config.data_limit
+    if not any(research_config.requested_components.values()):
+        raise HTTPException(status_code=409, detail="AI research has no enabled research components in Settings.")
+
+    try:
+        evidence: list[dict] = []
+        analysis = None
+        if research_config.technical_analysis_enabled:
+            analysis = await get_analysis(request.symbol, timeframe, limit, user=user, access_token=access_token)
+            if not analysis.data_quality.research_eligible:
+                raise HTTPException(status_code=409, detail="AI research is disabled because the deterministic analysis dataset did not pass the research-eligibility gate.")
+            evidence.append({"id": "TA", "type": "deterministic_technical_analysis", "source": analysis.source, "timeframe": analysis.timeframe.value, "latest_candle_timestamp": analysis.latest_candle_timestamp, "candle_count": analysis.candle_count, "current_quote": analysis.current_quote.model_dump(mode="json"), "indicators": analysis.indicators, "data_quality": analysis.data_quality.model_dump(mode="json")})
+
+        if research_config.market_structure_enabled:
+            structure = await get_market_structure(request.symbol, timeframe, limit)
+            if analysis is not None and analysis.latest_candle_timestamp != structure.latest_candle_timestamp:
+                raise HTTPException(status_code=409, detail="AI research is disabled because the deterministic analysis and structure snapshots are not temporally aligned.")
+            evidence.append({"id": "STRUCTURE", "type": "deterministic_market_structure", "source": structure.source, "timeframe": structure.timeframe.value, "latest_candle_timestamp": structure.latest_candle_timestamp, "candle_count": structure.candle_count, "events": [event.model_dump(mode="json") for event in structure.events]})
+
+        if research_config.multi_timeframe_enabled:
+            mtf = await get_multi_timeframe_analysis(request.symbol, limit)
+            if analysis is not None and (mtf.symbol != analysis.symbol or len(mtf.timeframes) != 4):
+                raise HTTPException(status_code=409, detail="AI research is disabled because the deterministic multi-timeframe context is incomplete.")
+            evidence.append({"id": "MTF", "type": "deterministic_multi_timeframe_research", "calculated_at": mtf.calculated_at, "timeframes": [item.model_dump(mode="json") for item in mtf.timeframes], "research": mtf.research.model_dump(mode="json")})
+
+        if research_config.technical_analysis_enabled:
+            regime = await get_regime(request.symbol, timeframe, max(limit, 220))
+            evidence.append({"id": "REGIME", "type": "deterministic_market_regime", "source": regime.source, "timeframe": regime.timeframe.value, "latest_candle_timestamp": regime.latest_candle_timestamp, "candle_count": regime.candle_count, "regime": regime.regime.value, "confidence": regime.confidence, "evidence": regime.evidence.model_dump(mode="json"), "thresholds": regime.thresholds.model_dump(mode="json"), "rule_id": regime.rule_id})
+
+        if research_config.fundamental_analysis_enabled or research_config.news_analysis_enabled:
+            try:
+                news = await news_service.research(symbol=request.symbol, days=1, limit=12)
+                evidence.append({"id": "FUNDAMENTAL_NEWS", "type": "research_news_and_events", "news_count": len(news.news) if research_config.news_analysis_enabled else 0, "macro_count": sum(event.event_type.value == "MACRO" for event in news.fundamental_events) if research_config.fundamental_analysis_enabled else 0, "event_count": len(news.fundamental_events) if research_config.fundamental_analysis_enabled else 0, "headlines": [item.headline for item in news.news[:5]] if research_config.news_analysis_enabled else []})
+            except (RuntimeError, ValueError, TypeError):
+                # The deterministic research request remains explicit about the evidence gap.
+                evidence.append({"id": "FUNDAMENTAL_NEWS", "type": "research_news_and_events", "status": "UNAVAILABLE"})
+
+        if not evidence:
+            raise HTTPException(status_code=409, detail="No verified research evidence was produced for the enabled components.")
+
+        context = {"context_version": "1.2", "research_configuration": research_config.__dict__, "evidence": evidence}
         ai_result = await ai_service.interpret(context, request.question, preferences)
-        result = AIResearchResponse(symbol=analysis.symbol, timeframe=analysis.timeframe, deterministic_gate="PASSED", verified_context=context, report=ai_result["report"], model=ai_result["model"])
+        result = AIResearchResponse(symbol=analysis.symbol if analysis is not None else request.symbol.upper(), timeframe=analysis.timeframe if analysis is not None else timeframe, deterministic_gate="PASSED", verified_context=context, report=ai_result["report"], model=ai_result["model"])
         if user is not None and access_token:
             try:
-                privacy_record = preferences_service.get_or_create(access_token, user.id)
-                if privacy_record.privacy_preferences.get("save_ai_research", True):
+                if preference_record and preference_record.privacy_preferences.get("save_ai_research", True):
                     create_history_record(access_token, user.id, record_type="AI_ANALYSIS", symbol=result.symbol, query=request.question, title=f"AI analysis · {result.symbol}", payload=result.model_dump(mode="json"))
             except (DataServiceError, PreferencesRepositoryError):
-                # AI research remains available if persistence is temporarily unavailable.
                 pass
         return result
     except HTTPException:
         raise
     except AIResearchError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
-    except (RuntimeError, ValueError) as exc:
+    except (RuntimeError, ValueError, TypeError) as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
