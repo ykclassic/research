@@ -83,6 +83,14 @@ SYMBOLS: dict[str, SymbolMapping] = {
     "TSLA": SymbolMapping("TSLA", "TSLA", "stock", "Tesla"),
     "JPM": SymbolMapping("JPM", "JPM", "stock", "JPMorgan Chase"),
     "AVGO": SymbolMapping("AVGO", "AVGO", "stock", "Broadcom"),
+    # Legacy symbols remain supported so existing saved settings, watchlists,
+    # reports, and historical links are not invalidated by the new universe.
+    "BTC/USD": SymbolMapping("BTC/USD", "BTC/USD", "crypto", "Bitcoin / US Dollar", "XBTUSD"),
+    "ETH/USD": SymbolMapping("ETH/USD", "ETH/USD", "crypto", "Ethereum / US Dollar", "ETHUSD"),
+    "SOL/USD": SymbolMapping("SOL/USD", "SOL/USD", "crypto", "Solana / US Dollar", "SOLUSD"),
+    "EUR/USD": SymbolMapping("EUR/USD", "EUR/USD", "forex", "Euro / US Dollar"),
+    "GBP/USD": SymbolMapping("GBP/USD", "GBP/USD", "forex", "British Pound / US Dollar"),
+    "USD/JPY": SymbolMapping("USD/JPY", "USD/JPY", "forex", "US Dollar / Japanese Yen"),
 }
 
 
@@ -101,11 +109,7 @@ def normalize_symbol(symbol: str) -> SymbolMapping:
 
 
 def symbols_for_asset_classes(*, crypto: bool, forex: bool, stocks: bool) -> tuple[str, ...]:
-    enabled_classes = {
-        "crypto": crypto,
-        "forex": forex,
-        "stocks": stocks,
-    }
+    enabled_classes = {"crypto": crypto, "forex": forex, "stocks": stocks}
     return tuple(
         symbol
         for asset_class, symbols in MARKET_UNIVERSE.items()
