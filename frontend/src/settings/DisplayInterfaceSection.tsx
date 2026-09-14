@@ -29,7 +29,7 @@ export default function DisplayInterfaceSection({ settings, update }: Props) {
     </div>
 
     <div className="settings-subheading">Landing Page</div>
-    <SettingField label="Default landing page" description="Applied when opening the workspace after authentication."><SelectField value={display.default_landing_page} onChange={value => patch({ default_landing_page: value as typeof display.default_landing_page })} options={landingPages.map(([, label]) => label)} /></SettingField>
+    <SettingField label="Default landing page" description="Applied when opening the workspace after authentication."><select className="settings-select" value={display.default_landing_page} onChange={event => patch({ default_landing_page: event.target.value as typeof display.default_landing_page })}>{landingPages.map(([path, label]) => <option key={path} value={path}>{label}</option>)}</select></SettingField>
 
     <div className="settings-subheading">Number Formatting</div>
     <div className="settings-control-grid">
@@ -63,8 +63,8 @@ export default function DisplayInterfaceSection({ settings, update }: Props) {
       <Toggle checked={display.reduced_motion} onChange={value => patch({ reduced_motion: value })} label="Reduced motion" />
       <Toggle checked={display.accessible_contrast} onChange={value => patch({ accessible_contrast: value })} label="Accessible contrast" />
     </div>
-    <div className="settings-health-panel"><Accessibility size={16} /><p>Keyboard-friendly controls use native buttons, inputs and selects. Reduced-motion preferences are also applied through the workspace accessibility layer.</p></div>
+    <div className="settings-health-panel"><Accessibility size={16} /><p>Keyboard-friendly controls use native buttons, inputs and selects. Reduced-motion preferences are applied through the workspace accessibility layer.</p></div>
     <div className="settings-info-note"><strong>Landing-page options</strong><span>{landingPages.map(([path, label]) => `${label} (${path})`).join(" · ")}</span></div>
-    <div className="settings-info-note"><BarChart3 size={15} /><span>Chart preferences are stored as presentation defaults. They do not alter server-side indicators, calculations or market-data validation.</span></div>
+    <div className="settings-info-note"><BarChart3 size={15} /><span>Chart preferences are presentation defaults. They do not alter server-side indicators, calculations or market-data validation.</span></div>
   </SettingsSection>;
 }
