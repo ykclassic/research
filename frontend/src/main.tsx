@@ -14,6 +14,7 @@ import "./research-history-tab.css";
 import "./alerts.css";
 import "./navigation.css";
 import "./settings.css";
+import "./market-data-health.css";
 
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>

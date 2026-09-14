@@ -44,10 +44,42 @@ export interface AlertPreferences {
 }
 
 export interface MarketDataPreferences {
-  maximum_data_age_seconds: number;
+  maximum_data_age_seconds: 30 | 60 | 300 | 900;
   reject_stale_data: boolean;
   require_completed_candles: boolean;
   allow_cached_data_fallback: boolean;
+}
+
+export interface MarketDataHealthProvider {
+  role: "primary" | "crypto_fallback" | "forex" | "stocks";
+  provider: string;
+  status: "OPERATIONAL" | "DEGRADED" | "UNAVAILABLE" | "UNKNOWN";
+  configured: boolean;
+  last_successful_request: string | null;
+  last_request: string | null;
+  latency_ms: number | null;
+  validation_status: "PASSED" | "FAILED" | "NOT_CHECKED";
+  candle_completeness: "PASSED" | "FAILED" | "NOT_CHECKED";
+  provenance_available: boolean;
+  fallback_status: string;
+  cache_status: string;
+  message: string;
+}
+
+export interface MarketDataHealth {
+  checked_at: string;
+  cached_result: boolean;
+  cache_ttl_seconds: number;
+  providers: MarketDataHealthProvider[];
+  cache: {
+    quote_entries: number;
+    candle_entries: number;
+    status: string;
+  };
+  security: {
+    credentials_exposed: boolean;
+    message: string;
+  };
 }
 
 export interface DisplayPreferences {
@@ -181,6 +213,7 @@ export async function getAccountInfo(): Promise<AccountInfo> { return request<Ac
 export async function getPreferences(): Promise<UserPreferences> { return request<UserPreferences>("/api/preferences"); }
 export async function savePreferences(preferences: PreferencesDraft): Promise<UserPreferences> { return request<UserPreferences>("/api/preferences", { method: "PUT", body: JSON.stringify(preferences) }, true); }
 export async function resetPreferences(): Promise<UserPreferences> { return request<UserPreferences>("/api/preferences/reset", { method: "POST" }, true); }
+export async function getMarketDataHealth(refresh = false): Promise<MarketDataHealth> { return request<MarketDataHealth>(`/api/market/health${refresh ? "?refresh=true" : ""}`); }
 export async function changePassword(currentPassword: string, newPassword: string): Promise<string> { return (await request<{ message: string }>("/api/auth/password/change", { method: "POST", body: JSON.stringify({ current_password: currentPassword, new_password: newPassword }) }, true)).message; }
 export async function requestAccountPasswordReset(email: string): Promise<string> { return (await request<{ message: string }>("/api/auth/password-reset/request", { method: "POST", body: JSON.stringify({ email }) })).message; }
 export async function signOutOtherSessions(): Promise<string> { return (await request<{ message: string }>("/api/auth/sessions/sign-out-others", { method: "POST" }, true)).message; }

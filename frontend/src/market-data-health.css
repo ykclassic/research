@@ -1,0 +1,32 @@
+.settings-market-health-panel { border:1px solid rgba(111,231,255,.1); border-radius:14px; background:rgba(255,255,255,.018); padding:14px; }
+.settings-market-health-header { display:flex; align-items:center; justify-content:space-between; gap:12px; }
+.settings-market-health-header strong { display:block; color:#dbe8f7; font-size:11px; letter-spacing:.1em; }
+.settings-market-health-header span { display:block; margin-top:4px; color:#60748e; font-size:9px; line-height:1.4; }
+.settings-provider-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px; margin-top:12px; }
+.settings-provider-card { min-width:0; padding:12px; border:1px solid rgba(255,255,255,.06); border-radius:11px; background:rgba(7,22,37,.62); }
+.settings-provider-card-top { display:flex; justify-content:space-between; align-items:center; gap:8px; }
+.settings-provider-card-top > span:first-child { color:#8fa3bb; font-size:9px; text-transform:uppercase; letter-spacing:.07em; }
+.settings-provider-card > strong { display:block; margin:7px 0 10px; color:#e8f2ff; font-size:12px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.settings-health-status { display:inline-flex; align-items:center; gap:5px; font-size:8px; font-weight:800; letter-spacing:.05em; }
+.settings-health-status i { width:6px; height:6px; display:block; border-radius:50%; background:#7288a2; }
+.settings-health-status-operational { color:#8ff0bb; }
+.settings-health-status-operational i { background:#8ff0bb; box-shadow:0 0 7px rgba(143,240,187,.45); }
+.settings-health-status-degraded { color:#ffd38a; }
+.settings-health-status-degraded i { background:#ffd38a; }
+.settings-health-status-unavailable { color:#ff9aaa; }
+.settings-health-status-unavailable i { background:#ff9aaa; }
+.settings-health-status-unknown { color:#8fa3bb; }
+.settings-provider-meta { display:grid; grid-template-columns:90px minmax(0,1fr); gap:8px; padding:5px 0; border-top:1px solid rgba(255,255,255,.04); }
+.settings-provider-meta span { color:#60748e; font-size:8px; }
+.settings-provider-meta b { color:#b9c8d9; font-size:8px; text-align:right; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.settings-provider-card small { display:block; margin-top:8px; color:#667c97; font-size:8px; line-height:1.45; }
+.settings-health-summary-grid { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:7px; margin-top:8px; }
+.settings-health-summary-grid > div { min-width:0; padding:9px; border:1px solid rgba(255,255,255,.05); border-radius:9px; background:rgba(255,255,255,.015); }
+.settings-health-summary-grid span { display:block; color:#60748e; font-size:8px; }
+.settings-health-summary-grid strong { display:block; margin-top:4px; color:#dbe8f7; font-size:9px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.settings-health-empty { padding:18px 4px 5px; color:#7187a1; font-size:10px; }
+
+@media (max-width:760px) {
+  .settings-provider-grid, .settings-health-summary-grid { grid-template-columns:1fr; }
+  .settings-market-health-header { align-items:flex-start; }
+}

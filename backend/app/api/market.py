@@ -3,6 +3,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from app.api.auth import get_current_user_or_github_actions, require_github_actions
 from app.models import QuoteStatus
 from app.models.market import Timeframe
+from app.services.market_data_health import market_data_health
 from app.services.quote_service import QuoteService
 from app.services.scoring import score_quote
 
@@ -61,6 +62,12 @@ async def get_quotes(symbols: str = Query("BTC/USD,ETH/USD,EUR/USD,NVDA,SPY"), r
 @router.get("/status")
 async def market_status():
     return {"providers": [item.model_dump(mode="json") for item in service.orchestrator.provider_status()], "quote_cache_entries": service.orchestrator.quote_cache.size(), "candle_cache_entries": service.orchestrator.candle_cache.size()}
+
+
+@router.get("/health")
+async def market_health(refresh: bool = False):
+    """Return live provider diagnostics without exposing provider credentials."""
+    return await market_data_health.snapshot(force_refresh=refresh)
 
 
 @router.get("/verification/fallback/{symbol:path}", dependencies=[Depends(require_github_actions)])

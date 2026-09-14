@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 from datetime import datetime
 
 from pydantic import BaseModel, Field
@@ -43,7 +41,7 @@ class MarketStatus(BaseModel):
 
 
 class ResearchRequestConfiguration(BaseModel):
-    """Auditable record of which research components were requested."""
+    """Auditable record of which research components and data rules were requested."""
 
     default_asset: str
     default_asset_class: str
@@ -55,6 +53,10 @@ class ResearchRequestConfiguration(BaseModel):
     fundamental_analysis: bool
     news_analysis: bool
     ai_interpretation: bool
+    maximum_data_age_seconds: int = 30
+    reject_stale_data: bool = True
+    require_completed_candles: bool = True
+    allow_cached_data_fallback: bool = True
 
 
 class ResearchReport(BaseModel):
