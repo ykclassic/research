@@ -175,10 +175,16 @@ async def get_analysis(
                 timeout=settings.analysis_timeout_seconds,
             )
         validate_dataset_policy(dataset, policy)
-        current_quote = await asyncio.wait_for(
-            quote_service.get_quote(mapping.internal, force_refresh=True),
-            timeout=settings.analysis_timeout_seconds,
-        )
+        if use_public_crypto_provider:
+            current_quote = await asyncio.wait_for(
+                kraken_public.get_quote(mapping.internal),
+                timeout=settings.analysis_timeout_seconds,
+            )
+        else:
+            current_quote = await asyncio.wait_for(
+                quote_service.get_quote(mapping.internal, force_refresh=True),
+                timeout=settings.analysis_timeout_seconds,
+            )
         validate_quote_policy(current_quote, policy)
         result = calculate_feature_set(dataset)
         candles = [CandleResponse.model_validate(candle) for candle in dataset.candles]
