@@ -28,6 +28,7 @@ from app.api.strategy_selection import router as strategy_selection_router
 from app.api.watchlists import router as watchlists_router
 from app.config import settings
 from app.preferences.router import router as preferences_router
+from app.services.system_status import APPLICATION_VERSION
 
 
 @asynccontextmanager
@@ -35,7 +36,7 @@ async def lifespan(_: FastAPI):
     yield
 
 
-app = FastAPI(title="Adaptive Intelligent Market Research Bot API", version="1.18.0", lifespan=lifespan)
+app = FastAPI(title="Adaptive Intelligent Market Research Bot API", version=APPLICATION_VERSION, lifespan=lifespan)
 origins = [item.strip() for item in settings.cors_origins.split(",") if item.strip()]
 trusted_hosts = [item.strip() for item in settings.trusted_hosts.split(",") if item.strip()]
 app.add_middleware(TrustedHostMiddleware, allowed_hosts=trusted_hosts or ["localhost", "127.0.0.1", "testserver"])
@@ -91,6 +92,7 @@ async def health() -> dict:
         "ok": True,
         "service": "adaptive-market-research-bot",
         "environment": settings.app_env,
+        "application_version": APPLICATION_VERSION,
         "deployment_commit": os.getenv("RENDER_GIT_COMMIT"),
         "deployment_branch": os.getenv("RENDER_GIT_BRANCH"),
         "deployment_repository": os.getenv("RENDER_GIT_REPO_SLUG"),
