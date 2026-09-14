@@ -17,12 +17,15 @@ from app.services.candle_freshness import require_current_completed_candles
 from app.services.quote_service import QuoteService
 from app.services.settings_integration import market_data_policy, validate_dataset_policy
 from app.services.signal_engine import generate_crypto_signal
-from app.symbols import SYMBOLS, normalize_symbol
+from app.symbols import normalize_symbol
 
 router = APIRouter(prefix="/api/signals", tags=["signals"])
 quote_service = QuoteService()
 kraken_public = KrakenPublicProvider()
-CRYPTO_SYMBOLS = tuple(symbol for symbol, mapping in SYMBOLS.items() if mapping.asset_class == "crypto")
+# Signal generation retains its existing deliberately small, validated crypto
+# universe. The expanded 10-pair universe is the dashboard market universe;
+# widening signal generation is a separate capacity/quality decision.
+CRYPTO_SYMBOLS = ("BTC/USD", "ETH/USD", "SOL/USD")
 REQUIRED_TIMEFRAMES = (Timeframe.DAY_1, Timeframe.HOUR_4, Timeframe.HOUR_1, Timeframe.MINUTE_15)
 
 
@@ -140,4 +143,4 @@ async def get_crypto_signal(
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     except (RuntimeError, asyncio.TimeoutError) as exc:
-        raise HTTPException(status_code=503, detail=str(exc)) from exc
+        raise HTTPException(status_code=503, detail=str(exc))
