@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from typing import Literal
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
@@ -98,6 +99,18 @@ class DisplayPreferences(BaseModel):
     reduce_animations: bool
     reduced_motion: bool
     accessible_contrast: bool
+
+    @field_validator("timezone")
+    @classmethod
+    def validate_timezone(cls, value: str) -> str:
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("Timezone must not be empty.")
+        try:
+            ZoneInfo(normalized)
+        except (ZoneInfoNotFoundError, ValueError) as exc:
+            raise ValueError("Timezone must be a valid IANA timezone.") from exc
+        return normalized
 
 
 class AIOutputSections(BaseModel):
