@@ -74,7 +74,7 @@ def resolve_research_preferences(
         market_data_payload: dict[str, Any] = defaults["market_data_preferences"]
     else:
         research_payload = record.research_preferences
-        market_data_payload = record.market_data_preferences
+        market_data_payload = getattr(record, "market_data_preferences", defaults["market_data_preferences"])
 
     preferences = ResearchPreferences.model_validate(research_payload)
     market_data = MarketDataPreferences.model_validate(market_data_payload)
