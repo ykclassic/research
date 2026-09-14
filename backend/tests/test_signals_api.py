@@ -15,13 +15,17 @@ def _fake_signal(symbol: str) -> CryptoSignal:
         symbol=symbol,
         signal=SignalDirection.BUY,
         score=0.30,
+        confidence=0.65,
         confluence=0.65,
+        risk_reward=2.0,
         price=100.0,
         calculated_at=now,
         latest_candle_timestamp=now,
         source="test",
         components=(),
         evidence=("test",),
+        research_eligible=True,
+        qualification_reasons=(),
     )
 
 
