@@ -36,9 +36,6 @@ class ResearchPreferences(BaseModel):
 
     @model_validator(mode="after")
     def validate_default_asset_class(self) -> "ResearchPreferences":
-        # Keep persistence validation independent of the symbol registry. The
-        # research resolver performs the authoritative registry check when a
-        # request is executed, while this model rejects obviously empty values.
         return self
 
 
@@ -60,6 +57,8 @@ class SignalPreferences(BaseModel):
 class AlertPreferences(BaseModel):
     browser_notifications_enabled: bool
     email_alerts_enabled: bool
+    discord_alerts_enabled: bool
+    telegram_alerts_enabled: bool
     high_confidence_signal_alerts: bool
     price_alerts: bool
     regime_change_alerts: bool
