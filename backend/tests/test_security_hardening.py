@@ -7,10 +7,10 @@ from fastapi import HTTPException
 from fastapi.testclient import TestClient
 
 from app.api.auth import _csrf_token, _require_csrf
-from app.api.preferences import router as preferences_router
 from app.api.auth import router as auth_router
 from app.config import settings
 from app.main import app
+from app.preferences.router import router as preferences_router
 
 
 @pytest.fixture()
