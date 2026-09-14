@@ -1,11 +1,16 @@
-from fastapi import APIRouter, Depends, HTTPException, Query, Response
+from typing import Annotated
 
-from app.api.auth import get_current_user_or_github_actions, require_github_actions
+from fastapi import APIRouter, Cookie, Depends, HTTPException, Query, Response
+
+from app.api.auth import UserResponse, get_current_user, get_current_user_or_github_actions, require_github_actions
 from app.models import QuoteStatus
 from app.models.market import Timeframe
+from app.preferences.service import preferences_service
 from app.services.market_data_health import market_data_health
 from app.services.quote_service import QuoteService
 from app.services.scoring import score_quote
+from app.services.settings_integration import market_coverage
+from app.symbols import MARKET_UNIVERSE
 
 router = APIRouter(prefix="/api/market", tags=["market"], dependencies=[Depends(get_current_user_or_github_actions)])
 service = QuoteService()
@@ -51,12 +56,36 @@ async def get_quote(symbol: str, response: Response, refresh: bool = False):
 
 
 @router.get("/quotes")
-async def get_quotes(symbols: str = Query("BTC/USD,ETH/USD,EUR/USD,NVDA,SPY"), refresh: bool = False):
+async def get_quotes(symbols: str = Query("BTC/USDT,ETH/USDT,EURUSD,NVDA,SPY"), refresh: bool = False):
     requested = [item.strip() for item in symbols.split(",") if item.strip()]
     if not requested:
         raise HTTPException(status_code=400, detail="At least one symbol is required.")
     quotes = await service.get_quotes(requested, force_refresh=refresh)
     return {"quotes": [quote.model_dump(mode="json") for quote in quotes], "data_quality": [_quality(quote) for quote in quotes]}
+
+
+@router.get("/universe")
+async def get_market_universe(
+    user: Annotated[UserResponse, Depends(get_current_user)],
+    access_token: Annotated[str | None, Cookie(alias="mr_access_token")] = None,
+):
+    """Return the authoritative market universe filtered by this user's settings."""
+    if not access_token:
+        raise HTTPException(status_code=401, detail="Authentication required.")
+    try:
+        record = preferences_service.get_or_create(access_token, user.id)
+        coverage = market_coverage(record)
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail="Market coverage preferences are temporarily unavailable.") from exc
+    return {
+        "coverage": {
+            "crypto_enabled": coverage.crypto_enabled,
+            "forex_enabled": coverage.forex_enabled,
+            "stocks_enabled": coverage.stocks_enabled,
+        },
+        "symbols": {asset_class: list(symbols) for asset_class, symbols in MARKET_UNIVERSE.items()},
+        "enabled_symbols": list(coverage.enabled_symbols),
+    }
 
 
 @router.get("/status")
@@ -93,7 +122,7 @@ async def verify_fallback_path(symbol: str, timeframe: Timeframe = Query(Timefra
 
 
 @router.get("/scanner")
-async def scanner(symbols: str = Query("BTC/USD,ETH/USD,EUR/USD,NVDA,SPY")):
+async def scanner(symbols: str = Query("BTC/USDT,ETH/USDT,EURUSD,NVDA,SPY")):
     requested = [item.strip() for item in symbols.split(",") if item.strip()]
     quotes = await service.get_quotes(requested)
     return {"items": [score_quote(quote) | {"quote": quote.model_dump(mode="json")} for quote in quotes]}
