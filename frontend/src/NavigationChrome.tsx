@@ -1,6 +1,7 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { BarChart3, Bell, BrainCircuit, ChevronRight, FileText, History, LayoutDashboard, List, Menu, Network, Settings, ShieldCheck, X, LogOut, Newspaper, PanelLeftClose, PanelLeftOpen, type LucideIcon } from "lucide-react";
 import { getCurrentUser, logout, User } from "./api";
+import { getPreferences, type DisplayPreferences } from "./settingsApi";
 
 type NavItem = { label: string; page: string; route: string; icon: LucideIcon };
 type NavGroup = { label: string; items: readonly NavItem[] };
@@ -25,9 +26,19 @@ const GROUPS: readonly NavGroup[] = [
 ];
 
 const pageByPath = new Map(GROUPS.flatMap(group => group.items.map(item => [item.route, item.page] as const)));
+function currentPage(): string { return pageByPath.get(window.location.pathname) ?? "market"; }
 
-function currentPage(): string {
-  return pageByPath.get(window.location.pathname) ?? "market";
+function applyDisplayPreferences(display: DisplayPreferences): void {
+  const root = document.documentElement;
+  root.dataset.theme = display.theme;
+  root.dataset.density = display.density;
+  root.dataset.accessibleContrast = String(display.accessible_contrast);
+  root.dataset.reducedMotion = String(display.reduce_animations || display.reduced_motion);
+  document.body.classList.toggle("sidebar-collapsed", display.sidebar_collapsed && window.innerWidth > 900);
+  try {
+    window.localStorage.setItem("research-display-preferences", JSON.stringify(display));
+    window.localStorage.setItem("research-sidebar-collapsed", String(display.sidebar_collapsed));
+  } catch { /* storage may be unavailable */ }
 }
 
 export default function NavigationChrome() {
@@ -38,6 +49,7 @@ export default function NavigationChrome() {
     try { return window.localStorage.getItem("research-sidebar-collapsed") === "true"; } catch { return false; }
   });
   const [page, setPage] = useState(currentPage);
+  const didApplyLanding = useRef(false);
 
   useEffect(() => {
     let active = true;
@@ -48,8 +60,30 @@ export default function NavigationChrome() {
   }, []);
 
   useEffect(() => {
+    if (!user) return;
+    let active = true;
+    getPreferences().then(preferences => {
+      if (!active) return;
+      applyDisplayPreferences(preferences.display_preferences);
+      setCollapsed(preferences.display_preferences.sidebar_collapsed);
+      if (!didApplyLanding.current && window.location.pathname === "/dashboard" && preferences.display_preferences.default_landing_page !== "/dashboard") {
+        didApplyLanding.current = true;
+        window.history.replaceState({}, "", preferences.display_preferences.default_landing_page);
+        setPage(currentPage());
+        window.dispatchEvent(new PopStateEvent("popstate"));
+      } else {
+        didApplyLanding.current = true;
+      }
+    }).catch(() => { /* workspace remains usable with local/default display state */ });
+    return () => { active = false; };
+  }, [user]);
+
+  useEffect(() => {
     const sync = () => setPage(currentPage());
-    const handleResize = () => setIsMobile(window.innerWidth <= 900);
+    const handleResize = () => {
+      setIsMobile(window.innerWidth <= 900);
+      document.body.classList.toggle("sidebar-collapsed", collapsed && window.innerWidth > 900);
+    };
     window.addEventListener("popstate", sync);
     window.addEventListener("resize", handleResize);
     sync();
@@ -57,7 +91,7 @@ export default function NavigationChrome() {
       window.removeEventListener("popstate", sync);
       window.removeEventListener("resize", handleResize);
     };
-  }, []);
+  }, [collapsed]);
 
   useEffect(() => {
     try { window.localStorage.setItem("research-sidebar-collapsed", String(collapsed)); } catch { /* localStorage may be unavailable */ }

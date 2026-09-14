@@ -51,11 +51,22 @@ DEFAULT_DISPLAY_PREFERENCES: dict[str, Any] = {
     "sidebar_collapsed": False,
     "default_landing_page": "/dashboard",
     "currency": "USD",
+    "decimal_precision": "auto",
+    "percentage_format": "1.25%",
+    "large_number_format": "compact",
     "timezone": "Africa/Lagos",
     "market_timestamps": "local",
     "date_format": "DD/MM/YYYY",
     "time_format": "24-hour",
+    "chart_type": "candlestick",
+    "show_volume": True,
+    "show_indicators": True,
+    "show_grid": True,
+    "remember_zoom": True,
+    "auto_refresh": True,
     "reduce_animations": False,
+    "reduced_motion": False,
+    "accessible_contrast": False,
 }
 
 DEFAULT_AI_PREFERENCES: dict[str, Any] = {
