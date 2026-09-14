@@ -1,10 +1,10 @@
 from __future__ import annotations
 
 import asyncio
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from app.models import Quote, QuoteStatus
-from app.models.market import CompletenessStatus, FreshnessStatus
+from app.models.market import Candle, CompletenessStatus, FreshnessStatus, OHLCVDataset, Timeframe
 from app.services.market_data_health import MarketDataHealthService
 
 
@@ -25,7 +25,35 @@ class FakeProvider:
             status=QuoteStatus.LIVE,
             freshness_status=FreshnessStatus.FRESH,
             freshness_age_seconds=0.0,
+        )
+
+    async def get_candles(self, symbol: str, timeframe: Timeframe, outputsize: int = 50) -> OHLCVDataset:
+        timestamp = datetime.now(timezone.utc) - timedelta(hours=1)
+        candles = tuple(
+            Candle(
+                timestamp=timestamp - timedelta(hours=2 - index),
+                open=100.0,
+                high=101.0,
+                low=99.0,
+                close=100.0,
+                volume=1.0,
+                symbol=symbol,
+                timeframe=timeframe,
+                source=self.name,
+                is_complete=True,
+            )
+            for index in range(3)
+        )
+        return OHLCVDataset(
+            symbol=symbol,
+            timeframe=timeframe,
+            source=self.name,
+            requested_at=datetime.now(timezone.utc),
+            provider_timestamp=candles[-1].timestamp,
+            candles=candles,
             completeness_status=CompletenessStatus.COMPLETE,
+            freshness_status=FreshnessStatus.FRESH,
+            freshness_age_seconds=0.0,
         )
 
 
@@ -42,6 +70,7 @@ def test_health_probe_marks_real_validated_response_operational() -> None:
 
     assert result.status == "OPERATIONAL"
     assert result.validation_status == "PASSED"
+    assert result.candle_completeness == "PASSED"
     assert result.provenance_available is True
     assert result.last_successful_request is not None
 
