@@ -27,6 +27,12 @@ def _load_preferences(
     return preferences_service.get_or_create(access_token, user.id)
 
 
+def _presentation_config(record: UserPreferencesRecord | None) -> tuple[dict[str, bool], str | None]:
+    if record is None:
+        return {}, None
+    return dict(record.ai_preferences.get("output_sections") or {}), record.display_preferences.get("timezone")
+
+
 async def _generate_report(
     symbol: str | None,
     user: UserResponse | None,
@@ -36,8 +42,9 @@ async def _generate_report(
         preference_record = _load_preferences(user, access_token)
         configuration = resolve_research_preferences(preference_record)
         report = await service.generate(symbol, configuration=configuration)
+        sections, display_timezone = _presentation_config(preference_record)
+        report = report.model_copy(update={"output_sections": sections, "display_timezone": display_timezone})
 
-        # GitHub OIDC callers validate the report but do not own user history.
         if user is not None and access_token and preference_record is not None:
             try:
                 privacy = preference_record.privacy_preferences
@@ -61,7 +68,6 @@ async def _generate_report(
                             payload={"report_history_id": saved["id"], "symbol": report.symbol},
                         )
             except DataServiceError:
-                # Research generation remains available if persistence is temporarily unavailable.
                 pass
         return report
     except asyncio.TimeoutError as exc:

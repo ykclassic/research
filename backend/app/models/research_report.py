@@ -76,3 +76,5 @@ class ResearchReport(BaseModel):
     invalidation: list[str]
     overall_research_score: int = Field(ge=0, le=100)
     score_basis: dict[str, float] = Field(default_factory=dict)
+    output_sections: dict[str, bool] = Field(default_factory=dict)
+    display_timezone: str | None = None
