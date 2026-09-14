@@ -6,14 +6,7 @@ from datetime import datetime, timedelta, timezone
 from app.config import settings
 from app.models import QuoteStatus
 from app.models.market import OHLCVDataset, Timeframe
-from app.models.research_report import (
-    FundamentalContext,
-    MarketStatus,
-    ReportTimeframe,
-    ResearchReport,
-    ResearchRequestConfiguration,
-    SMCStructure,
-)
+from app.models.research_report import FundamentalContext, MarketStatus, ReportTimeframe, ResearchReport, ResearchRequestConfiguration, SMCStructure
 from app.providers.kraken_public import KrakenPublicProvider
 from app.services.feature_engine import calculate_feature_set
 from app.services.market_structure import analyze_market_structure
@@ -57,8 +50,9 @@ class ResearchReportService:
         if not config.allow_cached_data_fallback and dataset.cache_hit and dataset.fallback_used:
             raise RuntimeError(f"Validated cache fallback is disabled for {dataset.symbol} {dataset.timeframe.value}; live market data is required.")
 
-    async def _dataset(self, symbol: str, timeframe: Timeframe, limit: int, config: ResolvedResearchConfiguration):
+    async def _dataset(self, symbol: str, timeframe: Timeframe, limit: int, config: ResolvedResearchConfiguration | None = None):
         mapping = normalize_symbol(symbol)
+        config = config or ResolvedResearchConfiguration(default_asset="BTC/USD", default_asset_class="Crypto", default_timeframe="1h", analysis_depth="Standard", technical_analysis_enabled=True, market_structure_enabled=True, multi_timeframe_enabled=True, fundamental_analysis_enabled=True, news_analysis_enabled=True, ai_interpretation_enabled=True)
         timeout = max(settings.analysis_timeout_seconds, settings.provider_timeout_seconds * 7)
         if mapping.asset_class == "crypto":
             try:
@@ -76,7 +70,8 @@ class ResearchReportService:
         self._validate_dataset_policy(dataset, config)
         return dataset
 
-    async def _current_quote(self, symbol: str, config: ResolvedResearchConfiguration):
+    async def _current_quote(self, symbol: str, config: ResolvedResearchConfiguration | None = None):
+        config = config or ResolvedResearchConfiguration(default_asset="BTC/USD", default_asset_class="Crypto", default_timeframe="1h", analysis_depth="Standard", technical_analysis_enabled=True, market_structure_enabled=True, multi_timeframe_enabled=True, fundamental_analysis_enabled=True, news_analysis_enabled=True, ai_interpretation_enabled=True)
         mapping = normalize_symbol(symbol)
         if mapping.asset_class == "crypto":
             try:
@@ -97,15 +92,13 @@ class ResearchReportService:
     @staticmethod
     def _completed_dataset(dataset: OHLCVDataset) -> OHLCVDataset:
         completed = dataset.completed_candles
-        if not completed:
-            raise ValueError(f"No completed candles are available for {dataset.symbol} {dataset.timeframe.value}.")
+        if not completed: raise ValueError(f"No completed candles are available for {dataset.symbol} {dataset.timeframe.value}.")
         return dataset.model_copy(update={"candles": completed})
 
     @staticmethod
     def _support_resistance(candles) -> tuple[float | None, float | None]:
         completed = list(candles.completed_candles)
-        if len(completed) < 5:
-            return None, None
+        if len(completed) < 5: return None, None
         window = completed[-50:]
         current = completed[-1].close
         supports = [c.low for c in window if c.low <= current]
@@ -131,12 +124,7 @@ class ResearchReportService:
     def _smc(events) -> SMCStructure:
         recent = list(events)[-20:]
         bos = next((e.type for e in reversed(recent) if e.type.startswith("BOS_")), None)
-        return SMCStructure(
-            bos=bos,
-            fvg=[f"{e.type} @ {e.price:.6g}" for e in recent if e.type.startswith("FVG_")][-3:],
-            order_blocks=[f"{e.type} @ {e.price:.6g}" for e in recent if e.type.startswith("ORDER_BLOCK_")][-3:],
-            liquidity=[f"{e.type} @ {e.price:.6g}" for e in recent if "LIQUIDITY" in e.type or "STOP_RUN" in e.type][-4:],
-        )
+        return SMCStructure(bos=bos, fvg=[f"{e.type} @ {e.price:.6g}" for e in recent if e.type.startswith("FVG_")][-3:], order_blocks=[f"{e.type} @ {e.price:.6g}" for e in recent if e.type.startswith("ORDER_BLOCK_")][-3:], liquidity=[f"{e.type} @ {e.price:.6g}" for e in recent if "LIQUIDITY" in e.type or "STOP_RUN" in e.type][-4:])
 
     @staticmethod
     def _change_24h(dataset: OHLCVDataset, current: float) -> float | None:
@@ -149,8 +137,7 @@ class ResearchReportService:
 
     @staticmethod
     def _score(status: MarketStatus, mtf: list[ReportTimeframe], fundamental: FundamentalContext | None = None) -> tuple[int, dict[str, float]]:
-        if status.trend == "NOT_REQUESTED":
-            return 50, {"trend": 50.0, "momentum": 50.0, "regime": 50.0, "multi_timeframe": 50.0, "fundamental": 50.0}
+        if status.trend == "NOT_REQUESTED": return 50, {"trend": 50.0, "momentum": 50.0, "regime": 50.0, "multi_timeframe": 50.0, "fundamental": 50.0}
         trend_score = 85.0 if status.trend == "BULLISH" else 15.0 if status.trend == "BEARISH" else 50.0
         momentum_score = 85.0 if status.momentum == "BULLISH" else 15.0 if status.momentum == "BEARISH" else 50.0
         regime_score = 70.0 if "UP" in status.market_regime else 30.0 if "DOWN" in status.market_regime else 50.0
