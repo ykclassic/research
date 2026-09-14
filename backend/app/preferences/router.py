@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import io
+import json
+import zipfile
 from typing import Annotated
 
-from fastapi import APIRouter, Cookie, Depends, HTTPException
+from fastapi import APIRouter, Cookie, Depends, HTTPException, Response
 
 from app.api.auth import UserResponse, _require_csrf, get_current_user
 from app.preferences.repository import (
@@ -13,7 +16,9 @@ from app.preferences.repository import (
 )
 from app.preferences.schemas import MessageResponse, UserPreferences, UserPreferencesResponse
 from app.preferences.service import preferences_service
+from app.services.privacy_data import account_data, apply_retention, history_csv, watchlists_csv
 from app.services.supabase_data import DataServiceError, delete_all_watchlists, delete_research_history
+from app.services.system_status import system_status
 
 router = APIRouter(prefix="/api/preferences", tags=["preferences"])
 
@@ -95,6 +100,17 @@ async def reset_preferences(
         raise _map_error(exc) from exc
 
 
+@router.get("/system-status")
+async def get_system_status(
+    user: Annotated[UserResponse, Depends(get_current_user)],
+    access_token: Annotated[str | None, Cookie(alias="mr_access_token")] = None,
+):
+    try:
+        return await system_status(_access_token(access_token), user.id)
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail="System diagnostics are temporarily unavailable.") from exc
+
+
 @router.delete("/data/research-history", response_model=MessageResponse, dependencies=[Depends(_require_csrf)])
 async def clear_research_history(
     user: Annotated[UserResponse, Depends(get_current_user)],
@@ -117,3 +133,81 @@ async def clear_watchlists(
     except DataServiceError as exc:
         raise _map_data_error(exc) from exc
     return MessageResponse(message="All watchlists deleted.")
+
+
+def _download(content: bytes, filename: str, media_type: str) -> Response:
+    return Response(
+        content=content,
+        media_type=media_type,
+        headers={"Content-Disposition": f'attachment; filename="{filename}"', "Cache-Control": "no-store"},
+    )
+
+
+@router.get("/data/export/research")
+async def export_research(
+    user: Annotated[UserResponse, Depends(get_current_user)],
+    access_token: Annotated[str | None, Cookie(alias="mr_access_token")] = None,
+) -> Response:
+    token = _access_token(access_token)
+    try:
+        reports = history_csv(token, user.id, record_type="REPORT")
+        history = history_csv(token, user.id)
+        bundle = io.BytesIO()
+        with zipfile.ZipFile(bundle, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+            archive.writestr("reports.csv", reports)
+            archive.writestr("research_history.csv", history)
+        return _download(bundle.getvalue(), "research_export.zip", "application/zip")
+    except DataServiceError as exc:
+        raise _map_data_error(exc) from exc
+
+
+@router.get("/data/export/reports")
+async def export_reports(
+    user: Annotated[UserResponse, Depends(get_current_user)],
+    access_token: Annotated[str | None, Cookie(alias="mr_access_token")] = None,
+) -> Response:
+    try:
+        return _download(history_csv(_access_token(access_token), user.id, record_type="REPORT"), "reports.csv", "text/csv; charset=utf-8")
+    except DataServiceError as exc:
+        raise _map_data_error(exc) from exc
+
+
+@router.get("/data/export/watchlists")
+async def export_watchlists(
+    user: Annotated[UserResponse, Depends(get_current_user)],
+    access_token: Annotated[str | None, Cookie(alias="mr_access_token")] = None,
+) -> Response:
+    try:
+        return _download(watchlists_csv(_access_token(access_token), user.id), "watchlists.csv", "text/csv; charset=utf-8")
+    except DataServiceError as exc:
+        raise _map_data_error(exc) from exc
+
+
+@router.get("/data/export/account")
+async def export_account_data(
+    user: Annotated[UserResponse, Depends(get_current_user)],
+    access_token: Annotated[str | None, Cookie(alias="mr_access_token")] = None,
+) -> Response:
+    try:
+        payload = account_data(_access_token(access_token), user.id)
+        payload["account"].update({"email": user.email, "created_at": user.created_at, "email_confirmed_at": user.email_confirmed_at, "last_sign_in_at": user.last_sign_in_at})
+        content = json.dumps(payload, ensure_ascii=False, indent=2).encode("utf-8")
+        return _download(content, "account_data.json", "application/json")
+    except DataServiceError as exc:
+        raise _map_data_error(exc) from exc
+
+
+@router.delete("/data/cache", response_model=MessageResponse, dependencies=[Depends(_require_csrf)])
+async def clear_server_cache(
+    user: Annotated[UserResponse, Depends(get_current_user)],
+    access_token: Annotated[str | None, Cookie(alias="mr_access_token")] = None,
+) -> MessageResponse:
+    _ = user
+    _ = _access_token(access_token)
+    from app.providers.orchestrator import market_data
+    from app.services.market_data_health import market_data_health
+
+    market_data.quote_cache.clear()
+    market_data.candle_cache.clear()
+    market_data_health.clear_diagnostics_cache()
+    return MessageResponse(message="Server-side market-data cache cleared. Persistent research history was not modified.")
