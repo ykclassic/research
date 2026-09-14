@@ -19,11 +19,7 @@ from app.services.ai_research import AIResearchError, AIResearchService
 from app.services.research_history import create_history_record
 from app.services.supabase_data import DataServiceError
 
-router = APIRouter(
-    prefix="/api/ai-research",
-    tags=["ai-research"],
-    dependencies=[Depends(get_current_user_or_github_actions), Depends(_require_csrf)],
-)
+router = APIRouter(prefix="/api/ai-research", tags=["ai-research"], dependencies=[Depends(get_current_user_or_github_actions), Depends(_require_csrf)])
 ai_service = AIResearchService()
 
 
@@ -43,10 +39,7 @@ class AIResearchResponse(BaseModel):
     model: str
 
 
-def _ai_preferences(
-    user: UserResponse | None,
-    access_token: str | None,
-) -> AIPreferences:
+def _ai_preferences(user: UserResponse | None, access_token: str | None) -> AIPreferences:
     if user is None:
         return AIPreferences.model_validate(default_preferences()["ai_preferences"])
     if not access_token:
@@ -68,9 +61,8 @@ async def create_ai_research(
 ) -> AIResearchResponse:
     """Generate interpretation only after deterministic research gates pass.
 
-    S6 preferences affect AI presentation only. They cannot change the
-    deterministic market-data, feature, regime, structure, MTF, validation,
-    or safety layers used to build the verified context.
+    S6 preferences affect AI presentation only. They cannot change the deterministic
+    market-data, feature, regime, structure, MTF, validation, or safety layers.
     """
     preferences = _ai_preferences(user, access_token)
     if not preferences.enabled:
@@ -101,16 +93,10 @@ async def create_ai_research(
         result = AIResearchResponse(symbol=analysis.symbol, timeframe=analysis.timeframe, deterministic_gate="PASSED", verified_context=context, report=ai_result["report"], model=ai_result["model"])
         if user is not None and access_token:
             try:
-                create_history_record(
-                    access_token,
-                    user.id,
-                    record_type="AI_ANALYSIS",
-                    symbol=result.symbol,
-                    query=request.question,
-                    title=f"AI analysis · {result.symbol}",
-                    payload=result.model_dump(mode="json"),
-                )
-            except DataServiceError:
+                privacy_record = preferences_service.get_or_create(access_token, user.id)
+                if privacy_record.privacy_preferences.get("save_ai_research", True):
+                    create_history_record(access_token, user.id, record_type="AI_ANALYSIS", symbol=result.symbol, query=request.question, title=f"AI analysis · {result.symbol}", payload=result.model_dump(mode="json"))
+            except (DataServiceError, PreferencesRepositoryError):
                 # AI research remains available if persistence is temporarily unavailable.
                 pass
         return result
