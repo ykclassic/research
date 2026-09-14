@@ -15,6 +15,7 @@ import "./alerts.css";
 import "./navigation.css";
 import "./settings.css";
 import "./market-data-health.css";
+import "./display-interface.css";
 
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
