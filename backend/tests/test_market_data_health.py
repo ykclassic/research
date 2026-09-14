@@ -1,8 +1,7 @@
 from __future__ import annotations
 
+import asyncio
 from datetime import datetime, timezone
-
-import pytest
 
 from app.models import Quote, QuoteStatus
 from app.models.market import CompletenessStatus, FreshnessStatus
@@ -37,10 +36,9 @@ class FailingProvider(FakeProvider):
         raise RuntimeError("provider timeout")
 
 
-@pytest.mark.asyncio
-async def test_health_probe_marks_real_validated_response_operational() -> None:
+def test_health_probe_marks_real_validated_response_operational() -> None:
     service = MarketDataHealthService()
-    result = await service._run_quote_probe("primary", FakeProvider(), "BTC/USD")
+    result = asyncio.run(service._run_quote_probe("primary", FakeProvider(), "BTC/USD"))
 
     assert result.status == "OPERATIONAL"
     assert result.validation_status == "PASSED"
@@ -48,10 +46,9 @@ async def test_health_probe_marks_real_validated_response_operational() -> None:
     assert result.last_successful_request is not None
 
 
-@pytest.mark.asyncio
-async def test_health_probe_does_not_mark_failed_provider_operational() -> None:
+def test_health_probe_does_not_mark_failed_provider_operational() -> None:
     service = MarketDataHealthService()
-    result = await service._run_quote_probe("primary", FailingProvider(), "BTC/USD")
+    result = asyncio.run(service._run_quote_probe("primary", FailingProvider(), "BTC/USD"))
 
     assert result.status == "UNAVAILABLE"
     assert result.validation_status == "FAILED"
