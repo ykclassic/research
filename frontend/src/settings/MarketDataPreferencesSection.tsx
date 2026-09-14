@@ -16,9 +16,6 @@ const ROLE_LABELS: Record<MarketDataHealthProvider["role"], string> = {
   stocks: "Stock Provider",
 };
 
-const AGE_OPTIONS: Array<{ value: MarketDataHealthProvider["role"] | never; label: string }> = [];
-void AGE_OPTIONS;
-
 function formatTimestamp(value: string | null): string {
   if (!value) return "Not observed";
   const date = new Date(value);
