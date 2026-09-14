@@ -148,6 +148,7 @@ async def get_analysis(
         if not completed:
             raise ValueError("Provider returned no completed candles for analysis.")
         indicator_panes = calculate_indicator_panes(completed)
+        quote_status = getattr(getattr(current_quote, "status", None), "value", getattr(current_quote, "status", None))
         quality = AnalysisQuality(
             request_latency_ms=dataset.request_latency_ms,
             freshness_status=dataset.freshness_status,
@@ -160,7 +161,7 @@ async def get_analysis(
             research_eligible=(
                 dataset.freshness_status in {FreshnessStatus.FRESH, FreshnessStatus.DELAYED}
                 and dataset.completeness_status != CompletenessStatus.INVALID
-                and current_quote.status.value in {"LIVE", "DELAYED"}
+                and quote_status in {"LIVE", "DELAYED"}
             ),
         )
         return AnalysisResponse(
