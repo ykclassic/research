@@ -4,7 +4,6 @@ from typing import Literal
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
-
 AssetClass = Literal["Crypto", "Forex", "Stocks"]
 Timeframe = Literal["15m", "1h", "4h", "1D"]
 AnalysisDepth = Literal["Quick", "Standard", "Comprehensive"]
@@ -81,14 +80,7 @@ class DisplayPreferences(BaseModel):
     theme: Theme
     density: Density
     sidebar_collapsed: bool
-    default_landing_page: Literal[
-        "/dashboard",
-        "/markets/watchlists",
-        "/analysis/technical",
-        "/analysis/signals",
-        "/research/ai",
-        "/research/reports",
-    ]
+    default_landing_page: Literal["/dashboard", "/markets/watchlists", "/analysis/technical", "/analysis/signals", "/research/ai", "/research/reports"]
     currency: Literal["USD"]
     decimal_precision: DecimalPrecision
     percentage_format: Literal["1.25%", "1.3%", "1%"]
@@ -134,7 +126,7 @@ class AIPreferences(BaseModel):
 
 
 class PrivacyPreferences(BaseModel):
-    research_history_retention_days: int = Field(ge=0, le=3650)
+    research_history_retention_days: Literal[0, 30, 90, 365]
     save_generated_reports: bool
     save_ai_research: bool
     save_search_history: bool

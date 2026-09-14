@@ -29,6 +29,8 @@ export function Toggle({ checked, onChange, label = "Enabled" }: { checked: bool
   return <label className="settings-toggle"><input type="checkbox" checked={checked} onChange={event => onChange(event.target.checked)} /><span className="toggle-track" aria-hidden="true"><span /></span><span>{label}</span></label>;
 }
 
-export function SelectField({ value, onChange, options }: { value: string; onChange: (value: string) => void; options: readonly string[] }) {
-  return <select className="settings-select" value={value} onChange={event => onChange(event.target.value)}>{options.map(option => <option key={option} value={option}>{option}</option>)}</select>;
+type SelectOption = string | { value: string; label: string };
+
+export function SelectField({ value, onChange, options }: { value: string; onChange: (value: string) => void; options: readonly SelectOption[] }) {
+  return <select className="settings-select" value={value} onChange={event => onChange(event.target.value)}>{options.map(option => { const normalized = typeof option === "string" ? { value: option, label: option } : option; return <option key={normalized.value} value={normalized.value}>{normalized.label}</option>; })}</select>;
 }

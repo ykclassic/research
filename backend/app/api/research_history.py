@@ -6,16 +6,9 @@ from fastapi import APIRouter, Cookie, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
 
 from app.api.auth import UserResponse, _require_csrf, get_current_user
-from app.services.research_history import (
-    add_note,
-    create_history_record,
-    delete_history_record,
-    delete_note,
-    get_history_record,
-    list_history,
-    list_notes,
-    set_saved,
-)
+from app.preferences.service import preferences_service
+from app.services.privacy_data import apply_retention
+from app.services.research_history import add_note, create_history_record, delete_history_record, delete_note, get_history_record, list_history, list_notes, set_saved
 from app.services.supabase_data import DataServiceError
 
 router = APIRouter(prefix="/api/research-history", tags=["research-history"])
@@ -49,10 +42,17 @@ async def history(
     saved: bool | None = None,
     limit: int = Query(default=50, ge=1, le=100),
 ):
+    token = _token(access_token)
     try:
-        return {"items": list_history(_token(access_token), user.id, record_type=record_type, symbol=symbol, saved=saved, limit=limit)}
+        preference_record = preferences_service.get_or_create(token, user.id)
+        apply_retention(token, user.id, int(preference_record.privacy_preferences.get("research_history_retention_days", 365)))
+        return {"items": list_history(token, user.id, record_type=record_type, symbol=symbol, saved=saved, limit=limit)}
     except DataServiceError as exc:
         raise _map_error(exc) from exc
+    except Exception as exc:
+        if exc.__class__.__name__.endswith("RepositoryError"):
+            raise HTTPException(status_code=503, detail="Privacy preferences could not be loaded.") from exc
+        raise
 
 
 @router.get("/{history_id}")
@@ -62,18 +62,15 @@ async def detail(
     access_token: Annotated[str | None, Cookie(alias="mr_access_token")] = None,
 ):
     try:
-        record = get_history_record(_token(access_token), user.id, history_id)
-        return {"item": record, "notes": list_notes(_token(access_token), user.id, history_id)}
+        token = _token(access_token)
+        record = get_history_record(token, user.id, history_id)
+        return {"item": record, "notes": list_notes(token, user.id, history_id)}
     except DataServiceError as exc:
         raise _map_error(exc) from exc
 
 
 @router.post("/{history_id}/save", dependencies=[Depends(_require_csrf)])
-async def save(
-    history_id: str,
-    user: Annotated[UserResponse, Depends(get_current_user)],
-    access_token: Annotated[str | None, Cookie(alias="mr_access_token")] = None,
-):
+async def save(history_id: str, user: Annotated[UserResponse, Depends(get_current_user)], access_token: Annotated[str | None, Cookie(alias="mr_access_token")] = None):
     try:
         return {"item": set_saved(_token(access_token), user.id, history_id, True)}
     except DataServiceError as exc:
@@ -81,11 +78,7 @@ async def save(
 
 
 @router.delete("/{history_id}/save", status_code=status.HTTP_204_NO_CONTENT, response_model=None, dependencies=[Depends(_require_csrf)])
-async def unsave(
-    history_id: str,
-    user: Annotated[UserResponse, Depends(get_current_user)],
-    access_token: Annotated[str | None, Cookie(alias="mr_access_token")] = None,
-) -> None:
+async def unsave(history_id: str, user: Annotated[UserResponse, Depends(get_current_user)], access_token: Annotated[str | None, Cookie(alias="mr_access_token")] = None) -> None:
     try:
         set_saved(_token(access_token), user.id, history_id, False)
     except DataServiceError as exc:
@@ -93,11 +86,7 @@ async def unsave(
 
 
 @router.delete("/{history_id}", status_code=status.HTTP_204_NO_CONTENT, response_model=None, dependencies=[Depends(_require_csrf)])
-async def delete(
-    history_id: str,
-    user: Annotated[UserResponse, Depends(get_current_user)],
-    access_token: Annotated[str | None, Cookie(alias="mr_access_token")] = None,
-) -> None:
+async def delete(history_id: str, user: Annotated[UserResponse, Depends(get_current_user)], access_token: Annotated[str | None, Cookie(alias="mr_access_token")] = None) -> None:
     try:
         delete_history_record(_token(access_token), user.id, history_id)
     except DataServiceError as exc:
@@ -105,12 +94,7 @@ async def delete(
 
 
 @router.post("/{history_id}/notes", status_code=status.HTTP_201_CREATED, dependencies=[Depends(_require_csrf)])
-async def create_note(
-    history_id: str,
-    payload: NoteRequest,
-    user: Annotated[UserResponse, Depends(get_current_user)],
-    access_token: Annotated[str | None, Cookie(alias="mr_access_token")] = None,
-):
+async def create_note(history_id: str, payload: NoteRequest, user: Annotated[UserResponse, Depends(get_current_user)], access_token: Annotated[str | None, Cookie(alias="mr_access_token")] = None):
     try:
         return {"note": add_note(_token(access_token), user.id, history_id, payload.note)}
     except DataServiceError as exc:
@@ -118,11 +102,7 @@ async def create_note(
 
 
 @router.delete("/notes/{note_id}", status_code=status.HTTP_204_NO_CONTENT, response_model=None, dependencies=[Depends(_require_csrf)])
-async def remove_note(
-    note_id: str,
-    user: Annotated[UserResponse, Depends(get_current_user)],
-    access_token: Annotated[str | None, Cookie(alias="mr_access_token")] = None,
-) -> None:
+async def remove_note(note_id: str, user: Annotated[UserResponse, Depends(get_current_user)], access_token: Annotated[str | None, Cookie(alias="mr_access_token")] = None) -> None:
     try:
         delete_note(_token(access_token), user.id, note_id)
     except DataServiceError as exc:
@@ -130,12 +110,12 @@ async def remove_note(
 
 
 @router.post("", status_code=status.HTTP_201_CREATED, dependencies=[Depends(_require_csrf)])
-async def create_search(
-    payload: dict,
-    user: Annotated[UserResponse, Depends(get_current_user)],
-    access_token: Annotated[str | None, Cookie(alias="mr_access_token")] = None,
-):
+async def create_search(payload: dict, user: Annotated[UserResponse, Depends(get_current_user)], access_token: Annotated[str | None, Cookie(alias="mr_access_token")] = None):
     try:
-        return {"item": create_history_record(_token(access_token), user.id, record_type="SEARCH", symbol=payload.get("symbol"), query=payload.get("query"), title=payload.get("title"), payload=payload.get("payload") or {})}
+        token = _token(access_token)
+        preference_record = preferences_service.get_or_create(token, user.id)
+        if not preference_record.privacy_preferences.get("save_search_history", True):
+            return {"item": None, "saved": False}
+        return {"item": create_history_record(token, user.id, record_type="SEARCH", symbol=payload.get("symbol"), query=payload.get("query"), title=payload.get("title"), payload=payload.get("payload") or {})}
     except DataServiceError as exc:
         raise _map_error(exc) from exc
