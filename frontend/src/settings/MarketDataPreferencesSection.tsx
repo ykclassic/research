@@ -49,7 +49,22 @@ export default function MarketDataPreferencesSection({ settings, update }: Props
 
   const providerFor = (role: MarketDataHealthProvider["role"]) => health?.providers.find(item => item.role === role);
 
-  return <SettingsSection title="Market Data Preferences" description="Control freshness and candle-quality rules used when research consumes market data." icon={Database}>
+  return <SettingsSection title="Market Data Preferences" description="Control which markets appear on the dashboard and the freshness/candle-quality rules used when research consumes market data." icon={Database}>
+    <div className="settings-subheading">Dashboard Market Coverage</div>
+    <p className="settings-help">Toggle each asset class independently. Disabled markets are excluded before dashboard quote requests are made. Turning a market off does not delete watchlists, reports, or historical research.</p>
+    <div className="settings-control-grid">
+      <SettingField label="Crypto" description="Show the 10 configured crypto trading pairs on the dashboard.">
+        <Toggle checked={data.crypto_enabled} onChange={value => update("market_data_preferences", { crypto_enabled: value })} label={data.crypto_enabled ? "ON" : "OFF"} />
+      </SettingField>
+      <SettingField label="Forex" description="Show the 10 configured forex/precious-metal pairs on the dashboard.">
+        <Toggle checked={data.forex_enabled} onChange={value => update("market_data_preferences", { forex_enabled: value })} label={data.forex_enabled ? "ON" : "OFF"} />
+      </SettingField>
+      <SettingField label="Stocks" description="Show the 10 configured stock/ETF instruments on the dashboard.">
+        <Toggle checked={data.stocks_enabled} onChange={value => update("market_data_preferences", { stocks_enabled: value })} label={data.stocks_enabled ? "ON" : "OFF"} />
+      </SettingField>
+    </div>
+
+    <div className="settings-subheading">Data Quality Policy</div>
     <div className="settings-control-grid">
       <SettingField label="Maximum acceptable data age" description="The maximum provider-data age accepted by research when stale-data rejection is enabled.">
         <select className="settings-select" value={data.maximum_data_age_seconds} onChange={event => update("market_data_preferences", { maximum_data_age_seconds: Number(event.target.value) as 30 | 60 | 300 | 900 })}>
