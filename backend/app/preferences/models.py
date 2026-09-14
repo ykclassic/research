@@ -5,7 +5,7 @@ from typing import Any
 
 
 DEFAULT_RESEARCH_PREFERENCES: dict[str, Any] = {
-    "default_asset": "BTC/USDT",
+    "default_asset": "BTC/USD",
     "default_asset_class": "Crypto",
     "default_timeframe": "1h",
     "analysis_depth": "Standard",
