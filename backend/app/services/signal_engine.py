@@ -165,17 +165,9 @@ def _preferred_direction(signal: SignalDirection) -> str:
     return "NEUTRAL"
 
 
-def _qualify(
-    signal: SignalDirection,
-    confidence: float,
-    risk_reward: float,
-    mtf_bias: MTFBias,
-    mtf_alignment: int,
-    structure_score: float,
-    preferences: dict[str, Any],
-) -> tuple[bool, tuple[str, ...]]:
-    minimum_confidence = float(preferences.get("minimum_confidence", 0.82))
-    minimum_rr = float(preferences.get("minimum_risk_reward", 1.5))
+def _qualify(signal: SignalDirection, confidence: float, risk_reward: float, mtf_bias: MTFBias, mtf_alignment: int, structure_score: float, preferences: dict[str, Any]) -> tuple[bool, tuple[str, ...]]:
+    minimum_confidence = float(preferences.get("minimum_confidence", 0.0))
+    minimum_rr = float(preferences.get("minimum_risk_reward", 0.0))
     preferred = set(preferences.get("preferred_signal_types") or ["BUY", "SELL", "NEUTRAL"])
     direction = _preferred_direction(signal)
     reasons: list[str] = []
@@ -196,14 +188,11 @@ def _qualify(
     return not reasons, tuple(reasons)
 
 
-def generate_crypto_signal(
-    datasets: dict[Timeframe, OHLCVDataset],
-    signal_preferences: dict[str, Any] | None = None,
-) -> CryptoSignal:
+def generate_crypto_signal(datasets: dict[Timeframe, OHLCVDataset], signal_preferences: dict[str, Any] | None = None) -> CryptoSignal:
     preferences = signal_preferences or {
-        "minimum_confidence": 0.82,
+        "minimum_confidence": 0.0,
         "preferred_signal_types": ["BUY", "SELL", "NEUTRAL"],
-        "minimum_risk_reward": 1.5,
+        "minimum_risk_reward": 0.0,
         "require_multi_timeframe_confirmation": False,
         "require_market_structure_confirmation": False,
     }
@@ -250,15 +239,7 @@ def generate_crypto_signal(
     price = datasets[Timeframe.MINUTE_15].completed_candles[-1].close
     risk_reward = _risk_reward(signal, price, list(datasets[Timeframe.MINUTE_15].completed_candles))
     structure_score = sum(smc_scores) / len(smc_scores) if smc_scores else 0.0
-    qualified, qualification_reasons = _qualify(
-        signal,
-        confidence,
-        risk_reward,
-        mtf.research.bias,
-        mtf.research.alignment_count,
-        structure_score,
-        preferences,
-    )
+    qualified, qualification_reasons = _qualify(signal, confidence, risk_reward, mtf.research.bias, mtf.research.alignment_count, structure_score, preferences)
     return CryptoSignal(
         symbol=datasets[Timeframe.DAY_1].symbol,
         signal=signal,
