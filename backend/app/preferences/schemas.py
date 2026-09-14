@@ -68,7 +68,7 @@ class AlertPreferences(BaseModel):
 
 
 class MarketDataPreferences(BaseModel):
-    maximum_data_age_seconds: int = Field(ge=5, le=86400)
+    maximum_data_age_seconds: Literal[30, 60, 300, 900]
     reject_stale_data: bool
     require_completed_candles: bool
     allow_cached_data_fallback: bool
