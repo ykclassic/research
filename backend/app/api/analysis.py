@@ -2,17 +2,20 @@ from __future__ import annotations
 
 import asyncio
 from datetime import datetime, timezone
+from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Cookie, Depends, HTTPException, Query
 from pydantic import BaseModel, ConfigDict, model_validator
 
-from app.api.auth import get_current_user_or_github_actions
+from app.api.auth import UserResponse, get_current_user_or_github_actions
 from app.config import settings
 from app.models import Quote
 from app.models.market import CompletenessStatus, FreshnessStatus, Timeframe
+from app.preferences.service import preferences_service
 from app.services.feature_engine import calculate_feature_set
 from app.services.indicator_series import calculate_indicator_panes
 from app.services.quote_service import QuoteService
+from app.services.settings_integration import market_data_policy, validate_dataset_policy, validate_quote_policy
 from app.symbols import normalize_symbol
 
 router = APIRouter(prefix="/api/analysis", tags=["analysis"], dependencies=[Depends(get_current_user_or_github_actions)])
@@ -101,14 +104,11 @@ async def get_analysis(
     limit: int = 250,
     start: datetime | None = None,
     end: datetime | None = None,
+    *,
+    user: UserResponse | None = None,
+    access_token: str | None = None,
 ) -> AnalysisResponse:
-    """Build deterministic analysis without FastAPI Query parameter wrappers.
-
-    This function is called both by the HTTP route and by the AI research
-    service. FastAPI's Query objects must remain at the HTTP boundary only;
-    otherwise direct internal calls receive Query instances instead of the
-    declared Python defaults and fail during datetime validation.
-    """
+    """Build deterministic analysis and enforce the user's market-data policy."""
     start = normalize_range_boundary(start, "start")
     end = normalize_range_boundary(end, "end")
     if (start is None) != (end is None):
@@ -116,28 +116,32 @@ async def get_analysis(
     if start is not None and end is not None and start >= end:
         raise HTTPException(status_code=422, detail="Historical range start must be before end.")
 
+    record = None
+    if user is not None and access_token:
+        try:
+            record = preferences_service.get_or_create(access_token, user.id)
+        except Exception as exc:
+            raise HTTPException(status_code=503, detail="User market-data preferences are temporarily unavailable.") from exc
+    policy = market_data_policy(record)
+
     try:
         mapping = normalize_symbol(symbol)
-        if start is None and end is None:
-            dataset = await asyncio.wait_for(
-                quote_service.orchestrator.get_candles(mapping.internal, timeframe, limit),
-                timeout=settings.analysis_timeout_seconds,
-            )
-        else:
-            dataset = await asyncio.wait_for(
-                quote_service.orchestrator.get_candles(
-                    mapping.internal,
-                    timeframe,
-                    limit,
-                    start_date=start,
-                    end_date=end,
-                ),
-                timeout=settings.analysis_timeout_seconds,
-            )
+        dataset = await asyncio.wait_for(
+            quote_service.orchestrator.get_candles(
+                mapping.internal,
+                timeframe,
+                limit,
+                start_date=start,
+                end_date=end,
+            ),
+            timeout=settings.analysis_timeout_seconds,
+        )
+        validate_dataset_policy(dataset, policy)
         current_quote = await asyncio.wait_for(
             quote_service.get_quote(mapping.internal, force_refresh=True),
             timeout=settings.analysis_timeout_seconds,
         )
+        validate_quote_policy(current_quote, policy)
         result = calculate_feature_set(dataset)
         candles = [CandleResponse.model_validate(candle) for candle in dataset.candles]
         completed = [candle for candle in candles if candle.is_complete]
@@ -183,9 +187,23 @@ async def get_analysis(
 @router.get("/{symbol:path}", response_model=AnalysisResponse)
 async def analysis_route(
     symbol: str,
-    timeframe: Timeframe = Query(Timeframe.HOUR_1),
-    limit: int = Query(250, ge=50, le=5000),
+    timeframe: Timeframe | None = Query(None),
+    limit: int | None = Query(None, ge=50, le=5000),
     start: datetime | None = Query(None, description="Inclusive historical range start in ISO-8601 format."),
     end: datetime | None = Query(None, description="Inclusive historical range end in ISO-8601 format."),
+    user: Annotated[UserResponse | None, Depends(get_current_user_or_github_actions)] = None,
+    access_token: Annotated[str | None, Cookie(alias="mr_access_token")] = None,
 ) -> AnalysisResponse:
-    return await get_analysis(symbol, timeframe, limit, start, end)
+    record = None
+    if user is not None and access_token:
+        try:
+            record = preferences_service.get_or_create(access_token, user.id)
+        except Exception as exc:
+            raise HTTPException(status_code=503, detail="User research preferences are temporarily unavailable.") from exc
+    if timeframe is None:
+        from app.services.settings_integration import default_timeframe
+        timeframe = Timeframe(default_timeframe(record))
+    if limit is None:
+        from app.services.settings_integration import analysis_limit
+        limit = analysis_limit(record)
+    return await get_analysis(symbol, timeframe, limit, start, end, user=user, access_token=access_token)
