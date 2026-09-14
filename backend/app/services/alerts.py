@@ -5,6 +5,8 @@ from datetime import datetime, timezone
 from typing import Any
 
 from app.models.market import Timeframe
+from app.preferences.models import default_preferences
+from app.preferences.repository import get_preferences
 from app.services.market_structure import analyze_market_structure
 from app.services.quote_service import QuoteService
 from app.services.supabase_data import DataNotFoundError, _request
@@ -12,13 +14,14 @@ from app.services.technical_analysis import calculate_indicators
 from app.symbols import normalize_symbol
 
 ALERT_TYPES = {"RSI_THRESHOLD", "PRICE_CROSS", "REGIME_CHANGE", "BULLISH_BOS"}
-CHANNELS = {"WEB", "EMAIL", "DISCORD"}
+CHANNELS = {"WEB", "EMAIL", "DISCORD", "TELEGRAM"}
 quote_service = QuoteService()
 
 
 def list_rules(access_token: str, user_id: str, *, enabled: bool | None = None) -> list[dict[str, Any]]:
     params = {"select": "id,user_id,symbol,condition_type,operator,threshold,timeframe,enabled,cooldown_minutes,channels,state,last_triggered_at,created_at,updated_at", "user_id": f"eq.{user_id}", "order": "created_at.desc", "limit": "100"}
-    if enabled is not None: params["enabled"] = f"eq.{str(enabled).lower()}"
+    if enabled is not None:
+        params["enabled"] = f"eq.{str(enabled).lower()}"
     return _request("GET", "alert_rules", access_token, params=params).json()
 
 
@@ -28,7 +31,8 @@ def create_rule(access_token: str, user_id: str, payload: dict[str, Any]) -> dic
     channels = _normalize_channels(payload.get("channels") or ["WEB"])
     response = _request("POST", "alert_rules", access_token, json={"user_id": user_id, "symbol": symbol, "condition_type": payload["condition_type"], "operator": payload.get("operator"), "threshold": payload.get("threshold"), "timeframe": payload.get("timeframe", Timeframe.HOUR_1.value), "enabled": payload.get("enabled", True), "cooldown_minutes": payload.get("cooldown_minutes", 60), "channels": channels, "state": {}}, prefer="return=representation")
     rows = response.json()
-    if not rows: raise RuntimeError("Alert rule was not created.")
+    if not rows:
+        raise RuntimeError("Alert rule was not created.")
     return rows[0]
 
 
@@ -40,17 +44,20 @@ def update_rule(access_token: str, user_id: str, rule_id: str, payload: dict[str
     for key in ("symbol", "condition_type", "operator", "threshold", "timeframe", "enabled", "cooldown_minutes", "channels"):
         if key in payload:
             update[key] = normalize_symbol(str(payload[key])).internal if key == "symbol" else payload[key]
-    if "channels" in update: update["channels"] = _normalize_channels(update["channels"])
+    if "channels" in update:
+        update["channels"] = _normalize_channels(update["channels"])
     response = _request("PATCH", "alert_rules", access_token, params={"id": f"eq.{rule_id}", "user_id": f"eq.{user_id}"}, json=update, prefer="return=representation")
     rows = response.json()
-    if not rows: raise DataNotFoundError("Alert rule was not found.")
+    if not rows:
+        raise DataNotFoundError("Alert rule was not found.")
     return rows[0]
 
 
 def get_rule(access_token: str, user_id: str, rule_id: str) -> dict[str, Any]:
     response = _request("GET", "alert_rules", access_token, params={"select": "id,user_id,symbol,condition_type,operator,threshold,timeframe,enabled,cooldown_minutes,channels,state,last_triggered_at,created_at,updated_at", "id": f"eq.{rule_id}", "user_id": f"eq.{user_id}"})
     rows = response.json()
-    if not rows: raise DataNotFoundError("Alert rule was not found.")
+    if not rows:
+        raise DataNotFoundError("Alert rule was not found.")
     return rows[0]
 
 
@@ -64,39 +71,51 @@ def set_rule_enabled(access_token: str, user_id: str, rule_id: str, enabled: boo
 
 def list_events(access_token: str, user_id: str, *, unread: bool = False, limit: int = 50) -> list[dict[str, Any]]:
     params = {"select": "id,user_id,rule_id,symbol,condition_type,title,message,payload,channels,triggered_at,read_at,created_at", "user_id": f"eq.{user_id}", "order": "triggered_at.desc", "limit": str(max(1, min(limit, 100)))}
-    if unread: params["read_at"] = "is.null"
+    if unread:
+        params["read_at"] = "is.null"
     return _request("GET", "alert_events", access_token, params=params).json()
 
 
 def mark_event_read(access_token: str, user_id: str, event_id: str) -> dict[str, Any]:
     response = _request("PATCH", "alert_events", access_token, params={"id": f"eq.{event_id}", "user_id": f"eq.{user_id}"}, json={"read_at": datetime.now(timezone.utc).isoformat()}, prefer="return=representation")
     rows = response.json()
-    if not rows: raise DataNotFoundError("Alert event was not found.")
+    if not rows:
+        raise DataNotFoundError("Alert event was not found.")
     return rows[0]
 
 
 def _validate_rule(payload: dict[str, Any]) -> None:
     condition = payload.get("condition_type")
-    if condition not in ALERT_TYPES: raise ValueError("Unsupported alert condition.")
-    try: Timeframe(payload.get("timeframe", Timeframe.HOUR_1.value))
-    except ValueError as exc: raise ValueError("Unsupported alert timeframe.") from exc
+    if condition not in ALERT_TYPES:
+        raise ValueError("Unsupported alert condition.")
+    try:
+        Timeframe(payload.get("timeframe", Timeframe.HOUR_1.value))
+    except ValueError as exc:
+        raise ValueError("Unsupported alert timeframe.") from exc
     if condition == "RSI_THRESHOLD":
-        if payload.get("operator") not in {"LT", "LTE", "GT", "GTE"}: raise ValueError("RSI alerts require LT, LTE, GT, or GTE.")
+        if payload.get("operator") not in {"LT", "LTE", "GT", "GTE"}:
+            raise ValueError("RSI alerts require LT, LTE, GT, or GTE.")
         threshold = float(payload.get("threshold"))
-        if not 0 <= threshold <= 100: raise ValueError("RSI threshold must be between 0 and 100.")
+        if not 0 <= threshold <= 100:
+            raise ValueError("RSI threshold must be between 0 and 100.")
     elif condition == "PRICE_CROSS":
-        if payload.get("operator") not in {"ABOVE", "BELOW"}: raise ValueError("Price-cross alerts require ABOVE or BELOW.")
-        if float(payload.get("threshold")) <= 0: raise ValueError("Price threshold must be positive.")
+        if payload.get("operator") not in {"ABOVE", "BELOW"}:
+            raise ValueError("Price-cross alerts require ABOVE or BELOW.")
+        if float(payload.get("threshold")) <= 0:
+            raise ValueError("Price threshold must be positive.")
     elif payload.get("operator") is not None or payload.get("threshold") is not None:
         raise ValueError("This alert condition does not accept an operator or threshold.")
     cooldown = int(payload.get("cooldown_minutes", 60))
-    if cooldown < 0 or cooldown > 10080: raise ValueError("Cooldown must be between 0 and 10080 minutes.")
+    if cooldown < 0 or cooldown > 10080:
+        raise ValueError("Cooldown must be between 0 and 10080 minutes.")
 
 
 def _normalize_channels(channels: list[str]) -> list[str]:
     normalized = [str(channel).upper() for channel in channels]
-    if not normalized or any(channel not in CHANNELS for channel in normalized): raise ValueError("Supported alert channels are WEB, EMAIL, and DISCORD.")
-    if "WEB" not in normalized: normalized.insert(0, "WEB")
+    if not normalized or any(channel not in CHANNELS for channel in normalized):
+        raise ValueError("Supported alert channels are WEB, EMAIL, DISCORD, and TELEGRAM.")
+    if "WEB" not in normalized:
+        normalized.insert(0, "WEB")
     return list(dict.fromkeys(normalized))
 
 
@@ -106,13 +125,15 @@ def _operator_matches(value: float, operator: str, threshold: float) -> bool:
 
 def _cooldown_elapsed(rule: dict[str, Any], now: datetime) -> bool:
     last = rule.get("last_triggered_at")
-    if not last: return True
+    if not last:
+        return True
     previous = datetime.fromisoformat(str(last).replace("Z", "+00:00"))
     return (now - previous).total_seconds() >= int(rule.get("cooldown_minutes") or 0) * 60
 
 
 def _crossed(previous: float | None, current: float, threshold: float, direction: str) -> bool:
-    if previous is None: return False
+    if previous is None:
+        return False
     return previous <= threshold < current if direction == "ABOVE" else previous >= threshold > current
 
 
@@ -121,22 +142,63 @@ def _latest_bullish_bos(structure) -> Any | None:
     return candidates[-1] if candidates else None
 
 
+def _global_alert_preferences(access_token: str, user_id: str) -> dict[str, Any]:
+    record = get_preferences(access_token, user_id)
+    if record is None:
+        return dict(default_preferences()["alert_preferences"])
+    defaults = default_preferences()["alert_preferences"]
+    result = dict(defaults)
+    result.update(record.alert_preferences)
+    return result
+
+
+def _category_enabled(condition: str, preferences: dict[str, Any]) -> bool:
+    mapping = {
+        "PRICE_CROSS": "price_alerts",
+        "REGIME_CHANGE": "regime_change_alerts",
+        "BULLISH_BOS": "high_confidence_signal_alerts",
+        "RSI_THRESHOLD": "high_confidence_signal_alerts",
+    }
+    return bool(preferences.get(mapping.get(condition, "high_confidence_signal_alerts"), True))
+
+
+def _global_channels(preferences: dict[str, Any]) -> list[str]:
+    channels: list[str] = []
+    if preferences.get("browser_notifications_enabled"):
+        channels.append("WEB")
+    if preferences.get("email_alerts_enabled"):
+        channels.append("EMAIL")
+    if preferences.get("discord_alerts_enabled"):
+        channels.append("DISCORD")
+    if preferences.get("telegram_alerts_enabled"):
+        channels.append("TELEGRAM")
+    return channels or ["WEB"]
+
+
 async def evaluate_rules(access_token: str, user_id: str) -> list[dict[str, Any]]:
+    preferences = _global_alert_preferences(access_token, user_id)
+    if preferences.get("frequency") == "Off":
+        return []
     rules = list_rules(access_token, user_id, enabled=True)
     cache: dict[tuple[str, str], tuple[Any, Any, Any]] = {}
     triggered: list[dict[str, Any]] = []
     now = datetime.now(timezone.utc)
     for rule in rules:
         try:
+            condition = rule["condition_type"]
+            if not _category_enabled(condition, preferences):
+                continue
             key = (rule["symbol"], rule["timeframe"])
             if key not in cache:
                 mapping = normalize_symbol(rule["symbol"])
                 timeframe = Timeframe(rule["timeframe"])
                 dataset = await asyncio.wait_for(quote_service.orchestrator.get_candles(mapping.internal, timeframe, 250), timeout=20)
                 completed = dataset.completed_candles
-                if len(completed) < 30: continue
+                if len(completed) < 30:
+                    continue
                 quote = await asyncio.wait_for(quote_service.get_quote(mapping.internal, force_refresh=True), timeout=20)
-                if quote.price is None: continue
+                if quote.price is None:
+                    continue
                 indicators = calculate_indicators(list(completed))
                 completed_dataset = dataset.model_copy(update={"candles": completed})
                 structure = analyze_market_structure(completed_dataset)
@@ -151,7 +213,6 @@ async def evaluate_rules(access_token: str, user_id: str) -> list[dict[str, Any]
             state = dict(rule.get("state") or {})
             current_price = float(quote.price)
             rsi = indicators.get("rsi14")
-            condition = rule["condition_type"]
             active = False
             fingerprint = observation_time.isoformat()
             detail = ""
@@ -179,13 +240,16 @@ async def evaluate_rules(access_token: str, user_id: str) -> list[dict[str, Any]
                 active = bos_time is not None and bos_time != state.get("last_bos_time")
                 fingerprint = f"bos:{bos_time}" if bos_time else f"bos:none:{observation_time.isoformat()}"
                 detail = f"Bullish BOS detected at {bos.price:,.8g}." if bos else ""
-                if bos_time: state["last_bos_time"] = bos_time
+                if bos_time:
+                    state["last_bos_time"] = bos_time
             state["last_price"] = current_price
             state["last_observed_at"] = observation_time.isoformat()
             _request("PATCH", "alert_rules", access_token, params={"id": f"eq.{rule['id']}", "user_id": f"eq.{user_id}"}, json={"state": state})
-            if not active or not _cooldown_elapsed(rule, now): continue
-            event_payload = {"rule_id": rule["id"], "symbol": rule["symbol"], "condition_type": condition, "timeframe": rule["timeframe"], "current_price": current_price, "rsi14": rsi, "regime": regime, "observed_at": observation_time.isoformat()}
-            response = _request("POST", "alert_events", access_token, json={"user_id": user_id, "rule_id": rule["id"], "symbol": rule["symbol"], "condition_type": condition, "title": f"{rule['symbol']} alert", "message": detail, "payload": event_payload, "channels": rule.get("channels") or ["WEB"], "triggered_at": now.isoformat(), "fingerprint": fingerprint}, prefer="return=representation")
+            if not active or not _cooldown_elapsed(rule, now):
+                continue
+            event_payload = {"rule_id": rule["id"], "symbol": rule["symbol"], "condition_type": condition, "timeframe": rule["timeframe"], "current_price": current_price, "rsi14": rsi, "regime": regime, "observed_at": observation_time.isoformat(), "delivery_frequency": preferences.get("frequency", "Immediate")}
+            channels = _global_channels(preferences)
+            response = _request("POST", "alert_events", access_token, json={"user_id": user_id, "rule_id": rule["id"], "symbol": rule["symbol"], "condition_type": condition, "title": f"{rule['symbol']} alert", "message": detail, "payload": event_payload, "channels": channels, "triggered_at": now.isoformat(), "fingerprint": fingerprint}, prefer="return=representation")
             event_rows = response.json()
             if event_rows:
                 _request("PATCH", "alert_rules", access_token, params={"id": f"eq.{rule['id']}", "user_id": f"eq.{user_id}"}, json={"last_triggered_at": now.isoformat()})

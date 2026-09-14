@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from typing import Any
 
 from app.models.market import OHLCVDataset, Timeframe
 from app.models.mtf import MTFBias
@@ -42,11 +43,9 @@ def _indicator_score(indicators: dict[str, float | str | None]) -> tuple[float, 
     ema50 = indicators.get("ema50")
     ema200 = indicators.get("ema200")
     if isinstance(price, (int, float)) and isinstance(ema50, (int, float)):
-        direction = 1.0 if price > ema50 else -1.0 if price < ema50 else 0.0
-        contributions.append((direction, 0.15))
+        contributions.append((1.0 if price > ema50 else -1.0 if price < ema50 else 0.0, 0.15))
     if isinstance(price, (int, float)) and isinstance(ema200, (int, float)):
-        direction = 1.0 if price > ema200 else -1.0 if price < ema200 else 0.0
-        contributions.append((direction, 0.15))
+        contributions.append((1.0 if price > ema200 else -1.0 if price < ema200 else 0.0, 0.15))
 
     macd_hist = indicators.get("macd_histogram")
     if isinstance(macd_hist, (int, float)):
@@ -138,7 +137,65 @@ def _signal_for_score(score: float) -> SignalDirection:
     return SignalDirection.NEUTRAL
 
 
-def generate_crypto_signal(datasets: dict[Timeframe, OHLCVDataset]) -> CryptoSignal:
+def _structural_levels(candles: list[Any], price: float) -> tuple[float | None, float | None]:
+    window = candles[-50:]
+    supports = [float(candle.low) for candle in window if candle.low < price]
+    resistances = [float(candle.high) for candle in window if candle.high > price]
+    return (max(supports) if supports else None, min(resistances) if resistances else None)
+
+
+def _risk_reward(signal: SignalDirection, price: float, candles: list[Any]) -> float:
+    if signal == SignalDirection.NEUTRAL:
+        return 0.0
+    support, resistance = _structural_levels(candles, price)
+    if signal in {SignalDirection.BUY, SignalDirection.STRONG_BUY}:
+        if support is None or resistance is None or price <= support:
+            return 0.0
+        return max(0.0, (resistance - price) / (price - support))
+    if support is None or resistance is None or price >= resistance:
+        return 0.0
+    return max(0.0, (price - support) / (resistance - price))
+
+
+def _preferred_direction(signal: SignalDirection) -> str:
+    if signal in {SignalDirection.BUY, SignalDirection.STRONG_BUY}:
+        return "BUY"
+    if signal in {SignalDirection.SELL, SignalDirection.STRONG_SELL}:
+        return "SELL"
+    return "NEUTRAL"
+
+
+def _qualify(signal: SignalDirection, confidence: float, risk_reward: float, mtf_bias: MTFBias, mtf_alignment: int, structure_score: float, preferences: dict[str, Any]) -> tuple[bool, tuple[str, ...]]:
+    minimum_confidence = float(preferences.get("minimum_confidence", 0.0))
+    minimum_rr = float(preferences.get("minimum_risk_reward", 0.0))
+    preferred = set(preferences.get("preferred_signal_types") or ["BUY", "SELL", "NEUTRAL"])
+    direction = _preferred_direction(signal)
+    reasons: list[str] = []
+    if confidence < minimum_confidence:
+        reasons.append(f"Confidence {confidence:.1%} is below the {minimum_confidence:.1%} minimum.")
+    if direction not in preferred:
+        reasons.append(f"{direction} is not an enabled preferred signal type.")
+    if direction != "NEUTRAL" and risk_reward < minimum_rr:
+        reasons.append(f"Risk/reward {risk_reward:.2f} is below the {minimum_rr:.2f} minimum.")
+    if preferences.get("require_multi_timeframe_confirmation") and direction != "NEUTRAL":
+        aligned = (direction == "BUY" and mtf_bias == MTFBias.BULLISH) or (direction == "SELL" and mtf_bias == MTFBias.BEARISH)
+        if not aligned or mtf_alignment < 3:
+            reasons.append("Multi-timeframe confirmation is required but is not sufficiently aligned.")
+    if preferences.get("require_market_structure_confirmation") and direction != "NEUTRAL":
+        structure_aligned = (direction == "BUY" and structure_score > 0) or (direction == "SELL" and structure_score < 0)
+        if not structure_aligned:
+            reasons.append("Market-structure confirmation is required but is not aligned with the signal.")
+    return not reasons, tuple(reasons)
+
+
+def generate_crypto_signal(datasets: dict[Timeframe, OHLCVDataset], signal_preferences: dict[str, Any] | None = None) -> CryptoSignal:
+    preferences = signal_preferences or {
+        "minimum_confidence": 0.0,
+        "preferred_signal_types": ["BUY", "SELL", "NEUTRAL"],
+        "minimum_risk_reward": 0.0,
+        "require_multi_timeframe_confirmation": False,
+        "require_market_structure_confirmation": False,
+    }
     required = tuple(TIMEFRAME_WEIGHTS)
     missing = [timeframe.value for timeframe in required if timeframe not in datasets]
     if missing:
@@ -148,6 +205,7 @@ def generate_crypto_signal(datasets: dict[Timeframe, OHLCVDataset]) -> CryptoSig
     weighted_score = 0.0
     evidence: list[str] = []
     structures = {}
+    smc_scores: list[float] = []
     for timeframe in required:
         dataset = datasets[timeframe]
         candles = list(dataset.completed_candles)
@@ -159,14 +217,9 @@ def generate_crypto_signal(datasets: dict[Timeframe, OHLCVDataset]) -> CryptoSig
         structures[timeframe] = tuple(structure.events)
         indicator_score, indicator_evidence = _indicator_score(indicators)
         smc_score, smc_evidence = _smc_score(structure.events)
+        smc_scores.append(smc_score)
         combined = max(-1.0, min(1.0, 0.60 * indicator_score + 0.40 * smc_score))
-        components.append(SignalComponent(
-            timeframe=timeframe.value,
-            indicator_score=indicator_score,
-            smc_score=smc_score,
-            combined_score=combined,
-            evidence=indicator_evidence + smc_evidence,
-        ))
+        components.append(SignalComponent(timeframe=timeframe.value, indicator_score=indicator_score, smc_score=smc_score, combined_score=combined, evidence=indicator_evidence + smc_evidence))
         weighted_score += TIMEFRAME_WEIGHTS[timeframe] * combined
         evidence.extend(f"{timeframe.value}: {item}" for item in (indicator_evidence + smc_evidence))
 
@@ -182,17 +235,24 @@ def generate_crypto_signal(datasets: dict[Timeframe, OHLCVDataset]) -> CryptoSig
 
     weighted_score = max(-1.0, min(1.0, weighted_score))
     signal = _signal_for_score(weighted_score)
-    confluence = min(1.0, 0.50 + 0.50 * abs(weighted_score))
+    confidence = min(1.0, 0.50 + 0.50 * abs(weighted_score))
+    price = datasets[Timeframe.MINUTE_15].completed_candles[-1].close
+    risk_reward = _risk_reward(signal, price, list(datasets[Timeframe.MINUTE_15].completed_candles))
+    structure_score = sum(smc_scores) / len(smc_scores) if smc_scores else 0.0
+    qualified, qualification_reasons = _qualify(signal, confidence, risk_reward, mtf.research.bias, mtf.research.alignment_count, structure_score, preferences)
     return CryptoSignal(
         symbol=datasets[Timeframe.DAY_1].symbol,
         signal=signal,
         score=weighted_score,
-        confluence=confluence,
-        price=datasets[Timeframe.MINUTE_15].completed_candles[-1].close,
+        confidence=confidence,
+        confluence=confidence,
+        risk_reward=risk_reward,
+        price=price,
         calculated_at=datetime.now(timezone.utc),
         latest_candle_timestamp=datasets[Timeframe.MINUTE_15].completed_candles[-1].timestamp,
         source=datasets[Timeframe.MINUTE_15].source,
         components=tuple(components),
         evidence=tuple(evidence[:12]),
-        research_eligible=True,
+        research_eligible=qualified,
+        qualification_reasons=qualification_reasons,
     )

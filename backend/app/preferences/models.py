@@ -28,6 +28,8 @@ DEFAULT_SIGNAL_PREFERENCES: dict[str, Any] = {
 DEFAULT_ALERT_PREFERENCES: dict[str, Any] = {
     "browser_notifications_enabled": False,
     "email_alerts_enabled": False,
+    "discord_alerts_enabled": False,
+    "telegram_alerts_enabled": False,
     "high_confidence_signal_alerts": True,
     "price_alerts": False,
     "regime_change_alerts": False,

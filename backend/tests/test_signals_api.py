@@ -15,19 +15,27 @@ def _fake_signal(symbol: str) -> CryptoSignal:
         symbol=symbol,
         signal=SignalDirection.BUY,
         score=0.30,
+        confidence=0.65,
         confluence=0.65,
+        risk_reward=2.0,
         price=100.0,
         calculated_at=now,
         latest_candle_timestamp=now,
         source="test",
         components=(),
         evidence=("test",),
+        research_eligible=True,
+        qualification_reasons=(),
     )
 
 
 @pytest.mark.asyncio
 async def test_signal_scanner_contains_only_registered_crypto_symbols(monkeypatch):
-    async def fake_generate(symbol: str, limit: int) -> CryptoSignal:
+    async def fake_generate(
+        symbol: str,
+        limit: int,
+        signal_preferences: dict[str, object] | None = None,
+    ) -> CryptoSignal:
         return _fake_signal(symbol)
 
     monkeypatch.setattr(signals, "_generate", fake_generate)

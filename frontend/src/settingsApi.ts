@@ -33,6 +33,8 @@ export interface SignalPreferences {
 export interface AlertPreferences {
   browser_notifications_enabled: boolean;
   email_alerts_enabled: boolean;
+  discord_alerts_enabled: boolean;
+  telegram_alerts_enabled: boolean;
   high_confidence_signal_alerts: boolean;
   price_alerts: boolean;
   regime_change_alerts: boolean;
