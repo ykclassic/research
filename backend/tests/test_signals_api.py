@@ -27,7 +27,11 @@ def _fake_signal(symbol: str) -> CryptoSignal:
 
 @pytest.mark.asyncio
 async def test_signal_scanner_contains_only_registered_crypto_symbols(monkeypatch):
-    async def fake_generate(symbol: str, limit: int) -> CryptoSignal:
+    async def fake_generate(
+        symbol: str,
+        limit: int,
+        signal_preferences: dict[str, object] | None = None,
+    ) -> CryptoSignal:
         return _fake_signal(symbol)
 
     monkeypatch.setattr(signals, "_generate", fake_generate)
