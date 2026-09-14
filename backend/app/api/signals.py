@@ -98,8 +98,12 @@ async def get_crypto_signals(
         policy = market_data_policy(record)
     except Exception as exc:
         raise HTTPException(status_code=503, detail="Signal preferences are temporarily unavailable.") from exc
+    async def generate_for_symbol(symbol: str) -> CryptoSignal:
+        if policy is None:
+            return await _generate(symbol, limit, signal_preferences)
+        return await _generate(symbol, limit, signal_preferences, policy)
     results = await asyncio.gather(
-        *(_generate(symbol, limit, signal_preferences, policy) for symbol in CRYPTO_SYMBOLS),
+        *(generate_for_symbol(symbol) for symbol in CRYPTO_SYMBOLS),
         return_exceptions=True,
     )
     signals = [result for result in results if isinstance(result, CryptoSignal) and result.research_eligible]
