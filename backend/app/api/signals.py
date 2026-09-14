@@ -95,7 +95,7 @@ async def get_crypto_signals(
 ) -> CryptoSignalList:
     try:
         signal_preferences, record = _resolve_signal_preferences(user, access_token)
-        policy = market_data_policy(record)
+        policy = market_data_policy(record) if record is not None else None
     except Exception as exc:
         raise HTTPException(status_code=503, detail="Signal preferences are temporarily unavailable.") from exc
     async def generate_for_symbol(symbol: str) -> CryptoSignal:
@@ -125,7 +125,7 @@ async def get_crypto_signal(
 ) -> CryptoSignal:
     try:
         signal_preferences, record = _resolve_signal_preferences(user, access_token)
-        signal = await _generate(symbol, limit, signal_preferences, market_data_policy(record))
+        signal = await _generate(symbol, limit, signal_preferences, market_data_policy(record) if record is not None else None)
         if not signal.research_eligible:
             raise HTTPException(
                 status_code=404,
