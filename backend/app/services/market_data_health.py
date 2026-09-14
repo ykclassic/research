@@ -8,6 +8,7 @@ from typing import Any
 
 from app.config import settings
 from app.models import QuoteStatus
+from app.models.market import Timeframe
 from app.providers.alpha_vantage import AlphaVantageProvider
 from app.providers.finnhub import FinnhubProvider
 from app.providers.kraken_public import KrakenPublicProvider
@@ -35,12 +36,13 @@ class HealthProbe:
 class MarketDataHealthService:
     """Run bounded, real provider probes for the Settings diagnostics panel.
 
-    A provider is marked operational only after a real request succeeds and its
-    response contains usable market data plus provenance. Results are cached
-    briefly so opening Settings does not create a provider request storm.
+    A provider is marked operational only after a real quote request succeeds,
+    the quote has provenance, and a recent candle sample is present and complete.
+    Results are cached briefly so opening Settings does not create a request storm.
     """
 
     CACHE_SECONDS = 30.0
+    HEALTH_CANDLE_LIMIT = 50
 
     def __init__(self) -> None:
         self._cached: dict[str, HealthProbe] | None = None
@@ -72,27 +74,49 @@ class MarketDataHealthService:
                 cache_status="UNKNOWN",
                 message="Provider is not configured on the server.",
             )
+
         try:
             quote = await asyncio.wait_for(provider.get_quote(symbol), timeout=settings.provider_timeout_seconds)
-            latency_ms = int((time.perf_counter() - started) * 1000)
             usable = quote.status != QuoteStatus.UNAVAILABLE and quote.price is not None
             provenance = bool(quote.source and quote.provider_symbol and quote.provider_timestamp)
-            validation = "PASSED" if usable else "FAILED"
-            status = "OPERATIONAL" if usable and provenance else "DEGRADED"
+            if not usable or not provenance:
+                return HealthProbe(
+                    role=role,
+                    provider=provider.name,
+                    status="DEGRADED" if usable else "UNAVAILABLE",
+                    configured=True,
+                    last_successful_request=None,
+                    last_request=requested_at,
+                    latency_ms=int((time.perf_counter() - started) * 1000),
+                    validation_status="PASSED" if usable else "FAILED",
+                    candle_completeness="NOT_CHECKED",
+                    provenance_available=provenance,
+                    fallback_status=fallback_status,
+                    cache_status="AVAILABLE" if market_data.quote_cache.size() > 0 else "EMPTY",
+                    message=quote.error or "Quote validation or provenance check failed.",
+                )
+
+            candle = await asyncio.wait_for(
+                provider.get_candles(symbol, Timeframe.HOUR_1, self.HEALTH_CANDLE_LIMIT),
+                timeout=settings.provider_timeout_seconds,
+            )
+            complete = bool(candle.completed_candles) and candle.completeness_status.value == "COMPLETE"
+            validation = "PASSED" if usable and provenance else "FAILED"
+            status = "OPERATIONAL" if usable and provenance and complete else "DEGRADED"
             return HealthProbe(
                 role=role,
                 provider=provider.name,
                 status=status,
                 configured=True,
-                last_successful_request=datetime.now(timezone.utc) if usable else None,
+                last_successful_request=datetime.now(timezone.utc) if usable and complete else None,
                 last_request=requested_at,
-                latency_ms=latency_ms,
+                latency_ms=int((time.perf_counter() - started) * 1000),
                 validation_status=validation,
-                candle_completeness="NOT_CHECKED",
+                candle_completeness="PASSED" if complete else "FAILED",
                 provenance_available=provenance,
                 fallback_status=fallback_status,
-                cache_status="AVAILABLE" if market_data.quote_cache.size() > 0 else "EMPTY",
-                message="Live provider response validated." if usable else (quote.error or "Provider returned no usable quote."),
+                cache_status="AVAILABLE" if market_data.quote_cache.size() > 0 or market_data.candle_cache.size() > 0 else "EMPTY",
+                message="Quote and completed-candle response validated." if complete else "Quote passed, but candle completeness validation failed.",
             )
         except Exception as exc:
             return HealthProbe(
@@ -104,10 +128,10 @@ class MarketDataHealthService:
                 last_request=requested_at,
                 latency_ms=int((time.perf_counter() - started) * 1000),
                 validation_status="FAILED",
-                candle_completeness="NOT_CHECKED",
+                candle_completeness="FAILED",
                 provenance_available=False,
                 fallback_status=fallback_status,
-                cache_status="AVAILABLE" if market_data.quote_cache.size() > 0 else "EMPTY",
+                cache_status="AVAILABLE" if market_data.quote_cache.size() > 0 or market_data.candle_cache.size() > 0 else "EMPTY",
                 message=str(exc),
             )
 
