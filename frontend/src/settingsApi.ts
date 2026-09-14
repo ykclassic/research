@@ -1,25 +1,27 @@
 import { ApiError } from "./api";
 
-export interface AccountInfo {
-  id: string; email: string; created_at: string | null; email_confirmed_at?: string | null; last_sign_in_at?: string | null; account_status?: "active" | "email_unconfirmed";
-}
+export interface AccountInfo { id: string; email: string; created_at: string | null; email_confirmed_at?: string | null; last_sign_in_at?: string | null; account_status?: "active" | "email_unconfirmed"; }
 export interface ResearchPreferences { default_asset: string; default_asset_class: "Crypto" | "Forex" | "Stocks"; default_timeframe: "15m" | "1h" | "4h" | "1D"; analysis_depth: "Quick" | "Standard" | "Comprehensive"; technical_analysis_enabled: boolean; market_structure_enabled: boolean; multi_timeframe_enabled: boolean; fundamental_analysis_enabled: boolean; news_analysis_enabled: boolean; ai_interpretation_enabled: boolean; }
 export interface SignalPreferences { minimum_confidence: number; preferred_signal_types: Array<"BUY" | "SELL" | "NEUTRAL">; minimum_risk_reward: number; require_multi_timeframe_confirmation: boolean; require_market_structure_confirmation: boolean; }
 export interface AlertPreferences { browser_notifications_enabled: boolean; email_alerts_enabled: boolean; discord_alerts_enabled: boolean; telegram_alerts_enabled: boolean; high_confidence_signal_alerts: boolean; price_alerts: boolean; regime_change_alerts: boolean; news_event_alerts: boolean; report_completion_alerts: boolean; frequency: "Immediate" | "Batched" | "Daily digest" | "Off"; }
 export interface MarketDataPreferences { maximum_data_age_seconds: 30 | 60 | 300 | 900; reject_stale_data: boolean; require_completed_candles: boolean; allow_cached_data_fallback: boolean; }
 export interface MarketDataHealthProvider { role: "primary" | "crypto_fallback" | "forex" | "stocks"; provider: string; status: "OPERATIONAL" | "DEGRADED" | "UNAVAILABLE" | "UNKNOWN"; configured: boolean; last_successful_request: string | null; last_request: string | null; latency_ms: number | null; validation_status: "PASSED" | "FAILED" | "NOT_CHECKED"; candle_completeness: "PASSED" | "FAILED" | "NOT_CHECKED"; provenance_available: boolean; fallback_status: string; cache_status: string; message: string; }
-export interface MarketDataHealth { checked_at: string; cached_result: boolean; cache_ttl_seconds: number; providers: MarketDataHealthProvider[]; cache: { quote_entries: number; candle_entries: number; status: string }; security: { credentials_exposed: boolean; message: string }; }
+export interface MarketDataHealth { checked_at: string; cached_result: boolean; cache_ttl_seconds: number; providers: MarketDataHealthProvider[]; cache: { quote_entries: number; candle_entries: number; status: string }; security: { credentials_exposed: boolean; message: string; }; }
 export interface DisplayPreferences { theme: "light" | "dark" | "system"; density: "compact" | "comfortable"; sidebar_collapsed: boolean; default_landing_page: "/dashboard" | "/markets/watchlists" | "/analysis/technical" | "/analysis/signals" | "/research/ai" | "/research/reports"; currency: "USD"; decimal_precision: "auto" | "0" | "2" | "4" | "6"; percentage_format: "1.25%" | "1.3%" | "1%"; large_number_format: "compact" | "full"; timezone: string; market_timestamps: "utc" | "local" | "exchange"; date_format: "DD/MM/YYYY" | "MM/DD/YYYY" | "YYYY-MM-DD"; time_format: "12-hour" | "24-hour"; chart_type: "candlestick" | "line" | "area"; show_volume: boolean; show_indicators: boolean; show_grid: boolean; remember_zoom: boolean; auto_refresh: boolean; reduce_animations: boolean; reduced_motion: boolean; accessible_contrast: boolean; }
 export interface AIOutputSections { executive_summary: boolean; technical_outlook: boolean; fundamental_outlook: boolean; news_impact: boolean; market_regime: boolean; bull_scenario: boolean; base_scenario: boolean; bear_scenario: boolean; key_risks: boolean; catalysts: boolean; invalidations: boolean; }
 export interface AIPreferences { enabled: boolean; analysis_style: "Concise" | "Analytical" | "Detailed"; interpretation_risk: "Conservative" | "Balanced" | "Aggressive"; require_evidence: boolean; show_confidence_scores: boolean; show_supporting_indicators: boolean; show_conflicting_evidence: boolean; output_sections: AIOutputSections; }
 export interface PrivacyPreferences { research_history_retention_days: number; save_generated_reports: boolean; save_ai_research: boolean; save_search_history: boolean; analytics_telemetry_enabled: boolean; }
 export interface UserPreferences { id: string; user_id: string; research_preferences: ResearchPreferences; signal_preferences: SignalPreferences; alert_preferences: AlertPreferences; market_data_preferences: MarketDataPreferences; display_preferences: DisplayPreferences; ai_preferences: AIPreferences; privacy_preferences: PrivacyPreferences; created_at: string; updated_at: string; }
 export type PreferencesDraft = Omit<UserPreferences, "id" | "user_id" | "created_at" | "updated_at">;
-
 export interface SystemStatusProvider extends MarketDataHealthProvider {}
 export interface SystemStatus { checked_at: string; application_version: string; environment: string; api_connection: { status: string; message: string }; authentication: { status: string; message: string }; database: { status: string; message: string }; market_data_service: { status: string; message: string }; last_synchronization: string | null; cache: { status: string; quote_entries: number; candle_entries: number }; market_data: { checked_at: string | null; cached_result: boolean; providers: SystemStatusProvider[] }; }
 
-const API_BASE = (import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8000").replace(/\/$/, "");
+const PRODUCTION_API_BASE = "https://research-76vr.onrender.com";
+const configuredApiBase = (import.meta.env.VITE_API_BASE_URL ?? "").trim();
+const hostname = typeof window !== "undefined" ? window.location.hostname : "";
+const isLocalHost = hostname === "localhost" || hostname === "127.0.0.1" || hostname === "[::1]";
+const configuredApiIsLocal = /^(https?:\/\/)?(localhost|127\.0\.0\.1)(:\d+)?\/?$/i.test(configuredApiBase);
+const API_BASE = (configuredApiBase && (!isLocalHost && !configuredApiIsLocal) ? configuredApiBase : isLocalHost ? (configuredApiBase || "http://localhost:8000") : PRODUCTION_API_BASE).replace(/\/$/, "");
 const CSRF_STORAGE_KEY = "mr_csrf_token";
 const REQUEST_TIMEOUT_MS = 12_000;
 function getCookie(name: string): string | null { const encodedName = `${encodeURIComponent(name)}=`; const cookie = document.cookie.split(";").map(item => item.trim()).find(item => item.startsWith(encodedName)); return cookie ? decodeURIComponent(cookie.slice(encodedName.length)) : null; }
