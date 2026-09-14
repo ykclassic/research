@@ -12,6 +12,7 @@ from app.api.mtf import get_multi_timeframe_analysis
 from app.api.regime import get_regime
 from app.models.market import Timeframe
 from app.preferences.models import default_preferences
+from app.preferences.repository import PreferencesRepositoryError
 from app.preferences.schemas import AIPreferences
 from app.preferences.service import preferences_service
 from app.services.ai_research import AIResearchError, AIResearchService
@@ -55,7 +56,7 @@ def _ai_preferences(
         return AIPreferences.model_validate(record.ai_preferences)
     except ValueError as exc:
         raise HTTPException(status_code=503, detail="Saved AI preferences are invalid; AI research is temporarily unavailable.") from exc
-    except Exception as exc:
+    except PreferencesRepositoryError as exc:
         raise HTTPException(status_code=503, detail="AI preferences could not be loaded.") from exc
 
 
