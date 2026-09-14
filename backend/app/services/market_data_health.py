@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 from app.config import settings
-from app.models import Quote, QuoteStatus
+from app.models import QuoteStatus
 from app.providers.alpha_vantage import AlphaVantageProvider
 from app.providers.finnhub import FinnhubProvider
 from app.providers.kraken_public import KrakenPublicProvider
@@ -33,13 +33,11 @@ class HealthProbe:
 
 
 class MarketDataHealthService:
-    """Runs bounded, real provider probes and caches the diagnostic result.
+    """Run bounded, real provider probes for the Settings diagnostics panel.
 
-    Health is never represented by hard-coded operational flags. A provider is
-    marked operational only after a real request succeeds and its response has a
-    usable price and provenance. Failed or unconfigured providers are surfaced
-    explicitly. Results are cached briefly so opening Settings does not create a
-    provider request storm.
+    A provider is marked operational only after a real request succeeds and its
+    response contains usable market data plus provenance. Results are cached
+    briefly so opening Settings does not create a provider request storm.
     """
 
     CACHE_SECONDS = 30.0
@@ -49,50 +47,13 @@ class MarketDataHealthService:
         self._cached_at = 0.0
         self._lock = asyncio.Lock()
 
-    @staticmethod
-    def _quote_probe(provider: Any, symbol: str) -> tuple[HealthProbe, Quote | None]:
-        started = time.perf_counter()
-        requested_at = datetime.now(timezone.utc)
-        configured = bool(provider.configured)
-        if not configured:
-            return HealthProbe(
-                role="",
-                provider=provider.name,
-                status="UNAVAILABLE",
-                configured=False,
-                last_successful_request=None,
-                last_request=requested_at,
-                latency_ms=0,
-                validation_status="NOT_CHECKED",
-                candle_completeness="NOT_CHECKED",
-                provenance_available=False,
-                fallback_status="NOT_CONFIGURED",
-                cache_status="UNKNOWN",
-                message="Provider credentials are not configured on the server.",
-            ), None
-
-        try:
-            # This helper is called from async wrappers; the actual request is
-            # performed by _run_quote_probe so provider clients remain async.
-            raise RuntimeError("async probe not executed")
-        except RuntimeError:
-            return HealthProbe(
-                role="",
-                provider=provider.name,
-                status="UNKNOWN",
-                configured=True,
-                last_successful_request=None,
-                last_request=requested_at,
-                latency_ms=int((time.perf_counter() - started) * 1000),
-                validation_status="NOT_CHECKED",
-                candle_completeness="NOT_CHECKED",
-                provenance_available=False,
-                fallback_status="NOT_CHECKED",
-                cache_status="UNKNOWN",
-                message="Probe pending.",
-            ), None
-
-    async def _run_quote_probe(self, role: str, provider: Any, symbol: str, fallback_status: str = "NOT_USED") -> HealthProbe:
+    async def _run_quote_probe(
+        self,
+        role: str,
+        provider: Any,
+        symbol: str,
+        fallback_status: str = "NOT_USED",
+    ) -> HealthProbe:
         requested_at = datetime.now(timezone.utc)
         started = time.perf_counter()
         if not provider.configured:
@@ -156,16 +117,11 @@ class MarketDataHealthService:
             if self._cached is not None and not force_refresh and now - self._cached_at < self.CACHE_SECONDS:
                 return self._serialize(self._cached, cached=True)
 
-            primary = TwelveDataProvider()
-            crypto_fallback = KrakenPublicProvider()
-            forex_provider = AlphaVantageProvider()
-            stock_provider = FinnhubProvider()
-
             probes = await asyncio.gather(
-                self._run_quote_probe("primary", primary, "BTC/USD"),
-                self._run_quote_probe("crypto_fallback", crypto_fallback, "BTC/USD", "AVAILABLE"),
-                self._run_quote_probe("forex", forex_provider, "EUR/USD"),
-                self._run_quote_probe("stocks", stock_provider, "AAPL"),
+                self._run_quote_probe("primary", TwelveDataProvider(), "BTC/USD"),
+                self._run_quote_probe("crypto_fallback", KrakenPublicProvider(), "BTC/USD", "AVAILABLE"),
+                self._run_quote_probe("forex", AlphaVantageProvider(), "EUR/USD"),
+                self._run_quote_probe("stocks", FinnhubProvider(), "AAPL"),
             )
             self._cached = {probe.role: probe for probe in probes}
             self._cached_at = time.monotonic()
@@ -173,7 +129,7 @@ class MarketDataHealthService:
 
     @staticmethod
     def _serialize(probes: dict[str, HealthProbe], *, cached: bool) -> dict[str, Any]:
-        now = datetime.now(timezone.utc)
+        checked_at = datetime.now(timezone.utc)
         provider_items = [
             {
                 "role": probe.role,
@@ -193,7 +149,7 @@ class MarketDataHealthService:
             for probe in probes.values()
         ]
         return {
-            "checked_at": now,
+            "checked_at": checked_at,
             "cached_result": cached,
             "cache_ttl_seconds": MarketDataHealthService.CACHE_SECONDS,
             "providers": provider_items,
