@@ -36,11 +36,25 @@ async def lifespan(_: FastAPI):
     yield
 
 
-app = FastAPI(title="Adaptive Intelligent Market Research Bot API", version=APPLICATION_VERSION, lifespan=lifespan)
+app = FastAPI(
+    title="Adaptive Intelligent Market Research Bot API",
+    version=APPLICATION_VERSION,
+    lifespan=lifespan,
+)
 origins = [item.strip() for item in settings.cors_origins.split(",") if item.strip()]
 trusted_hosts = [item.strip() for item in settings.trusted_hosts.split(",") if item.strip()]
-app.add_middleware(TrustedHostMiddleware, allowed_hosts=trusted_hosts or ["localhost", "127.0.0.1", "testserver"])
-app.add_middleware(CORSMiddleware, allow_origins=origins or ["http://localhost:5173"], allow_credentials=True, allow_methods=["GET", "POST", "PATCH", "DELETE", "OPTIONS"], allow_headers=["Content-Type", "X-CSRF-Token"], expose_headers=["X-CSRF-Token"])
+app.add_middleware(
+    TrustedHostMiddleware,
+    allowed_hosts=trusted_hosts or ["localhost", "127.0.0.1", "testserver"],
+)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=origins or ["http://localhost:5173"],
+    allow_credentials=True,
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    allow_headers=["Content-Type", "X-CSRF-Token"],
+    expose_headers=["X-CSRF-Token"],
+)
 
 
 @app.middleware("http")
