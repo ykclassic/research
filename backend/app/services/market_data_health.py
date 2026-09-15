@@ -48,22 +48,98 @@ class MarketDataHealthService:
         self._cached = None
         self._cached_at = 0.0
 
-    async def _run_quote_probe(self, role: str, provider: Any, symbol: str, fallback_status: str = "NOT_USED") -> HealthProbe:
+    async def _run_quote_probe(
+        self,
+        role: str,
+        provider: Any,
+        symbol: str,
+        fallback_status: str = "NOT_USED",
+    ) -> HealthProbe:
         requested_at = datetime.now(timezone.utc)
         started = time.perf_counter()
         if not provider.configured:
-            return HealthProbe(role, provider.name, "UNAVAILABLE", False, None, requested_at, 0, "NOT_CHECKED", "NOT_CHECKED", False, "NOT_CONFIGURED", "UNKNOWN", "Provider is not configured on the server.")
+            return HealthProbe(
+                role,
+                provider.name,
+                "UNAVAILABLE",
+                False,
+                None,
+                requested_at,
+                0,
+                "NOT_CHECKED",
+                "NOT_CHECKED",
+                False,
+                "NOT_CONFIGURED",
+                "UNKNOWN",
+                "Provider is not configured on the server.",
+            )
         try:
-            quote = await asyncio.wait_for(provider.get_quote(symbol), timeout=settings.provider_timeout_seconds)
+            quote = await asyncio.wait_for(
+                provider.get_quote(symbol),
+                timeout=settings.provider_timeout_seconds,
+            )
             usable = quote.status != QuoteStatus.UNAVAILABLE and quote.price is not None
-            provenance = bool(quote.source and quote.provider_symbol and quote.provider_timestamp)
+            provenance = bool(
+                quote.source and quote.provider_symbol and quote.provider_timestamp
+            )
             if not usable or not provenance:
-                return HealthProbe(role, provider.name, "DEGRADED" if usable else "UNAVAILABLE", True, None, requested_at, int((time.perf_counter() - started) * 1000), "PASSED" if usable else "FAILED", "NOT_CHECKED", provenance, fallback_status, "AVAILABLE" if market_data.quote_cache.size() > 0 else "EMPTY", quote.error or "Quote validation or provenance check failed.")
-            candle = await asyncio.wait_for(provider.get_candles(symbol, Timeframe.HOUR_1, self.HEALTH_CANDLE_LIMIT), timeout=settings.provider_timeout_seconds)
+                return HealthProbe(
+                    role,
+                    provider.name,
+                    "DEGRADED" if usable else "UNAVAILABLE",
+                    True,
+                    None,
+                    requested_at,
+                    int((time.perf_counter() - started) * 1000),
+                    "PASSED" if usable else "FAILED",
+                    "NOT_CHECKED",
+                    provenance,
+                    fallback_status,
+                    "AVAILABLE" if market_data.quote_cache.size() > 0 else "EMPTY",
+                    quote.error or "Quote validation or provenance check failed.",
+                )
+            candle = await asyncio.wait_for(
+                provider.get_candles(
+                    symbol,
+                    Timeframe.HOUR_1,
+                    self.HEALTH_CANDLE_LIMIT,
+                ),
+                timeout=settings.provider_timeout_seconds,
+            )
             complete = bool(candle.completed_candles) and candle.completeness_status.value == "COMPLETE"
-            return HealthProbe(role, provider.name, "OPERATIONAL" if complete else "DEGRADED", True, datetime.now(timezone.utc) if complete else None, requested_at, int((time.perf_counter() - started) * 1000), "PASSED", "PASSED" if complete else "FAILED", provenance, fallback_status, "AVAILABLE" if market_data.quote_cache.size() or market_data.candle_cache.size() else "EMPTY", "Quote and completed-candle response validated." if complete else "Quote passed, but candle completeness validation failed.")
+            return HealthProbe(
+                role,
+                provider.name,
+                "OPERATIONAL" if complete else "DEGRADED",
+                True,
+                datetime.now(timezone.utc) if complete else None,
+                requested_at,
+                int((time.perf_counter() - started) * 1000),
+                "PASSED",
+                "PASSED" if complete else "FAILED",
+                provenance,
+                fallback_status,
+                "AVAILABLE" if market_data.quote_cache.size() or market_data.candle_cache.size() else "EMPTY",
+                "Quote and completed-candle response validated."
+                if complete
+                else "Quote passed, but candle completeness validation failed.",
+            )
         except Exception as exc:
-            return HealthProbe(role, provider.name, "UNAVAILABLE", True, None, requested_at, int((time.perf_counter() - started) * 1000), "FAILED", "FAILED", False, fallback_status, "AVAILABLE" if market_data.quote_cache.size() or market_data.candle_cache.size() else "EMPTY", str(exc))
+            return HealthProbe(
+                role,
+                provider.name,
+                "UNAVAILABLE",
+                True,
+                None,
+                requested_at,
+                int((time.perf_counter() - started) * 1000),
+                "FAILED",
+                "FAILED",
+                False,
+                fallback_status,
+                "AVAILABLE" if market_data.quote_cache.size() or market_data.candle_cache.size() else "EMPTY",
+                str(exc),
+            )
 
     async def snapshot(self, *, force_refresh: bool = False) -> dict[str, Any]:
         async with self._lock:
@@ -80,24 +156,26 @@ class MarketDataHealthService:
             self._cached_at = time.monotonic()
             return self._serialize(self._cached, cached=False)
 
-    @staticmethod
-    def _serialize(probes: dict[str, HealthProbe], *, cached: bool) -> dict[str, Any]:
+    def _serialize(self, probes: dict[str, HealthProbe], *, cached: bool) -> dict[str, Any]:
         checked_at = datetime.now(timezone.utc)
-        provider_items = [{
-            "role": probe.role,
-            "provider": probe.provider,
-            "status": probe.status,
-            "configured": probe.configured,
-            "last_successful_request": probe.last_successful_request,
-            "last_request": probe.last_request,
-            "latency_ms": probe.latency_ms,
-            "validation_status": probe.validation_status,
-            "candle_completeness": probe.candle_completeness,
-            "provenance_available": probe.provenance_available,
-            "fallback_status": probe.fallback_status,
-            "cache_status": probe.cache_status,
-            "message": probe.message,
-        } for probe in probes.values()]
+        provider_items = [
+            {
+                "role": probe.role,
+                "provider": probe.provider,
+                "status": probe.status,
+                "configured": probe.configured,
+                "last_successful_request": probe.last_successful_request,
+                "last_request": probe.last_request,
+                "latency_ms": probe.latency_ms,
+                "validation_status": probe.validation_status,
+                "candle_completeness": probe.candle_completeness,
+                "provenance_available": probe.provenance_available,
+                "fallback_status": probe.fallback_status,
+                "cache_status": probe.cache_status,
+                "message": probe.message,
+            }
+            for probe in probes.values()
+        ]
         quote_count = market_data.quote_cache.size()
         candle_count = market_data.candle_cache.size()
         return {
@@ -105,8 +183,15 @@ class MarketDataHealthService:
             "cached_result": cached,
             "cache_ttl_seconds": self.CACHE_SECONDS,
             "providers": provider_items,
-            "cache": {"quote_entries": quote_count, "candle_entries": candle_count, "status": "AVAILABLE" if quote_count or candle_count else "EMPTY"},
-            "security": {"credentials_exposed": False, "message": "Provider credentials and server configuration are never included in health responses."},
+            "cache": {
+                "quote_entries": quote_count,
+                "candle_entries": candle_count,
+                "status": "AVAILABLE" if quote_count or candle_count else "EMPTY",
+            },
+            "security": {
+                "credentials_exposed": False,
+                "message": "Provider credentials and server configuration are never included in health responses.",
+            },
         }
 
 
