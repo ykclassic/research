@@ -37,7 +37,12 @@ export interface PortfolioPositionSnapshot { position: PortfolioPosition; curren
 export interface PortfolioSummary { calculated_at: string; position_count: number; invested_value: number; gross_exposure: number; net_exposure: number; unrealized_pnl: number; unrealized_pnl_percent: number | null; max_position_concentration_percent: number; portfolio_drawdown_percent: number; risk_flags: string[]; positions: PortfolioPositionSnapshot[]; }
 export interface PortfolioScenario { price_change_percent: number; projected_unrealized_pnl: number; projected_pnl_delta: number; projected_gross_exposure: number; affected_positions: number; }
 export class ApiError extends Error { readonly status: number; constructor(message: string, status: number) { super(message); this.name = "ApiError"; this.status = status; } }
-const API_BASE = (import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8000").replace(/\/$/, "");
+const PRODUCTION_API_BASE = "https://research-76vr.onrender.com";
+const configuredApiBase = (import.meta.env.VITE_API_BASE_URL ?? "").trim();
+const hostname = typeof window !== "undefined" ? window.location.hostname : "";
+const isLocalHost = hostname === "localhost" || hostname === "127.0.0.1" || hostname === "[::1]";
+const configuredApiIsLocal = /^(https?:\/\/)?(localhost|127\.0\.0\.1)(:\d+)?\/?$/i.test(configuredApiBase);
+const API_BASE = (configuredApiBase && (!isLocalHost && !configuredApiIsLocal) ? configuredApiBase : isLocalHost ? (configuredApiBase || "http://localhost:8000") : PRODUCTION_API_BASE).replace(/\/$/, "");
 const REQUEST_TIMEOUT_MS = 12_000;
 const AI_REQUEST_TIMEOUT_MS = 60_000;
 const CSRF_STORAGE_KEY = "mr_csrf_token";
