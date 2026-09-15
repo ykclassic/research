@@ -5,7 +5,7 @@ from datetime import datetime, timedelta, timezone
 
 from app.models import Quote, QuoteStatus
 from app.models.market import Candle, CompletenessStatus, FreshnessStatus, OHLCVDataset, Timeframe
-from app.services.market_data_health import MarketDataHealthService
+from app.services.market_data_health import HealthProbe, MarketDataHealthService
 
 
 class FakeProvider:
@@ -82,6 +82,33 @@ def test_health_probe_does_not_mark_failed_provider_operational() -> None:
     assert result.status == "UNAVAILABLE"
     assert result.validation_status == "FAILED"
     assert result.last_successful_request is None
+
+
+def test_market_health_serialization_uses_service_cache_configuration() -> None:
+    service = MarketDataHealthService()
+    checked_at = datetime.now(timezone.utc)
+    probe = HealthProbe(
+        role="primary",
+        provider="fake_provider",
+        status="OPERATIONAL",
+        configured=True,
+        last_successful_request=checked_at,
+        last_request=checked_at,
+        latency_ms=25,
+        validation_status="PASSED",
+        candle_completeness="PASSED",
+        provenance_available=True,
+        fallback_status="NOT_USED",
+        cache_status="AVAILABLE",
+        message="ok",
+    )
+
+    result = service._serialize({"primary": probe}, cached=False)
+
+    assert result["cache_ttl_seconds"] == service.CACHE_SECONDS
+    assert result["cached_result"] is False
+    assert result["providers"][0]["provider"] == "fake_provider"
+    assert result["security"]["credentials_exposed"] is False
 
 
 def test_market_data_preference_defaults_are_strict() -> None:
