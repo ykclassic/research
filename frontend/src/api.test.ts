@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { createAIResearchReport, getTechnicalAnalysis } from "./api";
+import { createAIResearchReport, getSignal, getTechnicalAnalysis } from "./api";
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -91,6 +91,42 @@ describe("createAIResearchReport", () => {
       limit: 250,
       question: "How's BTC doing today",
     });
+    expect(result).toEqual(response);
+  });
+});
+
+
+describe("getSignal", () => {
+  it("uses the selected-pair endpoint rather than the legacy collection scanner", async () => {
+    const response = {
+      symbol: "BTC/USDT",
+      signal: "BUY",
+      score: 0.3,
+      confidence: 0.65,
+      confluence: 0.65,
+      risk_reward: 2,
+      price: 100,
+      calculated_at: "2026-09-18T07:00:00Z",
+      latest_candle_timestamp: "2026-09-18T06:45:00Z",
+      source: "kraken_public",
+      components: [],
+      evidence: ["test evidence"],
+      research_eligible: true,
+      qualification_reasons: [],
+    };
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(JSON.stringify(response), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
+
+    const result = await getSignal("BTC/USDT", 250);
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const url = String(fetchMock.mock.calls[0][0]);
+    expect(url).toContain("/api/signals/BTC%2FUSDT?limit=250");
+    expect(url).not.toContain("/api/signals?limit=250");
     expect(result).toEqual(response);
   });
 });
