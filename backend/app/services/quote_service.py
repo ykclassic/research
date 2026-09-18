@@ -199,3 +199,5 @@ class QuoteService:
             )
             for symbol in symbols
         ]
+
+# CI trigger: revalidate the PR after the runner-side workflow failure.
