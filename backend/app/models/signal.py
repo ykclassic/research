@@ -48,6 +48,8 @@ class CryptoSignal(BaseModel):
     evidence: tuple[str, ...] = ()
     research_eligible: bool = True
     qualification_reasons: tuple[str, ...] = ()
+    minimum_confidence: float = Field(ge=0, le=1)
+    minimum_risk_reward: float = Field(ge=0)
     qualification_status: SignalQualificationStatus = SignalQualificationStatus.QUALIFIED
 
 
