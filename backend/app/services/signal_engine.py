@@ -224,7 +224,7 @@ def _candidate_trade_levels(
     if direction_is_buy:
         if structural_target <= entry_price:
             reasons.append("Structural resistance is not above the BUY entry.")
-        if structural_target < atr_minimum_target:
+        elif structural_target < atr_minimum_target:
             reasons.append(
                 f"Structural target {structural_target:.8f} conflicts with the "
                 f"ATR-derived minimum target {atr_minimum_target:.8f}."
@@ -232,13 +232,16 @@ def _candidate_trade_levels(
     else:
         if structural_target >= entry_price:
             reasons.append("Structural support is not below the SELL entry.")
-        if structural_target > atr_minimum_target:
+        elif structural_target > atr_minimum_target:
             reasons.append(
                 f"Structural target {structural_target:.8f} conflicts with the "
                 f"ATR-derived minimum target {atr_minimum_target:.8f}."
             )
 
-    if reasons:
+    if (
+        (direction_is_buy and structural_target <= entry_price)
+        or (not direction_is_buy and structural_target >= entry_price)
+    ):
         return CandidateTradeLevels(
             entry_price=entry_price, atr=atr_value, stop_distance=stop_distance,
             stop_loss=stop_loss, structural_target=structural_target,
