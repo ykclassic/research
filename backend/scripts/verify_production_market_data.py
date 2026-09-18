@@ -78,10 +78,23 @@ def request(
     params: dict[str, Any] | None = None,
     headers: dict[str, str] | None = None,
 ) -> httpx.Response:
-    """Perform an idempotent GET with bounded retries for transport timeouts only."""
+    """Perform an idempotent GET with bounded retries for transient transport/server failures."""
     for attempt in range(1, MAX_REQUEST_ATTEMPTS + 1):
         try:
-            return client.get(url, params=params, headers=headers)
+            response = client.get(url, params=params, headers=headers)
+            if response.status_code not in {502, 503, 504}:
+                return response
+            if attempt >= MAX_REQUEST_ATTEMPTS:
+                return response
+            delay = min(
+                RETRY_BACKOFF_BASE_SECONDS * (2 ** (attempt - 1)),
+                RETRY_BACKOFF_CAP_SECONDS,
+            )
+            print(
+                f"[RETRY] {stage}: HTTP {response.status_code} on attempt "
+                f"{attempt}/{MAX_REQUEST_ATTEMPTS}; retrying in {delay:.1f}s"
+            )
+            time.sleep(delay)
         except (httpx.ConnectTimeout, httpx.ReadTimeout) as exc:
             if attempt >= MAX_REQUEST_ATTEMPTS:
                 raise VerificationTransportError(stage, attempt, exc) from exc
