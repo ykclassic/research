@@ -117,6 +117,8 @@ describe("getSignal", () => {
       evidence: ["test evidence"],
       research_eligible: true,
       qualification_reasons: [],
+      minimum_confidence: 0.82,
+      minimum_risk_reward: 1.5,
       qualification_status: "QUALIFIED",
     };
     const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(
