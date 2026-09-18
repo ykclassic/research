@@ -33,6 +33,8 @@ def _fake_signal(symbol: str) -> CryptoSignal:
         evidence=("test",),
         research_eligible=True,
         qualification_reasons=(),
+        minimum_confidence=0.82,
+        minimum_risk_reward=1.5,
     )
 
 
