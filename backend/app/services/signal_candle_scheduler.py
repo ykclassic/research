@@ -22,7 +22,10 @@ class _CachedDataset:
 
 
 class SignalCandleScheduler:
-    """Coalesced, timeframe-aware candle acquisition for one selected signal."""
+    """Acquire one selected signal's timeframes without provider stampedes."""
+
+    PRIMARY_TIMEOUT_SECONDS = 4.5
+    FALLBACK_TIMEOUT_SECONDS = 6.0
 
     def __init__(
         self,
@@ -44,7 +47,10 @@ class SignalCandleScheduler:
 
     @staticmethod
     def _cache_ttl(dataset: OHLCVDataset) -> float:
-        return max(30.0, float(dataset.timeframe.seconds))
+        # Kraken's own validated candle cache is 90 seconds. Keep the
+        # signal-level cache within that bound so provider freshness remains
+        # the authoritative short-lived cache horizon.
+        return min(90.0, max(30.0, float(dataset.timeframe.seconds)))
 
     async def _get_lock(self, key: str) -> asyncio.Lock:
         async with self._cache_lock:
@@ -68,7 +74,9 @@ class SignalCandleScheduler:
         current = require_current_completed_candles(dataset)
         latest = current.latest_completed_candle
         if latest is None:
-            raise ValueError(f"{current.symbol} {current.timeframe.value} has no completed candle.")
+            raise ValueError(
+                f"{current.symbol} {current.timeframe.value} has no completed candle."
+            )
         entry = _CachedDataset(
             dataset=current,
             completed_close=latest.timestamp,
@@ -90,21 +98,41 @@ class SignalCandleScheduler:
         if mapping.asset_class == "crypto":
             try:
                 dataset = await asyncio.wait_for(
-                    self.crypto_provider.get_candles(mapping.internal, timeframe, limit),
-                    timeout=12.0,
+                    self.crypto_provider.get_candles(
+                        mapping.internal, timeframe, limit
+                    ),
+                    timeout=self.PRIMARY_TIMEOUT_SECONDS,
                 )
+            except asyncio.TimeoutError as primary_exc:
+                try:
+                    dataset = await asyncio.wait_for(
+                        self.quote_service.orchestrator.get_candles(
+                            mapping.internal, timeframe, limit
+                        ),
+                        timeout=self.FALLBACK_TIMEOUT_SECONDS,
+                    )
+                except Exception as fallback_exc:
+                    raise RuntimeError(
+                        f"{mapping.internal} {timeframe.value}: primary crypto "
+                        f"provider timed out after {self.PRIMARY_TIMEOUT_SECONDS:.1f}s; "
+                        f"fallback failed ({type(fallback_exc).__name__}: "
+                        f"{fallback_exc or 'no diagnostic message'})"
+                    ) from fallback_exc
             except Exception as primary_exc:
                 try:
                     dataset = await asyncio.wait_for(
                         self.quote_service.orchestrator.get_candles(
                             mapping.internal, timeframe, limit
                         ),
-                        timeout=12.0,
+                        timeout=self.FALLBACK_TIMEOUT_SECONDS,
                     )
                 except Exception as fallback_exc:
                     raise RuntimeError(
-                        f"{mapping.internal} {timeframe.value}: primary crypto candle "
-                        f"provider failed ({primary_exc}); fallback failed ({fallback_exc})"
+                        f"{mapping.internal} {timeframe.value}: primary crypto "
+                        f"provider failed ({type(primary_exc).__name__}: "
+                        f"{primary_exc or 'no diagnostic message'}); fallback failed "
+                        f"({type(fallback_exc).__name__}: "
+                        f"{fallback_exc or 'no diagnostic message'})"
                     ) from fallback_exc
         else:
             try:
@@ -112,12 +140,12 @@ class SignalCandleScheduler:
                     self.quote_service.orchestrator.get_candles(
                         mapping.internal, timeframe, limit
                     ),
-                    timeout=12.0,
+                    timeout=self.FALLBACK_TIMEOUT_SECONDS,
                 )
             except asyncio.TimeoutError as exc:
                 raise RuntimeError(
                     f"{mapping.internal} {timeframe.value}: candle provider exceeded "
-                    "the 12s signal acquisition budget"
+                    f"the {self.FALLBACK_TIMEOUT_SECONDS:.1f}s signal acquisition budget"
                 ) from exc
 
         if policy is not None:
@@ -155,9 +183,14 @@ class SignalCandleScheduler:
         limit: int,
         policy: MarketDataPolicy | None = None,
     ) -> dict[Timeframe, OHLCVDataset]:
+        # Deliberately sequential. KrakenPublicProvider serializes requests to
+        # respect its rate limit; launching all timeframes concurrently causes
+        # later timeframes to consume the timeout while waiting on the lock.
         datasets: dict[Timeframe, OHLCVDataset] = {}
         for timeframe in timeframes:
-            datasets[timeframe] = await self.get_dataset(symbol, timeframe, limit, policy)
+            datasets[timeframe] = await self.get_dataset(
+                symbol, timeframe, limit, policy
+            )
         return datasets
 
     async def invalidate(
@@ -185,4 +218,7 @@ class SignalCandleScheduler:
 
     async def stats(self) -> dict[str, int]:
         async with self._cache_lock:
-            return {"entries": len(self._cache), "tracked_keys": len(self._locks)}
+            return {
+                "entries": len(self._cache),
+                "tracked_keys": len(self._locks),
+            }
