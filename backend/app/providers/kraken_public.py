@@ -60,7 +60,7 @@ class KrakenPublicProvider(MarketDataProvider):
 
     @property
     def supports_batch_quotes(self) -> bool:
-        return False
+        return True
 
     @staticmethod
     def _parse_pair_result(result: dict, pair: str) -> list[list]:
@@ -138,18 +138,37 @@ class KrakenPublicProvider(MarketDataProvider):
         except KeyError as exc:
             raise ValueError(f"Kraken public provider does not support {mapping.internal}.") from exc
 
-    async def get_quote(self, internal_symbol: str) -> Quote:
+    @staticmethod
+    def _find_ticker_row(result: dict, pair: str) -> dict | None:
+        if isinstance(result.get(pair), dict):
+            return result[pair]
+        upper_pair = pair.upper()
+        for key, value in result.items():
+            if key.upper() == upper_pair and isinstance(value, dict):
+                return value
+        # Kraken may return a canonical REST key such as XXBTZUSD for XBTUSD.
+        normalized = upper_pair.replace("XBT", "BTC", 1)
+        for key, value in result.items():
+            key_normalized = key.upper().replace("XBT", "BTC", 1).replace("Z", "", 1)
+            if key_normalized == normalized and isinstance(value, dict):
+                return value
+        return None
+
+    @classmethod
+    def _quote_from_row(
+        cls,
+        internal_symbol: str,
+        pair: str,
+        row: dict,
+        latency_ms: int,
+    ) -> Quote:
         mapping = normalize_symbol(internal_symbol)
-        pair = self._provider_pair(internal_symbol)
-        started = time.perf_counter()
-        payload = await self._request_json("Ticker", {"pair": pair}, timeout_seconds=8.0)
-        result = payload.get("result")
-        if not isinstance(result, dict):
-            raise ValueError("Kraken returned no ticker result.")
-        row = next((value for value in result.values() if isinstance(value, dict)), None)
-        if row is None:
-            raise ValueError("Kraken returned no ticker data.")
-        price = float(row["c"][0])
+        close = row.get("c")
+        if not isinstance(close, list) or not close:
+            raise ValueError(f"Kraken returned no last-trade price for {pair}.")
+        price = float(close[0])
+        if price <= 0:
+            raise ValueError(f"Kraken returned a non-positive price for {pair}.")
         observed_at = datetime.now(timezone.utc)
         return Quote(
             symbol=mapping.internal,
@@ -158,14 +177,40 @@ class KrakenPublicProvider(MarketDataProvider):
             timestamp=observed_at,
             provider_timestamp=observed_at,
             observed_at=observed_at,
-            source=self.name,
+            source=cls.name,
             status=QuoteStatus.LIVE,
-            latency_ms=int((time.perf_counter() - started) * 1000),
+            latency_ms=latency_ms,
             freshness_status=FreshnessStatus.FRESH,
             freshness_age_seconds=0.0,
             completeness_status=CompletenessStatus.COMPLETE,
-            provider_attempts=(self.name,),
+            provider_attempts=(cls.name,),
         )
+
+    async def get_quotes(self, internal_symbols: list[str]) -> list[Quote]:
+        if not internal_symbols:
+            return []
+        mappings = [normalize_symbol(symbol) for symbol in internal_symbols]
+        pairs = [self._provider_pair(mapping.internal) for mapping in mappings]
+        started = time.perf_counter()
+        payload = await self._request_json(
+            "Ticker",
+            {"pair": ",".join(pairs)},
+            timeout_seconds=8.0,
+        )
+        result = payload.get("result")
+        if not isinstance(result, dict):
+            raise ValueError("Kraken returned no ticker result.")
+        latency_ms = int((time.perf_counter() - started) * 1000)
+        quotes: list[Quote] = []
+        for mapping, pair in zip(mappings, pairs):
+            row = self._find_ticker_row(result, pair)
+            if row is None:
+                raise ValueError(f"Kraken returned no ticker data for {pair}.")
+            quotes.append(self._quote_from_row(mapping.internal, pair, row, latency_ms))
+        return quotes
+
+    async def get_quote(self, internal_symbol: str) -> Quote:
+        return (await self.get_quotes([internal_symbol]))[0]
 
     async def get_candles(
         self,
