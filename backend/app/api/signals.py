@@ -11,7 +11,7 @@ from app.models.signal import CryptoSignal, CryptoSignalList
 from app.preferences.models import default_preferences
 from app.preferences.service import preferences_service
 from app.providers.kraken_public import KrakenPublicProvider
-from app.services. quote_service import QuoteService
+from app.services.quote_service import QuoteService
 from app.services.settings_integration import market_coverage, market_data_policy
 from app.services.signal_candle_scheduler import SignalCandleScheduler
 from app.services.signal_engine import generate_crypto_signal
@@ -113,7 +113,10 @@ async def get_crypto_signals(
         detail = "No crypto signals currently meet your signal preferences."
         if failures:
             detail += " " + " | ".join(failures)
-        raise HTTPException(status_code=503, detail=detail)
+        raise HTTPException(
+            status_code=503,
+            detail=detail,
+        )
 
     return CryptoSignalList(
         calculated_at=datetime.now(timezone.utc),
