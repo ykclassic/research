@@ -43,6 +43,13 @@ app = FastAPI(
 )
 origins = [item.strip() for item in settings.cors_origins.split(",") if item.strip()]
 trusted_hosts = [item.strip() for item in settings.trusted_hosts.split(",") if item.strip()]
+
+# Vercel creates a new HTTPS origin for each production/preview deployment and
+# branch URL. Keep the explicit CORS allow-list for fixed origins, while also
+# allowing only this project's Vercel hostname family. This is required because
+# browser credentials cannot use a wildcard CORS origin.
+vercel_origin_regex = r"https://research(?:-[a-z0-9-]+)?(?:-tech-solut-hub)?\.vercel\.app"
+
 app.add_middleware(
     TrustedHostMiddleware,
     allowed_hosts=trusted_hosts or ["localhost", "127.0.0.1", "testserver"],
@@ -50,6 +57,7 @@ app.add_middleware(
 app.add_middleware(
     CORSMiddleware,
     allow_origins=origins or ["http://localhost:5173"],
+    allow_origin_regex=vercel_origin_regex,
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allow_headers=["Content-Type", "X-CSRF-Token"],
