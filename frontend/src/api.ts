@@ -43,7 +43,7 @@ const hostname = typeof window !== "undefined" ? window.location.hostname : "";
 const isLocalHost = hostname === "localhost" || hostname === "127.0.0.1" || hostname === "[::1]";
 const configuredApiIsLocal = /^(https?:\/\/)?(localhost|127\.0\.0\.1)(:\d+)?\/?$/i.test(configuredApiBase);
 const API_BASE = (configuredApiBase && (!isLocalHost && !configuredApiIsLocal) ? configuredApiBase : isLocalHost ? (configuredApiBase || "http://localhost:8000") : PRODUCTION_API_BASE).replace(/\/$/, "");
-const REQUEST_TIMEOUT_MS = 12_000;
+const REQUEST_TIMEOUT_MS = 60_000;
 const SIGNAL_REQUEST_TIMEOUT_MS = 20_000;
 const AI_REQUEST_TIMEOUT_MS = 60_000;
 const CSRF_STORAGE_KEY = "mr_csrf_token";
