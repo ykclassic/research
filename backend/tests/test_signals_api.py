@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import asyncio
 
@@ -118,7 +118,7 @@ def _dataset(symbol: str, timeframe: signals.Timeframe):
     now = datetime.now(timezone.utc)
     candles = tuple(
         Candle(
-            timestamp=now,
+            timestamp=now - timedelta(seconds=30 - index),
             open=100,
             high=101,
             low=99,
@@ -129,7 +129,7 @@ def _dataset(symbol: str, timeframe: signals.Timeframe):
             source="test",
             is_complete=True,
         )
-        for _ in range(30)
+        for index in range(30)
     )
     return OHLCVDataset(
         symbol=symbol,
