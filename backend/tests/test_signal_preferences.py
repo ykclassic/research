@@ -84,9 +84,10 @@ def test_candidate_levels_reject_very_tight_structural_resistance() -> None:
     )
     assert levels.stop_loss == 97.0
     assert levels.structural_target == 100.5
-    assert levels.take_profit is None
-    assert levels.risk_reward == 0.0
+    assert levels.take_profit == 100.5
+    assert levels.risk_reward == 0.5 / 3.0
     assert any("conflicts with the ATR-derived minimum target" in r for r in levels.reasons)
+    assert any("below the 1.50 minimum" in r for r in levels.reasons)
 
 
 def test_candidate_levels_reject_insufficient_rr() -> None:
@@ -94,8 +95,8 @@ def test_candidate_levels_reject_insufficient_rr() -> None:
         SignalDirection.BUY, 100.0, 2.0, [_candle(103.0, 98.0)], 1.5,
         stop_atr_multiplier=2.0,
     )
-    assert levels.take_profit is None
-    assert levels.risk_reward == 0.0
+    assert levels.take_profit == 103.0
+    assert levels.risk_reward == 3.0 / 4.0
     assert any("below the 1.50 minimum" in r for r in levels.reasons)
 
 
@@ -141,9 +142,10 @@ def test_candidate_levels_reject_conflicting_structural_and_atr_targets() -> Non
     )
     assert levels.structural_target == 99.0
     assert levels.atr_minimum_target == 95.5
-    assert levels.take_profit is None
-    assert levels.risk_reward == 0.0
+    assert levels.take_profit == 99.0
+    assert levels.risk_reward == 1.0 / 3.0
     assert any("conflicts with the ATR-derived minimum target" in r for r in levels.reasons)
+    assert any("below the 1.50 minimum" in r for r in levels.reasons)
 
 
 def test_signal_stop_multiplier_remains_aligned_with_risk_policy() -> None:
