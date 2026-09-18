@@ -14,6 +14,11 @@ class SignalDirection(str, Enum):
     STRONG_SELL = "STRONG_SELL"
 
 
+class SignalQualificationStatus(str, Enum):
+    QUALIFIED = "QUALIFIED"
+    REJECTED = "REJECTED"
+
+
 class SignalComponent(BaseModel):
     model_config = ConfigDict(frozen=True)
     timeframe: str
@@ -32,6 +37,10 @@ class CryptoSignal(BaseModel):
     confluence: float = Field(ge=0, le=1)
     risk_reward: float = Field(ge=0)
     price: float = Field(gt=0)
+    entry_price: float = Field(gt=0)
+    stop_loss: float | None = Field(default=None, gt=0)
+    take_profit: float | None = Field(default=None, gt=0)
+    atr: float | None = Field(default=None, gt=0)
     calculated_at: datetime
     latest_candle_timestamp: datetime
     source: str
@@ -39,6 +48,7 @@ class CryptoSignal(BaseModel):
     evidence: tuple[str, ...] = ()
     research_eligible: bool = True
     qualification_reasons: tuple[str, ...] = ()
+    qualification_status: SignalQualificationStatus = SignalQualificationStatus.QUALIFIED
 
 
 class CryptoSignalList(BaseModel):
