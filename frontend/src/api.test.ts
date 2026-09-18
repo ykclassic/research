@@ -164,4 +164,25 @@ describe("API error formatting", () => {
       }),
     );
   });
+  it("never renders an arbitrary structured error as [object Object]", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(JSON.stringify({
+        detail: {
+          code: "SIGNAL_UNAVAILABLE",
+          context: { symbol: "BTC/USDT", provider: "market-data" },
+        },
+      }), {
+        status: 503,
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
+
+    await expect(getSignal("BTC/USDT", 250)).rejects.toEqual(
+      expect.objectContaining<ApiError>({
+        status: 503,
+        message: "code: SIGNAL_UNAVAILABLE context: symbol: BTC/USDT provider: market-data",
+      }),
+    );
+  });
+
 });
