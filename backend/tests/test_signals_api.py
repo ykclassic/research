@@ -22,6 +22,10 @@ def _fake_signal(symbol: str) -> CryptoSignal:
         confluence=0.65,
         risk_reward=2.0,
         price=100.0,
+        entry_price=100.0,
+        stop_loss=97.0,
+        take_profit=106.0,
+        atr=2.0,
         calculated_at=now,
         latest_candle_timestamp=now,
         source="test",
@@ -29,6 +33,8 @@ def _fake_signal(symbol: str) -> CryptoSignal:
         evidence=("test",),
         research_eligible=True,
         qualification_reasons=(),
+        minimum_confidence=0.82,
+        minimum_risk_reward=1.5,
     )
 
 
@@ -153,3 +159,32 @@ def _dataset(symbol: str, timeframe: signals.Timeframe):
         provider_timestamp=now,
         candles=candles,
     )
+
+
+@pytest.mark.asyncio
+async def test_selected_signal_returns_calculated_rejection_for_ui(monkeypatch):
+    async def fake_generate(
+        symbol: str,
+        limit: int,
+        signal_preferences: dict[str, object] | None = None,
+        policy=None,
+    ) -> CryptoSignal:
+        signal = _fake_signal(symbol)
+        return signal.model_copy(
+            update={
+                "confidence": 0.812,
+                "risk_reward": 0.04,
+                "research_eligible": False,
+                "qualification_status": "REJECTED",
+                "qualification_reasons": (
+                    "Confidence 81.2% is below the 82.0% minimum.",
+                    "Risk/reward 0.04 is below the 1.50 minimum.",
+                ),
+            }
+        )
+
+    monkeypatch.setattr(signals, "_generate", fake_generate)
+    result = await signals.get_crypto_signal("BTC/USDT", limit=30, user=None)
+    assert result.qualification_status == "REJECTED"
+    assert result.research_eligible is False
+    assert result.risk_reward == 0.04

@@ -106,6 +106,10 @@ describe("getSignal", () => {
       confluence: 0.65,
       risk_reward: 2,
       price: 100,
+      entry_price: 100,
+      stop_loss: 97,
+      take_profit: 106,
+      atr: 2,
       calculated_at: "2026-09-18T07:00:00Z",
       latest_candle_timestamp: "2026-09-18T06:45:00Z",
       source: "kraken_public",
@@ -113,6 +117,9 @@ describe("getSignal", () => {
       evidence: ["test evidence"],
       research_eligible: true,
       qualification_reasons: [],
+      minimum_confidence: 0.82,
+      minimum_risk_reward: 1.5,
+      qualification_status: "QUALIFIED",
     };
     const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(
       new Response(JSON.stringify(response), {
