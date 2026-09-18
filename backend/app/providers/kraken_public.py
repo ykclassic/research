@@ -28,6 +28,8 @@ class KrakenPublicProvider(MarketDataProvider):
     MAX_RETRIES = 2
     CANDLE_CACHE_SECONDS = 90.0
     _candle_cache: dict[tuple[str, str, int, str | None, str | None], tuple[float, OHLCVDataset]] = {}
+    CANDLE_CACHE_SECONDS = 90.0
+    _candle_cache: dict[tuple[str, str, int, str | None, str | None], tuple[float, OHLCVDataset]] = {}
 
     _intervals = {
         Timeframe.MINUTE_15: 15,
