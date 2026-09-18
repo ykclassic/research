@@ -118,8 +118,8 @@ export default function SignalPage({ user, onLogout, setPage }: { user: User; on
   const directionalCount = selectedSignal && selectedSignal.signal !== "NEUTRAL" ? 1 : 0;
   const selectedClass = useMemo(() => assetClass(universe, selected), [universe, selected]);
   const selectedStatus = selectedSignal ? statusLabel(selectedSignal) : null;
-  const minimumConfidence = 0.82;
-  const minimumRiskReward = 1.5;
+  const minimumConfidence = selectedSignal?.minimum_confidence ?? 0.82;
+  const minimumRiskReward = selectedSignal?.minimum_risk_reward ?? 1.5;
 
   return <div className="app">
     <header className="topbar">
