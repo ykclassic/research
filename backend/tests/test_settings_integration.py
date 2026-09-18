@@ -6,6 +6,7 @@ import pytest
 from app.services.settings_integration import (
     frequency_allows,
     market_data_policy,
+    production_verification_market_data_policy,
     validate_dataset_policy,
     validate_quote_policy,
 )
@@ -25,6 +26,14 @@ def test_market_data_policy_uses_saved_preferences():
     assert policy.reject_stale_data is True
     assert policy.require_completed_candles is True
     assert policy.allow_cached_data_fallback is False
+
+
+def test_production_verification_policy_matches_workflow_freshness_contract():
+    policy = production_verification_market_data_policy()
+    assert policy.maximum_data_age_seconds == 180
+    assert policy.reject_stale_data is True
+    assert policy.require_completed_candles is True
+    assert policy.allow_cached_data_fallback is True
 
 
 def test_frequency_off_blocks_alert_delivery():
