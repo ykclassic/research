@@ -153,6 +153,13 @@ describe("API error formatting", () => {
       expect.objectContaining<ApiError>({
         name: "ApiError",
         status: 404,
+        detail: {
+          message: "Signal does not meet the configured preferences.",
+          reasons: [
+            "Confidence 80.0% is below the 82.0% minimum.",
+            "Risk/reward 1.10 is below the 1.50 minimum.",
+          ],
+        },
         message: "Signal does not meet the configured preferences. Confidence 80.0% is below the 82.0% minimum. Risk/reward 1.10 is below the 1.50 minimum.",
       }),
     );
