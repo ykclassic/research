@@ -25,7 +25,7 @@ const isLocalHost = hostname === "localhost" || hostname === "127.0.0.1" || host
 const configuredApiIsLocal = /^(https?:\/\/)?(localhost|127\.0\.0\.1)(:\d+)?\/?$/i.test(configuredApiBase);
 const API_BASE = (configuredApiBase && (!isLocalHost && !configuredApiIsLocal) ? configuredApiBase : isLocalHost ? (configuredApiBase || "http://localhost:8000") : PRODUCTION_API_BASE).replace(/\/$/, "");
 const CSRF_STORAGE_KEY = "mr_csrf_token";
-const REQUEST_TIMEOUT_MS = 12_000;
+const REQUEST_TIMEOUT_MS = 60_000;
 function getCookie(name: string): string | null { const encodedName = `${encodeURIComponent(name)}=`; const cookie = document.cookie.split(";").map(item => item.trim()).find(item => item.startsWith(encodedName)); return cookie ? decodeURIComponent(cookie.slice(encodedName.length)) : null; }
 function getStoredCsrf(): string | null { try { return window.sessionStorage.getItem(CSRF_STORAGE_KEY); } catch { return null; } }
 function storeCsrf(token: string | null): void { try { if (token) window.sessionStorage.setItem(CSRF_STORAGE_KEY, token); else window.sessionStorage.removeItem(CSRF_STORAGE_KEY); } catch { /* storage may be unavailable */ } }
