@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import datetime, timezone
+from math import isfinite
 from typing import Any
 
 from app.models.market import OHLCVDataset, Timeframe
 from app.models.mtf import MTFBias
+from app.models.risk import RiskPolicy
 from app.models.signal import CryptoSignal, SignalComponent, SignalDirection
 from app.services.market_structure import analyze_market_structure
 from app.services.mtf_analysis import analyze_multi_timeframe
@@ -16,6 +19,22 @@ TIMEFRAME_WEIGHTS = {
     Timeframe.HOUR_1: 0.20,
     Timeframe.MINUTE_15: 0.15,
 }
+
+SIGNAL_LEVEL_LOOKBACK = 50
+SIGNAL_STOP_ATR_MULTIPLIER = RiskPolicy().stop_atr_multiplier
+
+
+@dataclass(frozen=True)
+class CandidateTradeLevels:
+    entry_price: float
+    atr: float | None
+    stop_distance: float | None
+    stop_loss: float | None
+    structural_target: float | None
+    atr_minimum_target: float | None
+    take_profit: float | None
+    risk_reward: float
+    reasons: tuple[str, ...] = ()
 
 
 def _sign(value: float | None, threshold: float = 0.0) -> float:
@@ -138,23 +157,106 @@ def _signal_for_score(score: float) -> SignalDirection:
 
 
 def _structural_levels(candles: list[Any], price: float) -> tuple[float | None, float | None]:
-    window = candles[-50:]
+    window = candles[-SIGNAL_LEVEL_LOOKBACK:]
     supports = [float(candle.low) for candle in window if candle.low < price]
     resistances = [float(candle.high) for candle in window if candle.high > price]
     return (max(supports) if supports else None, min(resistances) if resistances else None)
 
 
-def _risk_reward(signal: SignalDirection, price: float, candles: list[Any]) -> float:
+def _candidate_trade_levels(
+    signal: SignalDirection,
+    entry_price: float,
+    atr: float | None,
+    candles: list[Any],
+    minimum_risk_reward: float,
+    stop_atr_multiplier: float = SIGNAL_STOP_ATR_MULTIPLIER,
+) -> CandidateTradeLevels:
     if signal == SignalDirection.NEUTRAL:
-        return 0.0
-    support, resistance = _structural_levels(candles, price)
-    if signal in {SignalDirection.BUY, SignalDirection.STRONG_BUY}:
-        if support is None or resistance is None or price <= support:
-            return 0.0
-        return max(0.0, (resistance - price) / (price - support))
-    if support is None or resistance is None or price >= resistance:
-        return 0.0
-    return max(0.0, (price - support) / (resistance - price))
+        return CandidateTradeLevels(
+            entry_price=entry_price, atr=atr, stop_distance=None, stop_loss=None,
+            structural_target=None, atr_minimum_target=None, take_profit=None,
+            risk_reward=0.0,
+            reasons=("Directional bias is neutral; no trade levels are generated.",),
+        )
+
+    if not isfinite(entry_price) or entry_price <= 0 or atr is None or not isfinite(float(atr)) or float(atr) <= 0:
+        return CandidateTradeLevels(
+            entry_price=entry_price, atr=atr, stop_distance=None, stop_loss=None,
+            structural_target=None, atr_minimum_target=None, take_profit=None,
+            risk_reward=0.0,
+            reasons=("A positive finite ATR14 is required for candidate trade levels.",),
+        )
+
+    atr_value = float(atr)
+    stop_distance = atr_value * stop_atr_multiplier
+    if stop_distance <= 0 or not isfinite(stop_distance):
+        return CandidateTradeLevels(
+            entry_price=entry_price, atr=atr_value, stop_distance=None, stop_loss=None,
+            structural_target=None, atr_minimum_target=None, take_profit=None,
+            risk_reward=0.0,
+            reasons=("ATR-based stop distance is invalid.",),
+        )
+
+    support, resistance = _structural_levels(candles, entry_price)
+    direction_is_buy = signal in {SignalDirection.BUY, SignalDirection.STRONG_BUY}
+    structural_target = resistance if direction_is_buy else support
+    stop_loss = entry_price - stop_distance if direction_is_buy else entry_price + stop_distance
+    atr_minimum_target = (
+        entry_price + stop_distance * minimum_risk_reward
+        if direction_is_buy
+        else entry_price - stop_distance * minimum_risk_reward
+    )
+    reasons: list[str] = []
+
+    if stop_loss <= 0:
+        reasons.append("ATR-based candidate stop is non-positive.")
+
+    if structural_target is None:
+        side = "resistance" if direction_is_buy else "support"
+        reasons.append(f"No structural {side} level exists beyond the entry.")
+        return CandidateTradeLevels(
+            entry_price=entry_price, atr=atr_value, stop_distance=stop_distance,
+            stop_loss=stop_loss, structural_target=None,
+            atr_minimum_target=atr_minimum_target, take_profit=None,
+            risk_reward=0.0, reasons=tuple(reasons),
+        )
+
+    if direction_is_buy:
+        if structural_target <= entry_price:
+            reasons.append("Structural resistance is not above the BUY entry.")
+        if structural_target < atr_minimum_target:
+            reasons.append(
+                f"Structural target {structural_target:.8f} conflicts with the "
+                f"ATR-derived minimum target {atr_minimum_target:.8f}."
+            )
+    else:
+        if structural_target >= entry_price:
+            reasons.append("Structural support is not below the SELL entry.")
+        if structural_target > atr_minimum_target:
+            reasons.append(
+                f"Structural target {structural_target:.8f} conflicts with the "
+                f"ATR-derived minimum target {atr_minimum_target:.8f}."
+            )
+
+    if reasons:
+        return CandidateTradeLevels(
+            entry_price=entry_price, atr=atr_value, stop_distance=stop_distance,
+            stop_loss=stop_loss, structural_target=structural_target,
+            atr_minimum_target=atr_minimum_target, take_profit=None,
+            risk_reward=0.0, reasons=tuple(reasons),
+        )
+
+    take_profit = structural_target
+    risk_reward = abs(take_profit - entry_price) / stop_distance
+    if risk_reward < minimum_risk_reward:
+        reasons.append(f"Risk/reward {risk_reward:.2f} is below the {minimum_risk_reward:.2f} minimum.")
+
+    return CandidateTradeLevels(
+        entry_price=entry_price, atr=atr_value, stop_distance=stop_distance,
+        stop_loss=stop_loss, structural_target=structural_target,
+        atr_minimum_target=atr_minimum_target, take_profit=take_profit,
+        risk_reward=max(0.0, risk_reward), reasons=tuple(reasons),
+    )
 
 
 def _preferred_direction(signal: SignalDirection) -> str:
@@ -165,7 +267,15 @@ def _preferred_direction(signal: SignalDirection) -> str:
     return "NEUTRAL"
 
 
-def _qualify(signal: SignalDirection, confidence: float, risk_reward: float, mtf_bias: MTFBias, mtf_alignment: int, structure_score: float, preferences: dict[str, Any]) -> tuple[bool, tuple[str, ...]]:
+def _qualify(
+    signal: SignalDirection,
+    confidence: float,
+    risk_reward: float,
+    mtf_bias: MTFBias,
+    mtf_alignment: int,
+    structure_score: float,
+    preferences: dict[str, Any],
+) -> tuple[bool, tuple[str, ...]]:
     minimum_confidence = float(preferences.get("minimum_confidence", 0.0))
     minimum_rr = float(preferences.get("minimum_risk_reward", 0.0))
     preferred = set(preferences.get("preferred_signal_types") or ["BUY", "SELL", "NEUTRAL"])
@@ -188,7 +298,10 @@ def _qualify(signal: SignalDirection, confidence: float, risk_reward: float, mtf
     return not reasons, tuple(reasons)
 
 
-def generate_crypto_signal(datasets: dict[Timeframe, OHLCVDataset], signal_preferences: dict[str, Any] | None = None) -> CryptoSignal:
+def generate_crypto_signal(
+    datasets: dict[Timeframe, OHLCVDataset],
+    signal_preferences: dict[str, Any] | None = None,
+) -> CryptoSignal:
     preferences = signal_preferences or {
         "minimum_confidence": 0.0,
         "preferred_signal_types": ["BUY", "SELL", "NEUTRAL"],
@@ -206,6 +319,7 @@ def generate_crypto_signal(datasets: dict[Timeframe, OHLCVDataset], signal_prefe
     evidence: list[str] = []
     structures = {}
     smc_scores: list[float] = []
+
     for timeframe in required:
         dataset = datasets[timeframe]
         candles = list(dataset.completed_candles)
@@ -219,7 +333,15 @@ def generate_crypto_signal(datasets: dict[Timeframe, OHLCVDataset], signal_prefe
         smc_score, smc_evidence = _smc_score(structure.events)
         smc_scores.append(smc_score)
         combined = max(-1.0, min(1.0, 0.60 * indicator_score + 0.40 * smc_score))
-        components.append(SignalComponent(timeframe=timeframe.value, indicator_score=indicator_score, smc_score=smc_score, combined_score=combined, evidence=indicator_evidence + smc_evidence))
+        components.append(
+            SignalComponent(
+                timeframe=timeframe.value,
+                indicator_score=indicator_score,
+                smc_score=smc_score,
+                combined_score=combined,
+                evidence=indicator_evidence + smc_evidence,
+            )
+        )
         weighted_score += TIMEFRAME_WEIGHTS[timeframe] * combined
         evidence.extend(f"{timeframe.value}: {item}" for item in (indicator_evidence + smc_evidence))
 
@@ -236,23 +358,57 @@ def generate_crypto_signal(datasets: dict[Timeframe, OHLCVDataset], signal_prefe
     weighted_score = max(-1.0, min(1.0, weighted_score))
     signal = _signal_for_score(weighted_score)
     confidence = min(1.0, 0.50 + 0.50 * abs(weighted_score))
-    price = datasets[Timeframe.MINUTE_15].completed_candles[-1].close
-    risk_reward = _risk_reward(signal, price, list(datasets[Timeframe.MINUTE_15].completed_candles))
+    entry_price = datasets[Timeframe.MINUTE_15].completed_candles[-1].close
+    m15_indicators = calculate_indicators(list(datasets[Timeframe.MINUTE_15].completed_candles))
+    atr = m15_indicators.get("atr14")
+    minimum_rr = float(preferences.get("minimum_risk_reward", 0.0))
+    levels = _candidate_trade_levels(
+        signal,
+        entry_price,
+        float(atr) if isinstance(atr, (int, float)) else None,
+        list(datasets[Timeframe.MINUTE_15].completed_candles),
+        minimum_rr,
+    )
     structure_score = sum(smc_scores) / len(smc_scores) if smc_scores else 0.0
-    qualified, qualification_reasons = _qualify(signal, confidence, risk_reward, mtf.research.bias, mtf.research.alignment_count, structure_score, preferences)
+
+    evidence.append(f"Directional bias: {_preferred_direction(signal)}.")
+    if levels.stop_loss is not None:
+        evidence.append(f"ATR candidate stop: {levels.stop_loss:.8f} ({SIGNAL_STOP_ATR_MULTIPLIER:.2f}x ATR14).")
+    if levels.structural_target is not None:
+        evidence.append(f"Structural target: {levels.structural_target:.8f}.")
+    if levels.atr_minimum_target is not None:
+        evidence.append(f"ATR-derived minimum target for {minimum_rr:.2f}:1 RR: {levels.atr_minimum_target:.8f}.")
+    if levels.take_profit is not None:
+        evidence.append(
+            f"Candidate levels: entry {levels.entry_price:.8f}, stop {levels.stop_loss:.8f}, "
+            f"target {levels.take_profit:.8f}, RR {levels.risk_reward:.2f}:1."
+        )
+    evidence.extend(levels.reasons)
+
+    qualified, qualification_reasons = _qualify(
+        signal, confidence, levels.risk_reward, mtf.research.bias,
+        mtf.research.alignment_count, structure_score, preferences,
+    )
+    all_reasons = tuple(dict.fromkeys((*levels.reasons, *qualification_reasons)))
+
     return CryptoSignal(
         symbol=datasets[Timeframe.DAY_1].symbol,
         signal=signal,
         score=weighted_score,
         confidence=confidence,
         confluence=confidence,
-        risk_reward=risk_reward,
-        price=price,
+        risk_reward=levels.risk_reward,
+        price=entry_price,
+        entry_price=levels.entry_price,
+        stop_loss=levels.stop_loss,
+        take_profit=levels.take_profit,
+        atr=levels.atr,
         calculated_at=datetime.now(timezone.utc),
         latest_candle_timestamp=datasets[Timeframe.MINUTE_15].completed_candles[-1].timestamp,
         source=datasets[Timeframe.MINUTE_15].source,
         components=tuple(components),
-        evidence=tuple(evidence[:12]),
+        evidence=tuple(evidence[:20]),
         research_eligible=qualified,
-        qualification_reasons=qualification_reasons,
+        qualification_reasons=all_reasons,
+        qualification_status="QUALIFIED" if qualified else "REJECTED",
     )
