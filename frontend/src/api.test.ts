@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { createAIResearchReport, getSignal, getTechnicalAnalysis } from "./api";
+import { ApiError, createAIResearchReport, getSignal, getTechnicalAnalysis } from "./api";
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -128,5 +128,40 @@ describe("getSignal", () => {
     expect(url).toContain("/api/signals/BTC%2FUSDT?limit=250");
     expect(url).not.toContain("/api/signals?limit=250");
     expect(result).toEqual(response);
+  });
+});
+
+
+describe("API error formatting", () => {
+  it("renders structured detail objects as readable messages", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(JSON.stringify({
+        detail: {
+          message: "Signal does not meet the configured preferences.",
+          reasons: [
+            "Confidence 80.0% is below the 82.0% minimum.",
+            "Risk/reward 1.10 is below the 1.50 minimum.",
+          ],
+        },
+      }), {
+        status: 404,
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
+
+    await expect(getSignal("BTC/USDT", 250)).rejects.toEqual(
+      expect.objectContaining<ApiError>({
+        name: "ApiError",
+        status: 404,
+        detail: {
+          message: "Signal does not meet the configured preferences.",
+          reasons: [
+            "Confidence 80.0% is below the 82.0% minimum.",
+            "Risk/reward 1.10 is below the 1.50 minimum.",
+          ],
+        },
+        message: "Signal does not meet the configured preferences. Confidence 80.0% is below the 82.0% minimum. Risk/reward 1.10 is below the 1.50 minimum.",
+      }),
+    );
   });
 });
