@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AlertTriangle, ArrowDown, ArrowUp, Minus, RefreshCw, ShieldCheck } from "lucide-react";
-import { ApiError, CryptoSignal, User, getSignal } from "./api";
+import { ApiError, CryptoSignal, User, getSignal, logout } from "./api";
 import { getMarketUniverse, MarketUniverse } from "./settingsApi";
 import type { AppPage } from "./App";
 import "./signal.css";
@@ -137,7 +137,7 @@ export default function SignalPage({ user, onLogout, setPage }: { user: User; on
         <button className="nav-button" onClick={() => setPage("mtf")}>MTF Analysis</button>
         <button className="nav-button active" onClick={() => setPage("signals")}>Signals</button>
       </nav>
-      <div className="topbar-actions"><span className="user-email">{user.email}</span><button className="refresh" onClick={() => void loadSignal(selected, true)} disabled={refreshing || !selected}><RefreshCw size={16} className={refreshing ? "spin" : ""}/>{refreshing ? "Refreshing" : "Refresh signal"}</button></div>
+      <div className="topbar-actions"><span className="user-email">{user.email}</span><button className="refresh" onClick={() => void loadSignal(selected, true)} disabled={refreshing || !selected}><RefreshCw size={16} className={refreshing ? "spin" : ""}/>{refreshing ? "Refreshing" : "Refresh signal"}</button><button className="logout" onClick={() => void (async () => { try { await logout(); } finally { onLogout(); } })()}>Sign out</button></div>
     </header>
     <main>
       <section className="hero signal-hero">
