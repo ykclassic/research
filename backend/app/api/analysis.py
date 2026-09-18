@@ -176,12 +176,12 @@ async def get_analysis(
             )
         validate_dataset_policy(dataset, policy)
         if use_public_crypto_provider:
-            # Reuse the canonical shared quote cache instead of forcing a new
-            # point-in-time provider request immediately after market/MTF
-            # verification. QuoteService instances share the global market-data
-            # orchestrator, so the validated production quote can be reused.
+            # Use the canonical shared orchestrator directly. It checks the
+            # validated cross-instance quote cache before routing to providers,
+            # avoiding a second Kraken ticker request immediately after the
+            # production market-quote verification call.
             current_quote = await asyncio.wait_for(
-                quote_service.get_quote(mapping.internal),
+                quote_service.orchestrator.get_quote(mapping.internal),
                 timeout=settings.analysis_timeout_seconds,
             )
         else:
