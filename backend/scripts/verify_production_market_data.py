@@ -82,7 +82,7 @@ def request(
     for attempt in range(1, MAX_REQUEST_ATTEMPTS + 1):
         try:
             response = client.get(url, params=params, headers=headers)
-            if response.status_code not in {502, 503, 504}:
+            if getattr(response, "status_code", None) not in {502, 503, 504}:
                 return response
             if attempt >= MAX_REQUEST_ATTEMPTS:
                 return response
