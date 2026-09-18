@@ -8,6 +8,7 @@ import pytest
 from fastapi import HTTPException
 
 from app.api import signals
+from app.services import signal_candle_scheduler as scheduler_service
 from app.models.signal import CryptoSignal, SignalDirection
 
 
@@ -95,11 +96,23 @@ async def test_selected_signal_falls_back_when_primary_exceeds_signal_budget(mon
         calls.append(("fallback", timeframe))
         return _dataset(symbol, timeframe)
 
-    monkeypatch.setattr(signals, "SIGNAL_PRIMARY_TIMEOUT_SECONDS", 0.01)
-    monkeypatch.setattr(signals, "SIGNAL_FALLBACK_TIMEOUT_SECONDS", 0.2)
+    monkeypatch.setattr(
+        scheduler_service.SignalCandleScheduler,
+        "PRIMARY_TIMEOUT_SECONDS",
+        0.01,
+    )
+    monkeypatch.setattr(
+        scheduler_service.SignalCandleScheduler,
+        "FALLBACK_TIMEOUT_SECONDS",
+        0.2,
+    )
     monkeypatch.setattr(signals.kraken_public, "get_candles", slow_primary)
     monkeypatch.setattr(signals.quote_service.orchestrator, "get_candles", fallback)
-    monkeypatch.setattr(signals, "require_current_completed_candles", lambda dataset: dataset)
+    monkeypatch.setattr(
+        scheduler_service,
+        "require_current_completed_candles",
+        lambda dataset: dataset,
+    )
     monkeypatch.setattr(
         signals,
         "generate_crypto_signal",
