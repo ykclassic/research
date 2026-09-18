@@ -210,6 +210,12 @@ def _candidate_trade_levels(
 
     if stop_loss <= 0:
         reasons.append("ATR-based candidate stop is non-positive.")
+        return CandidateTradeLevels(
+            entry_price=entry_price, atr=atr_value, stop_distance=stop_distance,
+            stop_loss=stop_loss, structural_target=None,
+            atr_minimum_target=atr_minimum_target, take_profit=None,
+            risk_reward=0.0, reasons=tuple(reasons),
+        )
 
     if structural_target is None:
         side = "resistance" if direction_is_buy else "support"
