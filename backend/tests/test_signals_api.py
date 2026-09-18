@@ -109,7 +109,8 @@ async def test_selected_signal_falls_back_when_primary_exceeds_signal_budget(mon
     result = await signals._generate("BTC/USDT", 30)
     assert result.symbol == "BTC/USDT"
     assert {timeframe for _, timeframe in calls} == set(signals.REQUIRED_TIMEFRAMES)
-    assert all(kind == "fallback" for kind, _ in calls)
+    assert sum(kind == "primary" for kind, _ in calls) == len(signals.REQUIRED_TIMEFRAMES)
+    assert sum(kind == "fallback" for kind, _ in calls) == len(signals.REQUIRED_TIMEFRAMES)
 
 
 def _dataset(symbol: str, timeframe: signals.Timeframe):
