@@ -64,10 +64,7 @@ async def _generate(
     try:
         datasets = await asyncio.wait_for(
             signal_candle_scheduler.get_required_datasets(
-                symbol,
-                REQUIRED_TIMEFRAMES,
-                limit,
-                policy,
+                symbol, REQUIRED_TIMEFRAMES, limit, policy
             ),
             timeout=SIGNAL_TOTAL_TIMEOUT_SECONDS,
         )
@@ -91,12 +88,7 @@ async def get_crypto_signals(
     user: Annotated[UserResponse | None, Depends(get_current_user_or_github_actions)] = None,
     access_token: Annotated[str | None, Cookie(alias="mr_access_token")] = None,
 ) -> CryptoSignalList:
-    """Compatibility endpoint.
-
-    The production UI does not call this collection endpoint. Signal generation
-    is intentionally pair-scoped through GET /api/signals/{symbol}; this legacy
-    endpoint remains only for older API consumers and test compatibility.
-    """
+    """Compatibility endpoint for older collection consumers."""
     try:
         signal_preferences = _default_signal_preferences()
         record = None
@@ -125,10 +117,7 @@ async def get_crypto_signals(
         detail = "No crypto signals currently meet your signal preferences."
         if failures:
             detail += " " + " | ".join(failures)
-        raise HTTPException(
-            status_code=503,
-            detail=detail,
-        )
+        raise HTTPException(status_code=503, detail=detail)
 
     return CryptoSignalList(
         calculated_at=datetime.now(timezone.utc),
@@ -147,21 +136,12 @@ async def get_crypto_signal(
         normalized, signal_preferences, record = await _authorized_symbol(
             symbol, user, access_token
         )
-        signal = await _generate(
+        return await _generate(
             normalized,
             limit,
             signal_preferences,
             market_data_policy(record) if record is not None else None,
         )
-        if not signal.research_eligible:
-            raise HTTPException(
-                status_code=404,
-                detail={
-                    "message": "Signal does not meet the configured preferences.",
-                    "reasons": signal.qualification_reasons,
-                },
-            )
-        return signal
     except HTTPException:
         raise
     except ValueError as exc:
