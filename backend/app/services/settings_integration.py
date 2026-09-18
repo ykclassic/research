@@ -47,6 +47,19 @@ def research_preferences(record: UserPreferencesRecord | None) -> ResearchPrefer
     return ResearchPreferences.model_validate(payload)
 
 
+PRODUCTION_VERIFICATION_MAX_DATA_AGE_SECONDS = 180
+
+
+def production_verification_market_data_policy() -> MarketDataPolicy:
+    """Freshness contract used by trusted GitHub Actions production verification."""
+    return MarketDataPolicy(
+        maximum_data_age_seconds=PRODUCTION_VERIFICATION_MAX_DATA_AGE_SECONDS,
+        reject_stale_data=True,
+        require_completed_candles=True,
+        allow_cached_data_fallback=True,
+    )
+
+
 def market_data_policy(record: UserPreferencesRecord | None) -> MarketDataPolicy:
     payload = record.market_data_preferences if record is not None else default_preferences()["market_data_preferences"]
     value = MarketDataPreferences.model_validate(payload)

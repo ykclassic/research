@@ -16,7 +16,12 @@ from app.providers.kraken_public import KrakenPublicProvider
 from app.services.feature_engine import calculate_feature_set
 from app.services.indicator_series import calculate_indicator_panes
 from app.services.quote_service import QuoteService
-from app.services.settings_integration import market_data_policy, validate_dataset_policy, validate_quote_policy
+from app.services.settings_integration import (
+    market_data_policy,
+    production_verification_market_data_policy,
+    validate_dataset_policy,
+    validate_quote_policy,
+)
 from app.symbols import normalize_symbol
 
 router = APIRouter(prefix="/api/analysis", tags=["analysis"], dependencies=[Depends(get_current_user_or_github_actions)])
@@ -124,7 +129,15 @@ async def get_analysis(
             record = preferences_service.get_or_create(access_token, user.id)
         except Exception as exc:
             raise HTTPException(status_code=503, detail="User market-data preferences are temporarily unavailable.") from exc
-    policy = market_data_policy(record)
+    # Trusted GitHub Actions production verification has no user preference
+    # record. Use the explicit production verification freshness contract
+    # instead of the stricter user default, which can otherwise fail around
+    # the 30-second boundary while the verifier intentionally allows 180s.
+    policy = (
+        production_verification_market_data_policy()
+        if user is None and access_token is None
+        else market_data_policy(record)
+    )
 
     try:
         mapping = normalize_symbol(symbol)
