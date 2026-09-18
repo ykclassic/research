@@ -277,6 +277,6 @@ def test_production_crypto_analysis_uses_canonical_quote_path(authenticated_clie
     assert response.status_code == 200, response.text
     assert calls == {
         "symbol": SYMBOL,
-        "force_refresh": True,
-        "excluded_providers": {"kraken_public"},
+        "force_refresh": False,
+        "excluded_providers": None,
     }
