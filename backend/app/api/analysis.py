@@ -176,8 +176,19 @@ async def get_analysis(
             )
         validate_dataset_policy(dataset, policy)
         if use_public_crypto_provider:
+            # Keep candle provenance on the credential-free Kraken path, but
+            # source the point-in-time quote from the canonical orchestrator.
+            # Kraken OHLC is reliable for completed candles, while a separate
+            # ticker call immediately after MTF can hit public-rate-limit
+            # conditions and turn an otherwise valid analysis into HTTP 503.
+            # Excluding Kraken here also keeps the quote path aligned with the
+            # production market-quote endpoint and its provider provenance.
             current_quote = await asyncio.wait_for(
-                kraken_public.get_quote(mapping.internal),
+                quote_service.get_quote(
+                    mapping.internal,
+                    force_refresh=True,
+                    excluded_providers={"kraken_public"},
+                ),
                 timeout=settings.analysis_timeout_seconds,
             )
         else:
