@@ -178,8 +178,13 @@ describe("API error formatting", () => {
     );
 
     await expect(getSignal("BTC/USDT", 250)).rejects.toEqual(
-      expect.objectContaining<ApiError>({
+      expect.objectContaining({
+        name: "ApiError",
         status: 503,
+        detail: {
+          code: "SIGNAL_UNAVAILABLE",
+          context: { symbol: "BTC/USDT", provider: "market-data" },
+        },
         message: "code: SIGNAL_UNAVAILABLE context: symbol: BTC/USDT provider: market-data",
       }),
     );
