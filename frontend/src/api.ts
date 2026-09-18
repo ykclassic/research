@@ -49,18 +49,34 @@ export class ApiError extends Error {
 }
 
 function formatApiErrorDetail(detail: unknown): string | null {
-  if (typeof detail === "string" && detail.trim()) return detail;
+  if (typeof detail === "string" && detail.trim()) return detail.trim();
+  if (typeof detail === "number" || typeof detail === "boolean") return String(detail);
   if (Array.isArray(detail)) {
     const items = detail.map(item => formatApiErrorDetail(item)).filter((item): item is string => Boolean(item));
     return items.length ? items.join(" ") : null;
   }
   if (detail && typeof detail === "object") {
     const record = detail as Record<string, unknown>;
-    const message = formatApiErrorDetail(record.message);
-    const reasons = formatApiErrorDetail(record.reasons);
-    if (message && reasons) return message + " " + reasons;
-    if (message) return message;
-    if (reasons) return reasons;
+    const preferredKeys = ["message", "detail", "reasons", "error", "errors"];
+    const preferred = preferredKeys
+      .map(key => formatApiErrorDetail(record[key]))
+      .filter((item): item is string => Boolean(item));
+    if (preferred.length) return [...new Set(preferred)].join(" ");
+
+    const entries = Object.entries(record)
+      .map(([key, value]) => {
+        const formatted = formatApiErrorDetail(value);
+        return formatted ? key + ": " + formatted : null;
+      })
+      .filter((item): item is string => Boolean(item));
+    if (entries.length) return entries.join(" ");
+
+    try {
+      const serialized = JSON.stringify(detail);
+      return serialized && serialized !== "{}" ? serialized : null;
+    } catch {
+      return null;
+    }
   }
   return null;
 }
