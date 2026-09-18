@@ -413,5 +413,7 @@ def generate_crypto_signal(
         evidence=tuple(evidence[:20]),
         research_eligible=qualified,
         qualification_reasons=all_reasons,
+        minimum_confidence=float(preferences.get("minimum_confidence", 0.0)),
+        minimum_risk_reward=minimum_rr,
         qualification_status="QUALIFIED" if qualified else "REJECTED",
     )
