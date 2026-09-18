@@ -64,17 +64,14 @@ async def test_selected_signal_rejects_non_enabled_user_symbol(monkeypatch):
     class Record:
         id = "record"
         signal_preferences = {}
-        market_data_preferences = {
-            "crypto_enabled": False,
-            "forex_enabled": True,
-            "stocks_enabled": False,
-        }
+        market_data_preferences = {}
 
     class FakePreferences:
         def get_or_create(self, access_token, user_id):
             return Record()
 
     monkeypatch.setattr(signals, "preferences_service", FakePreferences())
+    monkeypatch.setattr(signals, "market_coverage", lambda record: type("Coverage", (), {"enabled_symbols": {"EURUSD"}})())
     monkeypatch.setattr(signals, "_generate", lambda *args, **kwargs: _fake_signal("BTC/USDT"))
 
     user = type("User", (), {"id": "user"})()
