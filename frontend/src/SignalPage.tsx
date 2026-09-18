@@ -1,5 +1,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { AlertTriangle, ArrowDown, ArrowUp, Minus, RefreshCw, ShieldCheck } from "lucide-react";
+import {
+  AlertTriangle,
+  ArrowDown,
+  ArrowUp,
+  Check,
+  Minus,
+  RefreshCw,
+  ShieldCheck,
+  X,
+} from "lucide-react";
 import { ApiError, CryptoSignal, User, getSignal, logout } from "./api";
 import { getMarketUniverse, MarketUniverse } from "./settingsApi";
 import type { AppPage } from "./App";
@@ -24,7 +33,8 @@ function SignalIcon({ signal }: { signal: CryptoSignal["signal"] }) {
   if (signal === "SELL" || signal === "STRONG_SELL") return <ArrowDown size={18} strokeWidth={2.5} />;
   return <Minus size={18} strokeWidth={2.5} />;
 }
-function formatPrice(value: number): string {
+function formatPrice(value: number | null): string {
+  if (value === null) return "—";
   if (value >= 1000) return value.toLocaleString(undefined, { maximumFractionDigits: 2 });
   if (value >= 1) return value.toLocaleString(undefined, { maximumFractionDigits: 5 });
   return value.toLocaleString(undefined, { maximumFractionDigits: 8 });
@@ -41,6 +51,9 @@ function assetClass(universe: MarketUniverse | null, symbol: string): string {
 function classCount(universe: MarketUniverse | null, kind: "crypto" | "forex" | "stocks"): number {
   if (!universe) return 0;
   return universe.symbols[kind].filter(symbol => universe.enabled_symbols.includes(symbol)).length;
+}
+function statusLabel(signal: CryptoSignal): "Qualified" | "Rejected" {
+  return signal.qualification_status === "QUALIFIED" ? "Qualified" : "Rejected";
 }
 
 export default function SignalPage({ user, onLogout, setPage }: { user: User; onLogout: () => void; setPage: (p: AppPage) => void }) {
@@ -83,6 +96,7 @@ export default function SignalPage({ user, onLogout, setPage }: { user: User; on
       if (id === requestId.current || selected === symbol) {
         setPairStates(current => ({ ...current, [symbol]: { status: "ready", signal: result } }));
       }
+      setError(null);
     } catch (err) {
       const message = err instanceof Error ? err.message : "Unable to retrieve this trading-pair signal.";
       if (id === requestId.current || selected === symbol) {
@@ -103,6 +117,9 @@ export default function SignalPage({ user, onLogout, setPage }: { user: User; on
   const selectedSignal = selectedState?.signal;
   const directionalCount = selectedSignal && selectedSignal.signal !== "NEUTRAL" ? 1 : 0;
   const selectedClass = useMemo(() => assetClass(universe, selected), [universe, selected]);
+  const selectedStatus = selectedSignal ? statusLabel(selectedSignal) : null;
+  const minimumConfidence = 0.82;
+  const minimumRiskReward = 1.5;
 
   return <div className="app">
     <header className="topbar">
@@ -138,23 +155,21 @@ export default function SignalPage({ user, onLogout, setPage }: { user: User; on
 
       <section className="signal-workspace">
         <div className="panel signal-panel">
-          <div className="panel-head">
-            <div><h3>Enabled trading pairs</h3><span>Select a pair to generate its signal</span></div>
-            <ShieldCheck size={20}/>
-          </div>
+          <div className="panel-head"><div><h3>Enabled trading pairs</h3><span>Select a pair to generate its signal</span></div><ShieldCheck size={20}/></div>
           {loadingList ? <div className="empty">Loading enabled trading pairs…</div> :
           !universe?.enabled_symbols.length ? <div className="empty">No asset classes are enabled in Settings → Market Data.</div> :
           <div className="signal-list">
             {universe.enabled_symbols.map(symbol => {
               const state = pairStates[symbol] ?? { status: "idle" as PairStatus };
               const item = state.signal;
+              const itemStatus = item ? statusLabel(item) : null;
               return <button key={symbol} className={"signal-row " + (selected === symbol ? "selected" : "")} onClick={() => { setSelected(symbol); setError(null); }} aria-label={"Select signal for " + symbol} aria-pressed={selected === symbol}>
                 <div className="signal-symbol"><strong>{symbol}</strong><span>{assetClass(universe, symbol)}</span></div>
-                <div className={"signal-badge " + (item ? tone(item.signal) : "neutral")}>
+                <div className={"signal-badge " + (item ? tone(item.signal) : "neutral") + (item ? " " + itemStatus?.toLowerCase() : "")}>
                   {item ? <SignalIcon signal={item.signal}/> : <ShieldCheck size={17}/>}
-                  <strong>{item ? signalLabel(item.signal) : state.status === "loading" ? "Calculating…" : state.status === "error" ? "Unavailable" : "Select to calculate"}</strong>
+                  <strong>{item ? itemStatus : state.status === "loading" ? "Calculating…" : state.status === "error" ? "Unavailable" : "Select to calculate"}</strong>
                 </div>
-                <div className="signal-score"><span>Confluence</span><strong>{item ? formatPercent(item.confluence) : "—"}</strong></div>
+                <div className="signal-score"><span>Confidence</span><strong>{item ? formatPercent(item.confidence) : "—"}</strong></div>
                 <div className="signal-price"><span>{item ? formatPrice(item.price) : "—"}</span><small>{item ? formatTime(item.latest_candle_timestamp) : ""}</small></div>
               </button>;
             })}
@@ -167,23 +182,53 @@ export default function SignalPage({ user, onLogout, setPage }: { user: User; on
           selectedState?.status === "loading" && !selectedSignal ? <div className="empty">Calculating {selected} from Daily, H4, H1 and M15 completed candles…</div> :
           selectedState?.status === "error" && !selectedSignal ? <div className="empty signal-detail-error"><AlertTriangle size={18}/><span>{selectedState.error}</span><button className="refresh" onClick={() => void loadSignal(selected, true)}>Retry {selected}</button></div> :
           selectedSignal ? <div className="signal-detail-body">
-            <div className={"signal-detail-status " + tone(selectedSignal.signal)}><SignalIcon signal={selectedSignal.signal}/><strong>{signalLabel(selectedSignal.signal)}</strong></div>
+            <div className="signal-pipeline">
+              <div className="pipeline-step complete"><Check size={15}/><span>Calculated</span></div>
+              <div className="pipeline-line"/>
+              <div className={"pipeline-step " + (selectedStatus === "Qualified" ? "qualified" : "inactive")}>{selectedStatus === "Qualified" ? <Check size={15}/> : <X size={15}/>}<span>Qualified</span></div>
+              <div className="pipeline-line"/>
+              <div className={"pipeline-step " + (selectedStatus === "Rejected" ? "rejected" : "inactive")}>{selectedStatus === "Rejected" ? <X size={15}/> : <Check size={15}/>}<span>Rejected</span></div>
+            </div>
+
+            <div className={"signal-detail-status " + tone(selectedSignal.signal) + " " + (selectedStatus === "Qualified" ? "qualified" : "rejected")}>
+              <SignalIcon signal={selectedSignal.signal}/>
+              <div>
+                <strong>{selectedStatus === "Qualified" ? "Calculated — Qualified" : "Calculated — Not qualified"}</strong>
+                <span>{signalLabel(selectedSignal.signal)}</span>
+              </div>
+            </div>
+
             <div className="signal-detail-score"><span>Confluence</span><strong>{formatPercent(selectedSignal.confluence)}</strong><small>Directional score: {selectedSignal.score.toFixed(3)}</small></div>
+
+            <div className="signal-thresholds">
+              <div><span>Confidence</span><strong>{formatPercent(selectedSignal.confidence)} / {formatPercent(minimumConfidence)} required</strong></div>
+              <div><span>Risk / reward</span><strong>{selectedSignal.risk_reward.toFixed(2)}:1 / {minimumRiskReward.toFixed(2)}:1 required</strong></div>
+            </div>
+
+            <div className="signal-levels">
+              <div><span>Entry</span><strong>{formatPrice(selectedSignal.entry_price)}</strong></div>
+              <div><span>ATR14</span><strong>{formatPrice(selectedSignal.atr)}</strong></div>
+              <div><span>Stop</span><strong>{formatPrice(selectedSignal.stop_loss)}</strong></div>
+              <div><span>Target</span><strong>{formatPrice(selectedSignal.take_profit)}</strong></div>
+              <div><span>Candidate RR</span><strong>{selectedSignal.risk_reward.toFixed(2)}:1</strong></div>
+            </div>
+
             <div className="signal-metrics">
               <div><span>Price</span><strong>{formatPrice(selectedSignal.price)}</strong></div>
-              <div><span>Confidence</span><strong>{formatPercent(selectedSignal.confidence)}</strong></div>
-              <div><span>Risk / reward</span><strong>{selectedSignal.risk_reward.toFixed(2)} : 1</strong></div>
               <div><span>Source</span><strong>{selectedSignal.source}</strong></div>
               <div><span>Calculated</span><strong>{formatTime(selectedSignal.calculated_at)}</strong></div>
               <div><span>Latest candle</span><strong>{formatTime(selectedSignal.latest_candle_timestamp)}</strong></div>
             </div>
+
             <div className="signal-section"><h4>Timeframe confluence</h4><div className="signal-components">
               {selectedSignal.components.map(component => <div className="signal-component" key={component.timeframe}>
                 <div><strong>{component.timeframe}</strong><span>Indicator {component.indicator_score.toFixed(2)} · SMC {component.smc_score.toFixed(2)}</span></div>
                 <strong>{component.combined_score.toFixed(2)}</strong>
               </div>)}
             </div></div>
+
             <div className="signal-section"><h4>Evidence</h4><ul className="signal-evidence">{selectedSignal.evidence.map(item => <li key={item}>{item}</li>)}</ul></div>
+
             {selectedSignal.qualification_reasons.length > 0 && <div className="signal-section signal-warnings"><h4>Qualification notes</h4><ul className="signal-evidence">{selectedSignal.qualification_reasons.map(item => <li key={item}>{item}</li>)}</ul></div>}
           </div> :
           <div className="empty">Select {selected} to calculate its signal.</div>}
