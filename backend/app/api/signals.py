@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from datetime import datetime, timezone
 from typing import Annotated
 
@@ -28,6 +29,7 @@ REQUIRED_TIMEFRAMES = (
     Timeframe.HOUR_1,
     Timeframe.MINUTE_15,
 )
+SIGNAL_TOTAL_TIMEOUT_SECONDS = 18.0
 
 
 def _default_signal_preferences() -> dict[str, object]:
@@ -59,12 +61,22 @@ async def _generate(
     signal_preferences: dict[str, object] | None = None,
     policy=None,
 ) -> CryptoSignal:
-    datasets = await signal_candle_scheduler.get_required_datasets(
-        symbol,
-        REQUIRED_TIMEFRAMES,
-        limit,
-        policy,
-    )
+    try:
+        datasets = await asyncio.wait_for(
+            signal_candle_scheduler.get_required_datasets(
+                symbol,
+                REQUIRED_TIMEFRAMES,
+                limit,
+                policy,
+            ),
+            timeout=SIGNAL_TOTAL_TIMEOUT_SECONDS,
+        )
+    except asyncio.TimeoutError as exc:
+        raise RuntimeError(
+            f"{normalize_symbol(symbol).internal}: signal candle acquisition "
+            f"exceeded the {SIGNAL_TOTAL_TIMEOUT_SECONDS:.0f}s total budget."
+        ) from exc
+
     preferences = (
         signal_preferences
         if signal_preferences is not None
