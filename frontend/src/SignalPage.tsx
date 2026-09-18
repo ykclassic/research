@@ -49,7 +49,6 @@ export default function SignalPage({ user, onLogout, setPage }: { user: User; on
   const [pairStates, setPairStates] = useState<Record<string, PairState>>({});
   const [loadingList, setLoadingList] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [scanning, setScanning] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const requestId = useRef(0);
   const inFlight = useRef(new Set<string>());
@@ -97,33 +96,12 @@ export default function SignalPage({ user, onLogout, setPage }: { user: User; on
     }
   }, [onLogout, selected]);
 
-  const scanAll = useCallback(async () => {
-    if (!universe?.enabled_symbols.length || scanning) return;
-    setScanning(true);
-    setError(null);
-    const symbols = universe.enabled_symbols;
-    let cursor = 0;
-    const worker = async () => {
-      while (cursor < symbols.length) {
-        const symbol = symbols[cursor++];
-        if (symbol === selected || pairStates[symbol]?.status === "ready") continue;
-        await loadSignal(symbol);
-      }
-    };
-    await Promise.all([worker(), worker()]);
-    setScanning(false);
-  }, [loadSignal, pairStates, scanning, selected, universe]);
-
   useEffect(() => { void loadUniverse(); }, [loadUniverse]);
   useEffect(() => { if (selected) void loadSignal(selected); }, [selected, loadSignal]);
 
   const selectedState = selected ? pairStates[selected] : undefined;
   const selectedSignal = selectedState?.signal;
-  const readyCount = universe?.enabled_symbols.filter(symbol => pairStates[symbol]?.status === "ready").length ?? 0;
-  const directionalCount = universe?.enabled_symbols.filter(symbol => {
-    const value = pairStates[symbol]?.signal?.signal;
-    return value && value !== "NEUTRAL";
-  }).length ?? 0;
+  const directionalCount = selectedSignal && selectedSignal.signal !== "NEUTRAL" ? 1 : 0;
   const selectedClass = useMemo(() => assetClass(universe, selected), [universe, selected]);
 
   return <div className="app">
@@ -144,9 +122,9 @@ export default function SignalPage({ user, onLogout, setPage }: { user: User; on
         <div>
           <div className="eyebrow">Intelligence · Signals</div>
           <h2>Indicator + SMC confluence.</h2>
-          <p>Signals are deterministic research outputs from completed candles, technical indicators, market structure and the Daily → H4 → H1 → M15 hierarchy. The scanner is limited to asset classes enabled in Settings → Market Data.</p>
+          <p>Signals are deterministic research outputs from completed candles, technical indicators, market structure and the Daily → H4 → H1 → M15 hierarchy. Select one enabled trading pair below; only the selected pair is requested and calculated.</p>
         </div>
-        <div className="hero-stat"><ShieldCheck size={20}/><strong>{directionalCount}/{readyCount}</strong><span>directional / calculated</span></div>
+        <div className="hero-stat"><ShieldCheck size={20}/><strong>{directionalCount}/1</strong><span>directional / selected</span></div>
       </section>
 
       {error && <div className="error"><AlertTriangle size={17}/><span>{error}</span></div>}
@@ -156,15 +134,12 @@ export default function SignalPage({ user, onLogout, setPage }: { user: User; on
         <div><span>Crypto</span><strong>{classCount(universe, "crypto")}</strong></div>
         <div><span>Forex</span><strong>{classCount(universe, "forex")}</strong></div>
         <div><span>Stocks</span><strong>{classCount(universe, "stocks")}</strong></div>
-        <button className="refresh signal-scan-button" onClick={() => void scanAll()} disabled={scanning || loadingList || !universe?.enabled_symbols.length}>
-          <RefreshCw size={16} className={scanning ? "spin" : ""}/>{scanning ? "Scanning enabled pairs…" : "Scan enabled pairs"}
-        </button>
       </section>
 
       <section className="signal-workspace">
         <div className="panel signal-panel">
           <div className="panel-head">
-            <div><h3>Enabled signal scanner</h3><span>{readyCount} of {universe?.enabled_symbols.length ?? 0} pairs calculated</span></div>
+            <div><h3>Enabled trading pairs</h3><span>Select a pair to generate its signal</span></div>
             <ShieldCheck size={20}/>
           </div>
           {loadingList ? <div className="empty">Loading enabled trading pairs…</div> :
@@ -173,11 +148,11 @@ export default function SignalPage({ user, onLogout, setPage }: { user: User; on
             {universe.enabled_symbols.map(symbol => {
               const state = pairStates[symbol] ?? { status: "idle" as PairStatus };
               const item = state.signal;
-              return <button key={symbol} className={"signal-row " + (selected === symbol ? "selected" : "")} onClick={() => { setSelected(symbol); setError(null); }} aria-label={"Select signal for " + symbol}>
+              return <button key={symbol} className={"signal-row " + (selected === symbol ? "selected" : "")} onClick={() => { setSelected(symbol); setError(null); }} aria-label={"Select signal for " + symbol} aria-pressed={selected === symbol}>
                 <div className="signal-symbol"><strong>{symbol}</strong><span>{assetClass(universe, symbol)}</span></div>
                 <div className={"signal-badge " + (item ? tone(item.signal) : "neutral")}>
                   {item ? <SignalIcon signal={item.signal}/> : <ShieldCheck size={17}/>}
-                  <strong>{item ? signalLabel(item.signal) : state.status === "loading" ? "Calculating…" : state.status === "error" ? "Unavailable" : "Not calculated"}</strong>
+                  <strong>{item ? signalLabel(item.signal) : state.status === "loading" ? "Calculating…" : state.status === "error" ? "Unavailable" : "Select to calculate"}</strong>
                 </div>
                 <div className="signal-score"><span>Confluence</span><strong>{item ? formatPercent(item.confluence) : "—"}</strong></div>
                 <div className="signal-price"><span>{item ? formatPrice(item.price) : "—"}</span><small>{item ? formatTime(item.latest_candle_timestamp) : ""}</small></div>
@@ -214,7 +189,7 @@ export default function SignalPage({ user, onLogout, setPage }: { user: User; on
           <div className="empty">Select {selected} to calculate its signal.</div>}
         </aside>
       </section>
-      <footer>Signals are research outputs, not financial advice or automatic trade instructions. Only pairs from enabled asset classes are shown; the server validates the selected pair before calculation.</footer>
+      <footer>Signals are research outputs, not financial advice or automatic trade instructions. Only pairs from enabled asset classes are shown; the server validates the selected pair before calculation. No unselected pair is requested by the production signal UI.</footer>
     </main>
   </div>;
 }
