@@ -57,7 +57,7 @@ function formatApiErrorDetail(detail: unknown): string | null {
   }
   if (detail && typeof detail === "object") {
     const record = detail as Record<string, unknown>;
-    const preferredKeys = ["message", "detail", "reasons", "error", "errors", "code"];
+    const preferredKeys = ["message", "detail", "reasons", "error", "errors"];
     const preferred = preferredKeys
       .map(key => formatApiErrorDetail(record[key]))
       .filter((item): item is string => Boolean(item));
