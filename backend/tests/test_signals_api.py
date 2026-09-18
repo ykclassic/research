@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
+import asyncio
+
 import pytest
 from fastapi import HTTPException
 
@@ -79,3 +81,61 @@ async def test_selected_signal_rejects_non_enabled_user_symbol(monkeypatch):
         await signals.get_crypto_signal("BTC/USDT", limit=30, user=user, access_token="token")
     assert exc.value.status_code == 404
     assert "not enabled" in str(exc.value.detail)
+
+
+@pytest.mark.asyncio
+async def test_selected_signal_falls_back_when_primary_exceeds_signal_budget(monkeypatch):
+    calls = []
+
+    async def slow_primary(symbol, timeframe, limit):
+        calls.append(("primary", timeframe))
+        await asyncio.sleep(1)
+
+    async def fallback(symbol, timeframe, limit):
+        calls.append(("fallback", timeframe))
+        return _dataset(symbol, timeframe)
+
+    monkeypatch.setattr(signals, "SIGNAL_PRIMARY_TIMEOUT_SECONDS", 0.01)
+    monkeypatch.setattr(signals, "SIGNAL_FALLBACK_TIMEOUT_SECONDS", 0.2)
+    monkeypatch.setattr(signals.kraken_public, "get_candles", slow_primary)
+    monkeypatch.setattr(signals.quote_service.orchestrator, "get_candles", fallback)
+    monkeypatch.setattr(signals, "require_current_completed_candles", lambda dataset: dataset)
+    monkeypatch.setattr(
+        signals,
+        "generate_crypto_signal",
+        lambda datasets, preferences: _fake_signal(datasets[signals.Timeframe.DAY_1].symbol),
+    )
+
+    result = await signals._generate("BTC/USDT", 30)
+    assert result.symbol == "BTC/USDT"
+    assert {timeframe for _, timeframe in calls} == set(signals.REQUIRED_TIMEFRAMES)
+    assert all(kind == "fallback" for kind, _ in calls)
+
+
+def _dataset(symbol: str, timeframe: signals.Timeframe):
+    from app.models.market import Candle, OHLCVDataset
+
+    now = datetime.now(timezone.utc)
+    candles = tuple(
+        Candle(
+            timestamp=now,
+            open=100,
+            high=101,
+            low=99,
+            close=100,
+            volume=1,
+            symbol=symbol,
+            timeframe=timeframe,
+            source="test",
+            is_complete=True,
+        )
+        for _ in range(30)
+    )
+    return OHLCVDataset(
+        symbol=symbol,
+        timeframe=timeframe,
+        source="test",
+        requested_at=now,
+        provider_timestamp=now,
+        candles=candles,
+    )
