@@ -46,3 +46,31 @@ def test_kraken_public_rejects_invalid_historical_range() -> None:
     with pytest.raises(ValueError, match="start_date must be before end_date"):
         import asyncio
         asyncio.run(provider.get_candles("BTC/USD", Timeframe.HOUR_1, 100, start_date=start, end_date=end))
+
+
+def test_kraken_public_candle_cache_is_shared_across_provider_instances(monkeypatch) -> None:
+    import asyncio
+
+    KrakenPublicProvider._candle_cache.clear()
+    calls = 0
+    base = int(datetime.now(timezone.utc).timestamp()) - 3600
+
+    async def fake_request_json(self, endpoint, params, timeout_seconds):
+        nonlocal calls
+        calls += 1
+        rows = []
+        for index in range(40):
+            timestamp = base - (39 - index) * 3600
+            price = 100.0 + index
+            rows.append([timestamp, price - 0.5, price + 0.5, price - 1.0, price, "0", "10"])
+        return {"result": {"XBTUSD": rows, "last": str(base)}}
+
+    monkeypatch.setattr(KrakenPublicProvider, "_request_json", fake_request_json)
+    first = asyncio.run(KrakenPublicProvider().get_candles("BTC/USD", Timeframe.HOUR_1, 40))
+    second = asyncio.run(KrakenPublicProvider().get_candles("BTC/USD", Timeframe.HOUR_1, 40))
+
+    assert calls == 1
+    assert first.cache_hit is False
+    assert second.cache_hit is True
+    assert second.request_latency_ms == 0
+    assert second.candles == first.candles

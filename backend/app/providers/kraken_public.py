@@ -26,6 +26,10 @@ class KrakenPublicProvider(MarketDataProvider):
     base_url = "https://api.kraken.com/0/public"
     REQUEST_INTERVAL_SECONDS = 1.05
     MAX_RETRIES = 2
+    CANDLE_CACHE_SECONDS = 90.0
+    _candle_cache: dict[tuple[str, str, int, str | None, str | None], tuple[float, OHLCVDataset]] = {}
+    CANDLE_CACHE_SECONDS = 90.0
+    _candle_cache: dict[tuple[str, str, int, str | None, str | None], tuple[float, OHLCVDataset]] = {}
 
     _intervals = {
         Timeframe.MINUTE_15: 15,
@@ -233,6 +237,19 @@ class KrakenPublicProvider(MarketDataProvider):
             raise ValueError("Historical candle start_date must be before end_date.")
 
         pair = self._provider_pair(internal_symbol)
+        cache_key = (
+            mapping.internal,
+            timeframe.value,
+            min(max(outputsize, 30), 720),
+            start_date.astimezone(timezone.utc).isoformat() if start_date else None,
+            end_date.astimezone(timezone.utc).isoformat() if end_date else None,
+        )
+        cached = self._candle_cache.get(cache_key)
+        now_monotonic = time.monotonic()
+        if cached is not None and now_monotonic - cached[0] < self.CANDLE_CACHE_SECONDS:
+            cached_dataset = refresh_candle_freshness(cached[1])
+            if cached_dataset.freshness_status in {FreshnessStatus.FRESH, FreshnessStatus.DELAYED}:
+                return cached_dataset.model_copy(update={"cache_hit": True, "request_latency_ms": 0})
         requested_at = datetime.now(timezone.utc)
         started = time.perf_counter()
         params: dict[str, str] = {"pair": pair, "interval": str(interval)}
@@ -297,4 +314,6 @@ class KrakenPublicProvider(MarketDataProvider):
             completeness_status=dataset_completeness(provisional),
             provider_attempts=(self.name,),
         )
-        return validate_ohlcv_dataset(refresh_candle_freshness(dataset))
+        validated = validate_ohlcv_dataset(refresh_candle_freshness(dataset))
+        self._candle_cache[cache_key] = (time.monotonic(), validated)
+        return validated

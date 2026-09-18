@@ -48,7 +48,7 @@ trusted_hosts = [item.strip() for item in settings.trusted_hosts.split(",") if i
 # branch URL. Keep the explicit CORS allow-list for fixed origins, while also
 # allowing only this project's Vercel hostname family. This is required because
 # browser credentials cannot use a wildcard CORS origin.
-vercel_origin_regex = r"https://research(?:-[a-z0-9-]+)?(?:-tech-solut-hub)?\.vercel\.app"
+vercel_origin_regex = r"https://research(?:-tech-solut-hub|-[a-z0-9-]+-tech-solut-hub|-dusky-six)\.vercel\.app"
 
 app.add_middleware(
     TrustedHostMiddleware,
