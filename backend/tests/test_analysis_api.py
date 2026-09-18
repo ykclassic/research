@@ -267,7 +267,7 @@ def test_production_crypto_analysis_uses_canonical_quote_path(authenticated_clie
 
     monkeypatch.setattr(settings, "app_env", "production")
     monkeypatch.setattr(kraken_public, "get_candles", fake_kraken_candles)
-    monkeypatch.setattr(quote_service, "get_quote", fake_canonical_quote)
+    monkeypatch.setattr(quote_service.orchestrator, "get_quote", fake_canonical_quote)
 
     response = authenticated_client.get(
         "/api/analysis/BTC%2FUSD",
