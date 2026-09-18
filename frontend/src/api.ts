@@ -36,7 +36,48 @@ export interface PortfolioPosition { id: string; user_id: string; symbol: string
 export interface PortfolioPositionSnapshot { position: PortfolioPosition; current_price: number | null; market_value: number; unrealized_pnl: number | null; pnl_percent: number | null; quote_status: string; quote_timestamp: string | null; }
 export interface PortfolioSummary { calculated_at: string; position_count: number; invested_value: number; gross_exposure: number; net_exposure: number; unrealized_pnl: number; unrealized_pnl_percent: number | null; max_position_concentration_percent: number; portfolio_drawdown_percent: number; risk_flags: string[]; positions: PortfolioPositionSnapshot[]; }
 export interface PortfolioScenario { price_change_percent: number; projected_unrealized_pnl: number; projected_pnl_delta: number; projected_gross_exposure: number; affected_positions: number; }
-export class ApiError extends Error {\n  readonly status: number;\n  readonly detail: unknown;\n\n  constructor(message: string, status: number, detail: unknown = null) {\n    super(message);\n    this.name = "ApiError";\n    this.status = status;\n    this.detail = detail;\n  }\n}\n\nfunction formatApiErrorDetail(detail: unknown): string | null {\n  if (typeof detail === "string" && detail.trim()) return detail;\n  if (Array.isArray(detail)) {\n    const items = detail.map(item => formatApiErrorDetail(item)).filter((item): item is string => Boolean(item));\n    return items.length ? items.join(" ") : null;\n  }\n  if (detail && typeof detail === "object") {\n    const record = detail as Record<string, unknown>;\n    const message = formatApiErrorDetail(record.message);\n    const reasons = formatApiErrorDetail(record.reasons);\n    if (message && reasons) return message + " " + reasons;\n    if (message) return message;\n    if (reasons) return reasons;\n  }\n  return null;\n}\n\nasync function readApiError(response: Response): Promise<{ message: string; detail: unknown }> {\n  try {\n    const body = await response.json() as { detail?: unknown; message?: unknown };\n    const detail = body?.detail ?? body?.message ?? null;\n    return {\n      message: formatApiErrorDetail(detail) ?? ("Request failed: " + response.status),\n      detail,\n    };\n  } catch {\n    return { message: "Request failed: " + response.status, detail: null };\n  }\n}\nconst PRODUCTION_API_BASE = "https://research-76vr.onrender.com";
+export class ApiError extends Error {
+  readonly status: number;
+  readonly detail: unknown;
+
+  constructor(message: string, status: number, detail: unknown = null) {
+    super(message);
+    this.name = "ApiError";
+    this.status = status;
+    this.detail = detail;
+  }
+}
+
+function formatApiErrorDetail(detail: unknown): string | null {
+  if (typeof detail === "string" && detail.trim()) return detail;
+  if (Array.isArray(detail)) {
+    const items = detail.map(item => formatApiErrorDetail(item)).filter((item): item is string => Boolean(item));
+    return items.length ? items.join(" ") : null;
+  }
+  if (detail && typeof detail === "object") {
+    const record = detail as Record<string, unknown>;
+    const message = formatApiErrorDetail(record.message);
+    const reasons = formatApiErrorDetail(record.reasons);
+    if (message && reasons) return message + " " + reasons;
+    if (message) return message;
+    if (reasons) return reasons;
+  }
+  return null;
+}
+
+async function readApiError(response: Response): Promise<{ message: string; detail: unknown }> {
+  try {
+    const body = await response.json() as { detail?: unknown; message?: unknown };
+    const detail = body?.detail ?? body?.message ?? null;
+    return {
+      message: formatApiErrorDetail(detail) ?? ("Request failed: " + response.status),
+      detail,
+    };
+  } catch {
+    return { message: "Request failed: " + response.status, detail: null };
+  }
+}
+const PRODUCTION_API_BASE = "https://research-76vr.onrender.com";
 const configuredApiBase = (import.meta.env.VITE_API_BASE_URL ?? "").trim();
 const hostname = typeof window !== "undefined" ? window.location.hostname : "";
 const isLocalHost = hostname === "localhost" || hostname === "127.0.0.1" || hostname === "[::1]";
@@ -50,7 +91,7 @@ function getCookie(name: string): string | null { const encodedName = `${encodeU
 function getStoredCsrf(): string | null { try { return window.sessionStorage.getItem(CSRF_STORAGE_KEY); } catch { return null; } }
 function storeCsrf(token: string | null): void { try { if (token) window.sessionStorage.setItem(CSRF_STORAGE_KEY, token); else window.sessionStorage.removeItem(CSRF_STORAGE_KEY); } catch {} }
 async function requestCsrfToken(): Promise<string> { const response = await fetch(`${API_BASE}/api/auth/csrf`, { method: "GET", credentials: "include" }); if (!response.ok) { const error = await readApiError(response); throw new ApiError(error.message, response.status, error.detail); } const token = response.headers.get("X-CSRF-Token"); if (!token) throw new ApiError("The API did not return a CSRF token.", 503); storeCsrf(token); return token; }
-async function request<T>(path: string, init: RequestInit = {}): Promise<T> { const headers = new Headers(init.headers); if (init.body && !headers.has("Content-Type")) headers.set("Content-Type", "application/json"); if (init.method && init.method !== "GET") { const csrf = getStoredCsrf() ?? getCookie("mr_csrf"); if (csrf) headers.set("X-CSRF-Token", csrf); } const controller = new AbortController(); const timeoutMs = path.startsWith("/api/ai-research/") ? AI_REQUEST_TIMEOUT_MS : path.startsWith("/api/signals/") ? SIGNAL_REQUEST_TIMEOUT_MS : REQUEST_TIMEOUT_MS; let timeoutId: ReturnType<typeof setTimeout> | undefined; let removeAbortListener: (() => void) | undefined; if (init.signal) { if (init.signal.aborted) controller.abort(init.signal.reason); else { const abort = () => controller.abort(init.signal?.reason); init.signal.addEventListener("abort", abort, { once: true }); removeAbortListener = () => init.signal?.removeEventListener("abort", abort); } } timeoutId = globalThis.setTimeout(() => controller.abort(), timeoutMs); let response: Response; try { response = await fetch(`${API_BASE}${path}`, { ...init, headers, credentials: "include", signal: controller.signal }); } catch (error) { if (error instanceof DOMException && error.name === "AbortError") throw new ApiError(`The application server did not respond within ${timeoutMs / 1000} seconds. Check the API deployment and try again.`, 0); throw new ApiError("Unable to reach the application server. Check your connection and try again.", 0); } finally { if (timeoutId !== undefined) globalThis.clearTimeout(timeoutId); removeAbortListener?.(); } if (!response.ok) { let message = `Request failed: ${response.status}`; try { const body = await response.json() as { detail?: string }; if (body.detail) message = body.detail; } catch {} throw new ApiError(message, response.status); } const responseCsrf = response.headers.get("X-CSRF-Token"); if (responseCsrf) storeCsrf(responseCsrf); if (response.status === 204) return undefined as T; return await response.json() as T; }
+async function request<T>(path: string, init: RequestInit = {}): Promise<T> { const headers = new Headers(init.headers); if (init.body && !headers.has("Content-Type")) headers.set("Content-Type", "application/json"); if (init.method && init.method !== "GET") { const csrf = getStoredCsrf() ?? getCookie("mr_csrf"); if (csrf) headers.set("X-CSRF-Token", csrf); } const controller = new AbortController(); const timeoutMs = path.startsWith("/api/ai-research/") ? AI_REQUEST_TIMEOUT_MS : path.startsWith("/api/signals/") ? SIGNAL_REQUEST_TIMEOUT_MS : REQUEST_TIMEOUT_MS; let timeoutId: ReturnType<typeof setTimeout> | undefined; let removeAbortListener: (() => void) | undefined; if (init.signal) { if (init.signal.aborted) controller.abort(init.signal.reason); else { const abort = () => controller.abort(init.signal?.reason); init.signal.addEventListener("abort", abort, { once: true }); removeAbortListener = () => init.signal?.removeEventListener("abort", abort); } } timeoutId = globalThis.setTimeout(() => controller.abort(), timeoutMs); let response: Response; try { response = await fetch(`${API_BASE}${path}`, { ...init, headers, credentials: "include", signal: controller.signal }); } catch (error) { if (error instanceof DOMException && error.name === "AbortError") throw new ApiError(`The application server did not respond within ${timeoutMs / 1000} seconds. Check the API deployment and try again.`, 0); throw new ApiError("Unable to reach the application server. Check your connection and try again.", 0); } finally { if (timeoutId !== undefined) globalThis.clearTimeout(timeoutId); removeAbortListener?.(); } if (!response.ok) { const error = await readApiError(response); throw new ApiError(error.message, response.status, error.detail); } const responseCsrf = response.headers.get("X-CSRF-Token"); if (responseCsrf) storeCsrf(responseCsrf); if (response.status === 204) return undefined as T; return await response.json() as T; }
 async function authenticatedMutation<T>(path: string, init: RequestInit): Promise<T> { if (!getStoredCsrf() && !getCookie("mr_csrf")) await requestCsrfToken(); try { return await request<T>(path, init); } catch (error) { if (error instanceof ApiError && error.status === 403 && error.message === "CSRF validation failed.") { storeCsrf(null); await requestCsrfToken(); return request<T>(path, init); } throw error; } }
 export async function register(email: string, password: string): Promise<User> { return request<User>("/api/auth/register", { method: "POST", body: JSON.stringify({ email, password }) }); }
 export async function login(email: string, password: string): Promise<User> { storeCsrf(null); const user = await request<User>("/api/auth/login", { method: "POST", body: JSON.stringify({ email, password }) }); await requestCsrfToken(); return user; }
