@@ -4,7 +4,8 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.api.auth import get_current_user_or_github_actions
-from app.api.analysis import quote_service
+from app.api.analysis import kraken_public, quote_service
+from app.config import settings
 from app.main import app
 from app.models import Quote, QuoteStatus
 from app.models.market import Candle, OHLCVDataset, TechnicalAnalysisResult, Timeframe
@@ -251,3 +252,31 @@ def test_analysis_maps_feature_failure_to_503(authenticated_client, monkeypatch)
 
     assert response.status_code == 503
     assert response.json()["detail"] == "feature calculation failed"
+
+
+def test_production_crypto_analysis_uses_canonical_quote_path(authenticated_client, monkeypatch):
+    dataset = make_dataset()
+    calls = {}
+
+    async def fake_kraken_candles(symbol, timeframe, limit, start_date=None, end_date=None):
+        return dataset
+
+    async def fake_canonical_quote(symbol, force_refresh=False, excluded_providers=None):
+        calls.update(symbol=symbol, force_refresh=force_refresh, excluded_providers=excluded_providers)
+        return make_quote()
+
+    monkeypatch.setattr(settings, "app_env", "production")
+    monkeypatch.setattr(kraken_public, "get_candles", fake_kraken_candles)
+    monkeypatch.setattr(quote_service, "get_quote", fake_canonical_quote)
+
+    response = authenticated_client.get(
+        "/api/analysis/BTC%2FUSD",
+        params={"timeframe": "1h", "limit": 250},
+    )
+
+    assert response.status_code == 200, response.text
+    assert calls == {
+        "symbol": SYMBOL,
+        "force_refresh": True,
+        "excluded_providers": {"kraken_public"},
+    }
