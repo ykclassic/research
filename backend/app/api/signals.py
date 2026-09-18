@@ -23,6 +23,8 @@ router = APIRouter(prefix="/api/signals", tags=["signals"])
 quote_service = QuoteService()
 kraken_public = KrakenPublicProvider()
 REQUIRED_TIMEFRAMES = (Timeframe.DAY_1, Timeframe.HOUR_4, Timeframe.HOUR_1, Timeframe.MINUTE_15)
+SIGNAL_PRIMARY_TIMEOUT_SECONDS = 4.5
+SIGNAL_FALLBACK_TIMEOUT_SECONDS = 6.0
 
 
 async def _load_dataset(symbol: str, timeframe: Timeframe, limit: int, policy=None) -> OHLCVDataset:
@@ -34,13 +36,13 @@ async def _load_dataset(symbol: str, timeframe: Timeframe, limit: int, policy=No
         try:
             dataset = await asyncio.wait_for(
                 kraken_public.get_candles(mapping.internal, timeframe, limit),
-                timeout=settings.analysis_timeout_seconds,
+                timeout=SIGNAL_PRIMARY_TIMEOUT_SECONDS,
             )
         except Exception as primary_exc:
             try:
                 dataset = await asyncio.wait_for(
                     quote_service.orchestrator.get_candles(mapping.internal, timeframe, limit),
-                    timeout=settings.analysis_timeout_seconds,
+                    timeout=SIGNAL_FALLBACK_TIMEOUT_SECONDS,
                 )
             except Exception as fallback_exc:
                 raise RuntimeError(
@@ -50,7 +52,7 @@ async def _load_dataset(symbol: str, timeframe: Timeframe, limit: int, policy=No
     else:
         dataset = await asyncio.wait_for(
             quote_service.orchestrator.get_candles(mapping.internal, timeframe, limit),
-            timeout=settings.analysis_timeout_seconds,
+            timeout=SIGNAL_FALLBACK_TIMEOUT_SECONDS,
         )
 
     if policy is not None:
