@@ -144,6 +144,42 @@ def test_market_api_requires_authentication(client):
     assert response.status_code == 401
 
 
+@pytest.mark.parametrize(
+    "origin",
+    [
+        "https://research-tech-solut-hub.vercel.app",
+        "https://research-dusky-six.vercel.app",
+        "https://research-jpavf4c3i-tech-solut-hub.vercel.app",
+        "https://research-git-main-tech-solut-hub.vercel.app",
+    ],
+)
+def test_vercel_production_and_generated_origins_are_cors_allowed(client, origin):
+    response = client.options(
+        "/api/auth/login",
+        headers={
+            "Origin": origin,
+            "Access-Control-Request-Method": "POST",
+            "Access-Control-Request-Headers": "content-type",
+        },
+    )
+    assert response.status_code == 200
+    assert response.headers["access-control-allow-origin"] == origin
+    assert response.headers["access-control-allow-credentials"] == "true"
+
+
+def test_untrusted_vercel_origin_is_not_cors_allowed(client):
+    response = client.options(
+        "/api/auth/login",
+        headers={
+            "Origin": "https://research-example-other-team.vercel.app",
+            "Access-Control-Request-Method": "POST",
+            "Access-Control-Request-Headers": "content-type",
+        },
+    )
+    assert response.status_code == 400
+    assert "access-control-allow-origin" not in response.headers
+
+
 def _oidc_claims(event_name: str, workflow: str | None = None, ref: str | None = None) -> dict[str, str]:
     workflow = workflow or settings.github_oidc_workflow
     return {
