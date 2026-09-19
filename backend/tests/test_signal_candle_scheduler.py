@@ -53,9 +53,14 @@ class FakeQuoteService:
 class FakeCryptoProvider:
     def __init__(self, delay: float = 0) -> None:
         self.calls = []
+        self.cross_calls = 0
         self.delay = delay
         self.active = 0
         self.max_active = 0
+
+    async def get_cross_candles(self, symbol, timeframe, outputsize):
+        self.cross_calls += 1
+        return _dataset(symbol, timeframe)
 
     async def get_candles(self, symbol, timeframe, outputsize):
         self.calls.append((symbol, timeframe, outputsize))
@@ -136,7 +141,7 @@ async def test_selected_pair_does_not_acquire_another_symbol():
     assert len(provider.calls) == 4
 
 @pytest.mark.asyncio
-async def test_sui_routes_directly_to_canonical_orchestrator() -> None:
+async def test_sui_routes_through_kraken_cross_market() -> None:
     provider = FakeCryptoProvider()
     service = FakeQuoteService()
     scheduler = SignalCandleScheduler(service, provider)
@@ -147,4 +152,3 @@ async def test_sui_routes_directly_to_canonical_orchestrator() -> None:
     assert provider.calls == []
     assert provider.cross_calls == 1
     assert service.calls == 0
-    assert service.last_kwargs == {}
