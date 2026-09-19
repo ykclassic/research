@@ -151,7 +151,7 @@ def test_candidate_levels_reject_very_tight_structural_resistance() -> None:
     assert levels.structural_target == 100.5
     assert levels.take_profit is None
     assert levels.risk_reward == 0.5 / 3.0
-    assert any("does not satisfy" in r for r in levels.reasons)
+    assert any("minimum risk/reward" in r for r in levels.reasons)
     assert any("Nearest structural target" in r for r in levels.reasons)
 
 
