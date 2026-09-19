@@ -139,9 +139,12 @@ class SignalCandleScheduler:
                     ) from fallback_exc
         else:
             try:
+                fallback_kwargs = {}
+                if mapping.unsupported_providers:
+                    fallback_kwargs["excluded_providers"] = set(mapping.unsupported_providers)
                 dataset = await asyncio.wait_for(
                     self.quote_service.orchestrator.get_candles(
-                        mapping.internal, timeframe, limit
+                        mapping.internal, timeframe, limit, **fallback_kwargs
                     ),
                     timeout=self.FALLBACK_TIMEOUT_SECONDS,
                 )
