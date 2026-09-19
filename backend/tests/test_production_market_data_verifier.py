@@ -76,3 +76,5 @@ def test_fallback_symbol_defaults_to_secondary_provider_supported_24_7_pair(monk
 
     monkeypatch.delenv("MARKET_FALLBACK_SYMBOL", raising=False)
     assert DEFAULT_FALLBACK_SYMBOL == "BTC/USDT"
+    from scripts.verify_production_market_data import DEFAULT_FALLBACK_TIMEFRAME
+    assert DEFAULT_FALLBACK_TIMEFRAME == "1d"
