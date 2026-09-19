@@ -29,8 +29,38 @@ export interface MultiTimeframeResult { symbol: string; calculated_at: string; t
 export type SignalDirection = "NEUTRAL" | "BUY" | "STRONG_BUY" | "SELL" | "STRONG_SELL";
 export type SignalQualificationStatus = "QUALIFIED" | "REJECTED";
 export interface SignalComponent { timeframe: string; indicator_score: number; smc_score: number; combined_score: number; evidence: string[]; }
-export interface CryptoSignal { symbol: string; signal: SignalDirection; score: number; confidence: number; confluence: number; risk_reward: number; price: number; entry_price: number; stop_loss: number | null; take_profit: number | null; atr: number | null; calculated_at: string; latest_candle_timestamp: string; source: string; components: SignalComponent[]; evidence: string[]; research_eligible: boolean; qualification_reasons: string[]; minimum_confidence: number; minimum_risk_reward: number; qualification_status: SignalQualificationStatus; }
+export interface CryptoSignal { signal_id: string; symbol: string; signal: SignalDirection; score: number; confidence: number; confluence: number; risk_reward: number; price: number; entry_price: number; stop_loss: number | null; take_profit: number | null; atr: number | null; calculated_at: string; latest_candle_timestamp: string; source: string; components: SignalComponent[]; evidence: string[]; research_eligible: boolean; qualification_reasons: string[]; minimum_confidence: number; minimum_risk_reward: number; qualification_status: SignalQualificationStatus; }
 export interface CryptoSignalList { calculated_at: string; signals: CryptoSignal[]; }
+export type SignalOutcomeStatus = "PENDING" | "TARGET_HIT" | "STOP_LOSS_HIT" | "AMBIGUOUS";
+export interface SignalOutcomeRecord {
+  record_id: string;
+  signal_id: string;
+  revision: number;
+  symbol: string;
+  signal: SignalDirection;
+  score: number;
+  confidence: number;
+  dispatched_at: string;
+  entry_price: number;
+  stop_loss: number | null;
+  target_price: number | null;
+  target_tagged_at: string | null;
+  stop_tagged_at: string | null;
+  target_tag_latency_seconds: number | null;
+  stop_tag_latency_seconds: number | null;
+  first_touch_price: number | null;
+  first_touch_timestamp: string | null;
+  outcome: SignalOutcomeStatus;
+  provider: string;
+  timeframe: string;
+  signal_engine_version: string;
+  calculated_at: string;
+  latest_candle_timestamp: string;
+  observed_at: string;
+  observation_candle_timestamp: string | null;
+  observation_source: string | null;
+  coverage_warning: string | null;
+}
 export interface AIResearchResponse { symbol: string; timeframe: string; deterministic_gate: "PASSED"; verified_context: Record<string, unknown>; report: string; model: string; }
 export type PositionSide = "LONG" | "SHORT";
 export interface PortfolioPosition { id: string; user_id: string; symbol: string; side: PositionSide; quantity: number; average_entry_price: number; notes: string | null; created_at: string; updated_at: string; }
@@ -135,3 +165,7 @@ export async function getPortfolioSummary(): Promise<PortfolioSummary> { return 
 export async function createPortfolioPosition(payload: { symbol: string; side: PositionSide; quantity: number; average_entry_price: number; notes?: string }): Promise<PortfolioPosition> { return authenticatedMutation<PortfolioPosition>("/api/portfolio/positions", { method: "POST", body: JSON.stringify(payload) }); }
 export async function deletePortfolioPosition(id: string): Promise<void> { await authenticatedMutation<void>(`/api/portfolio/positions/${encodeURIComponent(id)}`, { method: "DELETE" }); }
 export async function runPortfolioScenario(priceChangePercent: number): Promise<PortfolioScenario> { return request<PortfolioScenario>("/api/portfolio/scenario", { method: "POST", body: JSON.stringify({ price_change_percent: priceChangePercent }) }); }
+
+export async function logSignal(signal: CryptoSignal): Promise<SignalOutcomeRecord> { return authenticatedMutation<SignalOutcomeRecord>("/api/signal-outcomes/log", { method: "POST", body: JSON.stringify({ signal }) }); }
+export async function getSignalOutcomes(limit = 50): Promise<SignalOutcomeRecord[]> { const params = new URLSearchParams({ limit: String(limit) }); return request<SignalOutcomeRecord[]>(`/api/signal-outcomes?${params}`); }
+export async function getSignalOutcome(signalId: string, refresh = true): Promise<SignalOutcomeRecord> { const params = new URLSearchParams({ refresh: String(refresh) }); return request<SignalOutcomeRecord>(`/api/signal-outcomes/${encodeURIComponent(signalId)}?${params}`); }
