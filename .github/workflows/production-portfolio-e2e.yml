@@ -1,5 +1,9 @@
 name: Production Portfolio E2E
 
+concurrency:
+  group: production-verification
+  cancel-in-progress: false
+
 on:
   push:
     branches:
@@ -18,6 +22,7 @@ jobs:
       TEST_API_URL: https://research-76vr.onrender.com
       TEST_EMAIL: ${{ secrets.TEST_EMAIL }}
       TEST_PASSWORD: ${{ secrets.TEST_PASSWORD }}
+      TEST_TIMEOUT_SECONDS: "60"
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
