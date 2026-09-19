@@ -21,9 +21,12 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from app.symbols import CRYPTO_PAIRS
 
 
-def fetch_signal(base_url: str, symbol: str, limit: int) -> dict:
+def fetch_signal(base_url: str, symbol: str, limit: int, oidc_token: str | None = None) -> dict:
     url = f"{base_url.rstrip('/')}/api/signals/{symbol.replace('/', '%2F')}?limit={limit}"
-    request = urllib.request.Request(url, headers={"Accept": "application/json"})
+    headers = {"Accept": "application/json"}
+    if oidc_token:
+        headers["Authorization"] = f"Bearer {oidc_token}"
+    request = urllib.request.Request(url, headers=headers)
     with urllib.request.urlopen(request, timeout=25) as response:
         payload = json.loads(response.read().decode("utf-8"))
         return {"http_status": response.status, "url": url, "payload": payload}
@@ -34,6 +37,7 @@ def main() -> int:
     parser.add_argument("--base-url", default="https://research-76vr.onrender.com")
     parser.add_argument("--limit", type=int, default=250)
     parser.add_argument("--output", default="")
+    parser.add_argument("--oidc-token", default="")
     args = parser.parse_args()
 
     report = {
@@ -46,7 +50,7 @@ def main() -> int:
 
     for symbol in CRYPTO_PAIRS:
         try:
-            result = fetch_signal(args.base_url, symbol, args.limit)
+            result = fetch_signal(args.base_url, symbol, args.limit, args.oidc_token or None)
             payload = result["payload"]
             components = payload.get("components", [])
             row = {
