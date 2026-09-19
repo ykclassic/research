@@ -30,6 +30,19 @@ def expect(response: requests.Response, status: int, label: str) -> dict[str, An
         raise exc
 
 
+def get_with_retry(session: requests.Session, url: str, *, attempts: int = 3) -> requests.Response:
+    last_error: Exception | None = None
+    for attempt in range(1, attempts + 1):
+        try:
+            return session.get(url, timeout=TIMEOUT)
+        except requests.RequestException as exc:
+            last_error = exc
+            if attempt == attempts:
+                raise
+            time.sleep(float(attempt))
+    raise RuntimeError(f"GET retry loop exhausted: {last_error}")
+
+
 def csrf_headers(session: requests.Session) -> dict[str, str]:
     response = session.get(f"{API_URL}/api/auth/csrf", timeout=TIMEOUT)
     expect(response, 200, "/api/auth/csrf")
@@ -47,7 +60,7 @@ def main() -> None:
     session = requests.Session()
     session.headers.update({"Accept": "application/json", "User-Agent": "production-portfolio-e2e/1.0"})
 
-    response = session.get(f"{API_URL}/api/portfolio/positions", timeout=TIMEOUT)
+    response = get_with_retry(session, f"{API_URL}/api/portfolio/positions")
     expect(response, 401, "unauthenticated portfolio access")
 
     response = session.post(
@@ -59,7 +72,7 @@ def main() -> None:
     if user.get("email", "").lower() != EMAIL.lower():
         fail("/api/auth/login: authenticated email does not match TEST_EMAIL")
 
-    response = session.get(f"{API_URL}/api/auth/me", timeout=TIMEOUT)
+    response = get_with_retry(session, f"{API_URL}/api/auth/me")
     me = expect(response, 200, "/api/auth/me")
     if me.get("email", "").lower() != EMAIL.lower():
         fail("/api/auth/me: authenticated email does not match TEST_EMAIL")
@@ -112,7 +125,7 @@ def main() -> None:
         )
         expect(response, 404, "owner-scoped update of non-owned/nonexistent position")
 
-        response = session.get(f"{API_URL}/api/portfolio/positions", timeout=TIMEOUT)
+        response = get_with_retry(session, f"{API_URL}/api/portfolio/positions")
         positions = expect(response, 200, "list portfolio positions").get("positions")
         if not isinstance(positions, list) or not any(
             p.get("id") == position_id and p.get("quantity") == 0.0002 and p.get("average_entry_price") == 101000.0
@@ -120,7 +133,7 @@ def main() -> None:
         ):
             fail("list portfolio positions: updated position was not returned")
 
-        response = session.get(f"{API_URL}/api/portfolio/summary", timeout=TIMEOUT)
+        response = get_with_retry(session, f"{API_URL}/api/portfolio/summary")
         summary = expect(response, 200, "portfolio summary")
         if summary.get("position_count", 0) < 1:
             fail("portfolio summary: expected at least one position")
@@ -154,7 +167,7 @@ def main() -> None:
             if response.status_code != 204:
                 fail(f"delete portfolio position: expected HTTP 204, got {response.status_code}: {response.text[:300]}")
             for _ in range(3):
-                response = session.get(f"{API_URL}/api/portfolio/positions", timeout=TIMEOUT)
+                response = get_with_retry(session, f"{API_URL}/api/portfolio/positions")
                 positions = expect(response, 200, "verify portfolio cleanup").get("positions", [])
                 if not any(p.get("id") == position_id for p in positions):
                     break
