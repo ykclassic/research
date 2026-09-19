@@ -44,8 +44,9 @@ class FakeQuoteService:
         self.calls = 0
         self.orchestrator = self
 
-    async def get_candles(self, symbol, timeframe, outputsize):
+    async def get_candles(self, symbol, timeframe, outputsize, **kwargs):
         self.calls += 1
+        self.last_kwargs = kwargs
         return _dataset(symbol, timeframe)
 
 
@@ -145,3 +146,4 @@ async def test_sui_routes_directly_to_canonical_orchestrator() -> None:
     assert dataset.symbol == "SUI/USDT"
     assert provider.calls == []
     assert service.calls == 1
+    assert service.last_kwargs == {"excluded_providers": {"twelve_data"}}
