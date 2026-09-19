@@ -27,9 +27,17 @@ def fetch_signal(base_url: str, symbol: str, limit: int, oidc_token: str | None 
     if oidc_token:
         headers["Authorization"] = f"Bearer {oidc_token}"
     request = urllib.request.Request(url, headers=headers)
-    with urllib.request.urlopen(request, timeout=25) as response:
-        payload = json.loads(response.read().decode("utf-8"))
-        return {"http_status": response.status, "url": url, "payload": payload}
+    try:
+        with urllib.request.urlopen(request, timeout=25) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+            return {"http_status": response.status, "url": url, "payload": payload}
+    except urllib.error.HTTPError as exc:
+        body = exc.read().decode("utf-8", errors="replace")
+        try:
+            payload = json.loads(body)
+        except json.JSONDecodeError:
+            payload = {"raw_error_body": body}
+        return {"http_status": exc.code, "url": url, "payload": payload}
 
 
 def main() -> int:
@@ -52,6 +60,16 @@ def main() -> int:
         try:
             result = fetch_signal(args.base_url, symbol, args.limit, args.oidc_token or None)
             payload = result["payload"]
+            if result["http_status"] >= 400:
+                failures += 1
+                row = {
+                    "symbol": symbol,
+                    "http_status": result["http_status"],
+                    "error": payload,
+                }
+                report["signals"].append(row)
+                print(f"{symbol}: HTTP {result['http_status']} {payload}")
+                continue
             components = payload.get("components", [])
             row = {
                 "symbol": symbol,
@@ -89,7 +107,7 @@ def main() -> int:
                     f"smc={component['smc_score']:.4f} "
                     f"combined={component['combined_score']:.4f}"
                 )
-        except (urllib.error.URLError, urllib.error.HTTPError, TimeoutError, ValueError, json.JSONDecodeError) as exc:
+        except (urllib.error.URLError, TimeoutError, ValueError, json.JSONDecodeError) as exc:
             failures += 1
             row = {"symbol": symbol, "error": f"{type(exc).__name__}: {exc}"}
             report["signals"].append(row)
