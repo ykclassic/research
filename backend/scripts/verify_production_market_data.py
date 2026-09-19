@@ -477,7 +477,6 @@ def main() -> int:
                 client,
                 f"{base_url}/api/market/verification/fallback/{fallback_symbol}",
                 stage="Protected provider fallback",
-                params={"timeframe": args.fallback_timeframe, "limit": args.limit},
                 headers=headers,
             )
             if fallback.status_code >= 400:
@@ -511,6 +510,10 @@ def main() -> int:
             contract = fallback_payload.get("routing_contract", {})
             allowed_secondary = {"finnhub", "alpha_vantage"}
             require(
+                contract.get("domain") == "quote",
+                f"Fallback contract domain is not quote: {contract}",
+            )
+            require(
                 contract.get("primary_provider_excluded") == "twelve_data",
                 f"Fallback contract did not exclude Twelve Data: {contract}",
             )
@@ -519,26 +522,19 @@ def main() -> int:
                 f"Unexpected secondary-provider contract: {contract}",
             )
             require(
-                contract.get("selected_quote_provider") in allowed_secondary,
+                contract.get("selected_provider") in allowed_secondary,
                 f"Quote routing did not select a secondary provider: {contract}",
             )
             require(
-                contract.get("selected_candle_provider") in allowed_secondary,
-                f"Candle routing did not select a secondary provider: {contract}",
-            )
-            require(
-                "twelve_data" not in tuple(contract.get("quote_attempts", []))
-                and "twelve_data" not in tuple(contract.get("candle_attempts", [])),
+                "twelve_data" not in tuple(contract.get("provider_attempts", [])),
                 f"Twelve Data was attempted during fallback: {contract}",
             )
             results.append(
                 CheckResult(
-                    "Protected provider fallback routing contract",
+                    "Protected secondary quote-provider routing contract",
                     True,
-                    f"quote_provider={contract.get('selected_quote_provider')}; "
-                    f"candle_provider={contract.get('selected_candle_provider')}; "
-                    f"quote_attempts={contract.get('quote_attempts')}; "
-                    f"candle_attempts={contract.get('candle_attempts')}",
+                    f"selected_provider={contract.get('selected_provider')}; "
+                    f"attempts={contract.get('provider_attempts')}",
                 )
             )
 
