@@ -18,13 +18,14 @@ def test_kraken_public_is_credential_free_and_supports_expanded_crypto_universe(
         "SOL/USDT": "SOLUSDT",
         "DOGE/USDT": "DOGEUSDT",
         "ADA/USDT": "ADAUSDT",
-        "SUI/USDT": "SUIUSDT",
         "LTC/USDT": "LTCUSDT",
         "BTC/USD": "XBTUSD",
         "ETH/USD": "ETHUSD",
         "SOL/USD": "SOLUSD",
     }
     assert {symbol: provider._provider_pair(symbol) for symbol in expected} == expected
+    with pytest.raises(ValueError, match="native spot market"):
+        provider._provider_pair("SUI/USDT")
     assert provider._intervals == {
         Timeframe.MINUTE_15: 15,
         Timeframe.HOUR_1: 60,
