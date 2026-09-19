@@ -28,8 +28,6 @@ class KrakenPublicProvider(MarketDataProvider):
     MAX_RETRIES = 2
     CANDLE_CACHE_SECONDS = 90.0
     _candle_cache: dict[tuple[str, str, int, str | None, str | None], tuple[float, OHLCVDataset]] = {}
-    CANDLE_CACHE_SECONDS = 90.0
-    _candle_cache: dict[tuple[str, str, int, str | None, str | None], tuple[float, OHLCVDataset]] = {}
 
     _intervals = {
         Timeframe.MINUTE_15: 15,
@@ -47,7 +45,6 @@ class KrakenPublicProvider(MarketDataProvider):
         "SOL/USDT": "SOLUSDT",
         "DOGE/USDT": "DOGEUSDT",
         "ADA/USDT": "ADAUSDT",
-        "SUI/USDT": "SUIUSDT",
         "LTC/USDT": "LTCUSDT",
         "BTC/USD": "XBTUSD",
         "ETH/USD": "ETHUSD",
@@ -137,10 +134,11 @@ class KrakenPublicProvider(MarketDataProvider):
         mapping = normalize_symbol(internal_symbol)
         if mapping.asset_class != "crypto":
             raise ValueError(f"Kraken public provider does not support {mapping.asset_class} symbols.")
-        try:
-            return self._pairs[mapping.internal]
-        except KeyError as exc:
-            raise ValueError(f"Kraken public provider does not support {mapping.internal}.") from exc
+        if mapping.kraken is None:
+            raise ValueError(
+                f"Kraken public provider does not support a native spot market for {mapping.internal}."
+            )
+        return mapping.kraken
 
     @staticmethod
     def _find_ticker_row(result: dict, pair: str) -> dict | None:

@@ -95,7 +95,7 @@ class SignalCandleScheduler:
     ) -> OHLCVDataset:
         mapping = normalize_symbol(symbol)
 
-        if mapping.asset_class == "crypto":
+        if mapping.asset_class == "crypto" and mapping.kraken is not None:
             try:
                 dataset = await asyncio.wait_for(
                     self.crypto_provider.get_candles(

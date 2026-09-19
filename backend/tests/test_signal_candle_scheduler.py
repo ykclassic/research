@@ -133,3 +133,15 @@ async def test_selected_pair_does_not_acquire_another_symbol():
 
     assert {call[0] for call in provider.calls} == {"BNB/USDT"}
     assert len(provider.calls) == 4
+
+@pytest.mark.asyncio
+async def test_sui_routes_directly_to_canonical_orchestrator() -> None:
+    provider = FakeCryptoProvider()
+    service = FakeQuoteService()
+    scheduler = SignalCandleScheduler(service, provider)
+
+    dataset = await scheduler.get_dataset("SUI/USDT", Timeframe.HOUR_1, 250)
+
+    assert dataset.symbol == "SUI/USDT"
+    assert provider.calls == []
+    assert service.calls == 1
