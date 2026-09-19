@@ -71,8 +71,8 @@ def test_retry_helper_is_bounded_and_caps_backoff() -> None:
     assert all(call.args[0] <= 4.0 for call in sleep.call_args_list)
 
 
-def test_fallback_symbol_defaults_to_secondary_provider_supported_forex_pair(monkeypatch) -> None:
+def test_fallback_symbol_defaults_to_secondary_provider_supported_24_7_pair(monkeypatch) -> None:
     from scripts.verify_production_market_data import DEFAULT_FALLBACK_SYMBOL
 
     monkeypatch.delenv("MARKET_FALLBACK_SYMBOL", raising=False)
-    assert DEFAULT_FALLBACK_SYMBOL == "EUR/USD"
+    assert DEFAULT_FALLBACK_SYMBOL == "BTC/USDT"
