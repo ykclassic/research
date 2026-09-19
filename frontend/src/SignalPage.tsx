@@ -9,7 +9,7 @@ import {
   ShieldCheck,
   X,
 } from "lucide-react";
-import { ApiError, CryptoSignal, User, getSignal, logout } from "./api";
+import { ApiError, CryptoSignal, User, getSignal, logSignalOutcome, logout } from "./api";
 import { getMarketUniverse, MarketUniverse } from "./settingsApi";
 import type { AppPage } from "./App";
 import "./signal.css";
@@ -63,6 +63,8 @@ export default function SignalPage({ user, onLogout, setPage }: { user: User; on
   const [loadingList, setLoadingList] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [logging, setLogging] = useState(false);
+  const [loggedSignalId, setLoggedSignalId] = useState<string | null>(null);
   const requestId = useRef(0);
   const inFlight = useRef(new Set<string>());
 
@@ -115,6 +117,22 @@ export default function SignalPage({ user, onLogout, setPage }: { user: User; on
 
   const selectedState = selected ? pairStates[selected] : undefined;
   const selectedSignal = selectedState?.signal;
+  const logSelectedSignal = useCallback(async () => {
+    if (!selectedSignal || logging) return;
+    setLogging(true);
+    setError(null);
+    try {
+      const record = await logSignalOutcome(selectedSignal);
+      setLoggedSignalId(record.signal_id);
+      setPage("signal-outcomes");
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 401) { onLogout(); return; }
+      setError(err instanceof Error ? err.message : "Unable to log this signal for outcome tracking.");
+    } finally {
+      setLogging(false);
+    }
+  }, [logging, onLogout, selectedSignal, setPage]);
+
   const directionalCount = selectedSignal && selectedSignal.signal !== "NEUTRAL" ? 1 : 0;
   const selectedClass = useMemo(() => assetClass(universe, selected), [universe, selected]);
   const selectedStatus = selectedSignal ? statusLabel(selectedSignal) : null;
@@ -132,7 +150,7 @@ export default function SignalPage({ user, onLogout, setPage }: { user: User; on
         <button className="nav-button" onClick={() => setPage("mtf")}>MTF Analysis</button>
         <button className="nav-button active" onClick={() => setPage("signals")}>Signals</button>
       </nav>
-      <div className="topbar-actions"><span className="user-email">{user.email}</span><button className="refresh" onClick={() => void loadSignal(selected, true)} disabled={refreshing || !selected}><RefreshCw size={16} className={refreshing ? "spin" : ""}/>{refreshing ? "Refreshing" : "Refresh signal"}</button><button className="logout" onClick={() => void (async () => { try { await logout(); } finally { onLogout(); } })()}>Sign out</button></div>
+      <div className="topbar-actions"><span className="user-email">{user.email}</span><button className="refresh" onClick={() => setPage("signal-outcomes")}><ShieldCheck size={16}/>Signal Outcome</button><button className="refresh" onClick={() => void loadSignal(selected, true)} disabled={refreshing || !selected}><RefreshCw size={16} className={refreshing ? "spin" : ""}/>{refreshing ? "Refreshing" : "Refresh signal"}</button><button className="logout" onClick={() => void (async () => { try { await logout(); } finally { onLogout(); } })()}>Sign out</button></div>
     </header>
     <main>
       <section className="hero signal-hero">
@@ -177,7 +195,7 @@ export default function SignalPage({ user, onLogout, setPage }: { user: User; on
         </div>
 
         <aside className="panel signal-detail">
-          <div className="panel-head"><div><h3>{selected || "Signal detail"}</h3><span>{selectedClass} · completed-candle research</span></div></div>
+          <div className="panel-head"><div><h3>{selected || "Signal detail"}</h3><span>{selectedClass} · completed-candle research</span></div>{selectedSignal && <button className="refresh" onClick={() => void logSelectedSignal()} disabled={logging}><Check size={15}/>{logging ? "Logging…" : loggedSignalId ? "Logged" : "Log Signal"}</button>}</div>
           {!selected ? <div className="empty">Enable an asset class and select a pair.</div> :
           selectedState?.status === "loading" && !selectedSignal ? <div className="empty">Calculating {selected} from Daily, H4, H1 and M15 completed candles…</div> :
           selectedState?.status === "error" && !selectedSignal ? <div className="empty signal-detail-error"><AlertTriangle size={18}/><span>{selectedState.error}</span><button className="refresh" onClick={() => void loadSignal(selected, true)}>Retry {selected}</button></div> :

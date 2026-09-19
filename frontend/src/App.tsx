@@ -6,6 +6,7 @@ import TechnicalAnalysisPage from "./TechnicalAnalysisPage";
 import MarketStructurePage from "./MarketStructurePage";
 import MTFAnalysisPage from "./MTFAnalysisPage";
 import SignalPage from "./SignalPage";
+import SignalOutcomePage from "./SignalOutcomePage";
 import PortfolioPage from "./PortfolioPage";
 import AIResearchPage from "./AIResearchPage";
 import NewsResearchPage from "./NewsResearchPage";
@@ -14,7 +15,7 @@ import ResearchHistoryPage from "./ResearchHistoryPage";
 import AlertsPage from "./AlertsPage";
 import SettingsPage from "./SettingsPage";
 
-export type AppPage = "market" | "watchlists" | "analysis" | "market-structure" | "mtf" | "signals" | "portfolio" | "ai-research" | "news-research" | "research-reports" | "research-history" | "alerts" | "settings";
+export type AppPage = "market" | "watchlists" | "analysis" | "market-structure" | "mtf" | "signals" | "signal-outcomes" | "portfolio" | "ai-research" | "news-research" | "research-reports" | "research-history" | "alerts" | "settings";
 
 type AuthMode = "login" | "register" | "forgot" | "reset";
 
@@ -25,6 +26,7 @@ const ROUTES: Record<AppPage, string> = {
   "market-structure": "/analysis/structure",
   mtf: "/analysis/multi-timeframe",
   signals: "/analysis/signals",
+  "signal-outcomes": "/analysis/signals/outcomes",
   portfolio: "/portfolio",
   "ai-research": "/research/ai",
   "news-research": "/research/news",
@@ -224,6 +226,7 @@ function App(){
   if(page==="market-structure")return <MarketStructurePage user={user} onLogout={onLogout} setPage={navigate}/>;
   if(page==="mtf")return <MTFAnalysisPage user={user} onLogout={onLogout} setPage={navigate}/>;
   if(page==="signals")return <SignalPage user={user} onLogout={onLogout} setPage={navigate}/>;
+  if(page==="signal-outcomes")return <SignalOutcomePage user={user} onLogout={onLogout} setPage={navigate}/>;
   if(page==="portfolio")return <PortfolioPage user={user} onLogout={onLogout} setPage={navigate}/>;
   if(page==="ai-research")return <AIResearchPage user={user} onLogout={onLogout} setPage={navigate}/>;
   if(page==="news-research")return <NewsResearchPage onLogout={onLogout}/>;
