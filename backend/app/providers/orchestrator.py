@@ -310,6 +310,7 @@ class MarketDataOrchestrator:
         canonical_prefix = f"canonical|{mapping.internal}|{timeframe.value}|"
         excluded = excluded_providers or set()
         attempts: list[str] = []
+        provider_diagnostics: list[str] = []
 
         if not excluded:
             cached = self.candle_cache.get(request_key, allow_stale=False)
@@ -323,7 +324,14 @@ class MarketDataOrchestrator:
 
         for provider in self.providers:
             candle_state = self._state(provider, "candles")
-            if provider.name in excluded or not provider.configured or candle_state.circuit_open:
+            if provider.name in excluded:
+                provider_diagnostics.append(f"{provider.name}=excluded")
+                continue
+            if not provider.configured:
+                provider_diagnostics.append(f"{provider.name}=not_configured")
+                continue
+            if candle_state.circuit_open:
+                provider_diagnostics.append(f"{provider.name}=circuit_open")
                 continue
             candle_reserved = False
             if provider.name == "twelve_data" and not self._reserve_twelve_data_candle_budget():
@@ -340,6 +348,7 @@ class MarketDataOrchestrator:
                         else:
                             candle_state.last_error = "Candle quota remains unavailable after the Twelve Data minute reset; routing to fallback providers."
                             candle_state.last_error_code = ProviderErrorCode.QUOTA_EXHAUSTED
+                            provider_diagnostics.append(f"{provider.name}=quota_exhausted")
                             continue
                     else:
                         candle_state.last_error = "Candle quota scheduler has no capacity; routing to fallback providers."
@@ -348,6 +357,7 @@ class MarketDataOrchestrator:
                 else:
                     candle_state.last_error = "Candle quota scheduler has no capacity; routing to fallback providers."
                     candle_state.last_error_code = ProviderErrorCode.QUOTA_EXHAUSTED
+                    provider_diagnostics.append(f"{provider.name}=quota_exhausted")
                     continue
             elif provider.name == "twelve_data":
                 candle_reserved = True
@@ -361,6 +371,7 @@ class MarketDataOrchestrator:
                 latency_ms = int((time.perf_counter() - started) * 1000)
                 if not self._fresh_dataset(dataset):
                     self._record_failure(provider, "Provider candle set is stale or incomplete", latency_ms, ProviderErrorCode.PROVIDER_UNAVAILABLE, "candles")
+                    provider_diagnostics.append(f"{provider.name}=stale_or_incomplete")
                     continue
                 self._record_success(provider, latency_ms, "candles")
                 dataset = dataset.model_copy(update={
@@ -375,6 +386,7 @@ class MarketDataOrchestrator:
                 return dataset
             except Exception as exc:
                 self._record_failure(provider, str(exc), int((time.perf_counter() - started) * 1000), classify_provider_error(exc), "candles")
+                provider_diagnostics.append(f"{provider.name}={type(exc).__name__}: {exc}")
             finally:
                 if candle_reserved:
                     self._release_twelve_data_candle_budget()
@@ -399,7 +411,11 @@ class MarketDataOrchestrator:
                 "provider_attempts": tuple(attempts) or dataset.provider_attempts,
                 "request_latency_ms": 0,
             })
-        raise RuntimeError("All configured market-data providers were unavailable and no canonical candle cache entry exists.")
+        detail = "; ".join(provider_diagnostics) or "no provider attempts were available"
+        raise RuntimeError(
+            "All configured market-data providers were unavailable and no canonical candle cache entry exists. "
+            f"Provider diagnostics: {detail}"
+        )
 
 
 market_data = MarketDataOrchestrator()
