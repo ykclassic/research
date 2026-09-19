@@ -214,6 +214,116 @@ class KrakenPublicProvider(MarketDataProvider):
     async def get_quote(self, internal_symbol: str) -> Quote:
         return (await self.get_quotes([internal_symbol]))[0]
 
+    async def get_cross_candles(
+        self,
+        internal_symbol: str,
+        timeframe: Timeframe,
+        outputsize: int = 250,
+        start_date: datetime | None = None,
+        end_date: datetime | None = None,
+    ) -> OHLCVDataset:
+        mapping = normalize_symbol(internal_symbol)
+        if mapping.asset_class != "crypto" or mapping.kraken_cross is None:
+            raise ValueError(f"Kraken cross provider does not support {mapping.internal}.")
+        timeframe = Timeframe(timeframe)
+        interval = self._intervals.get(timeframe)
+        if interval is None:
+            raise ValueError(f"Kraken cross provider does not support {timeframe.value} candles.")
+        if (start_date is None) != (end_date is None):
+            raise ValueError("Historical candle ranges require both start_date and end_date.")
+        if start_date is not None and end_date is not None and start_date >= end_date:
+            raise ValueError("Historical candle start_date must be before end_date.")
+
+        base_pair, quote_pair = mapping.kraken_cross
+        params_base: dict[str, str] = {"pair": base_pair, "interval": str(interval)}
+        params_quote: dict[str, str] = {"pair": quote_pair, "interval": str(interval)}
+        if start_date is not None:
+            since = str(int(start_date.timestamp()))
+            params_base["since"] = since
+            params_quote["since"] = since
+
+        requested_at = datetime.now(timezone.utc)
+        started = time.perf_counter()
+        base_payload, quote_payload = await asyncio.gather(
+            self._request_json("OHLC", params_base, timeout_seconds=10.0),
+            self._request_json("OHLC", params_quote, timeout_seconds=10.0),
+        )
+        base_rows = self._parse_pair_result(base_payload.get("result", {}), base_pair)
+        quote_rows = self._parse_pair_result(quote_payload.get("result", {}), quote_pair)
+
+        base_by_time = {int(float(row[0])): row for row in base_rows if len(row) >= 7}
+        quote_by_time = {int(float(row[0])): row for row in quote_rows if len(row) >= 7}
+        now = datetime.now(timezone.utc)
+        duration = timeframe.seconds
+        candles: list[Candle] = []
+
+        for timestamp_value in sorted(base_by_time.keys() & quote_by_time.keys()):
+            base_row = base_by_time[timestamp_value]
+            quote_row = quote_by_time[timestamp_value]
+            quote_open = float(quote_row[1])
+            quote_high = float(quote_row[2])
+            quote_low = float(quote_row[3])
+            quote_close = float(quote_row[4])
+            if min(quote_open, quote_high, quote_low, quote_close) <= 0:
+                continue
+
+            # For a ratio A/B = (A/USD) / (B/USD), the conservative OHLC
+            # transformation is:
+            #   open/close = A_open/close ÷ B_open/close
+            #   high = A_high ÷ B_low
+            #   low = A_low ÷ B_high
+            timestamp = datetime.fromtimestamp(timestamp_value, tz=timezone.utc)
+            candles.append(
+                Candle(
+                    timestamp=timestamp,
+                    open=float(base_row[1]) / quote_open,
+                    high=float(base_row[2]) / quote_low,
+                    low=float(base_row[3]) / quote_high,
+                    close=float(base_row[4]) / quote_close,
+                    volume=None,
+                    symbol=mapping.internal,
+                    timeframe=timeframe,
+                    source="kraken_public_cross",
+                    is_complete=timestamp.timestamp() + duration <= now.timestamp(),
+                )
+            )
+
+        completed = [candle for candle in candles if candle.is_complete]
+        if end_date is not None:
+            completed = [
+                candle for candle in completed
+                if candle.timestamp < end_date.astimezone(timezone.utc)
+            ]
+        completed = completed[-min(max(outputsize, 30), 720):]
+        if len(completed) < 30:
+            raise ValueError(
+                f"Kraken cross route produced only {len(completed)} completed "
+                f"{timeframe.value} candles; at least 30 are required."
+            )
+
+        provider_timestamp = completed[-1].timestamp
+        provisional = OHLCVDataset.model_construct(
+            symbol=mapping.internal,
+            timeframe=timeframe,
+            source="kraken_public_cross",
+            requested_at=requested_at,
+            provider_timestamp=provider_timestamp,
+            candles=tuple(completed),
+        )
+        dataset = OHLCVDataset(
+            symbol=mapping.internal,
+            timeframe=timeframe,
+            source="kraken_public_cross",
+            requested_at=requested_at,
+            provider_timestamp=provider_timestamp,
+            candles=tuple(completed),
+            request_latency_ms=int((time.perf_counter() - started) * 1000),
+            completeness_status=dataset_completeness(provisional),
+            provider_attempts=("kraken_public",),
+            fallback_used=True,
+        )
+        return validate_ohlcv_dataset(refresh_candle_freshness(dataset))
+
     async def get_candles(
         self,
         internal_symbol: str,

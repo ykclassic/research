@@ -137,6 +137,31 @@ class SignalCandleScheduler:
                         f"({type(fallback_exc).__name__}: "
                         f"{fallback_exc or 'no diagnostic message'})"
                     ) from fallback_exc
+        elif mapping.asset_class == "crypto" and mapping.kraken_cross is not None:
+            try:
+                dataset = await asyncio.wait_for(
+                    self.crypto_provider.get_cross_candles(
+                        mapping.internal, timeframe, limit
+                    ),
+                    timeout=self.FALLBACK_TIMEOUT_SECONDS,
+                )
+            except Exception as cross_exc:
+                try:
+                    fallback_kwargs = {}
+                    if mapping.unsupported_providers:
+                        fallback_kwargs["excluded_providers"] = set(mapping.unsupported_providers)
+                    dataset = await asyncio.wait_for(
+                        self.quote_service.orchestrator.get_candles(
+                            mapping.internal, timeframe, limit, **fallback_kwargs
+                        ),
+                        timeout=self.FALLBACK_TIMEOUT_SECONDS,
+                    )
+                except Exception as fallback_exc:
+                    raise RuntimeError(
+                        f"{mapping.internal} {timeframe.value}: Kraken cross-provider "
+                        f"failed ({type(cross_exc).__name__}: {cross_exc}); fallback failed "
+                        f"({type(fallback_exc).__name__}: {fallback_exc})"
+                    ) from fallback_exc
         else:
             try:
                 fallback_kwargs = {}

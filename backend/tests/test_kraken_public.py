@@ -75,3 +75,32 @@ def test_kraken_public_candle_cache_is_shared_across_provider_instances(monkeypa
     assert second.cache_hit is True
     assert second.request_latency_ms == 0
     assert second.candles == first.candles
+
+def test_sui_kraken_cross_market_builds_valid_ohlcv(monkeypatch) -> None:
+    import asyncio
+
+    base = int(datetime.now(timezone.utc).timestamp()) - 3600 * 50
+
+    async def fake_request_json(self, endpoint, params, timeout_seconds):
+        rows = []
+        for index in range(40):
+            timestamp = base + index * 3600
+            if params["pair"] == "SUIUSD":
+                price = 0.75 + index * 0.001
+                rows.append([timestamp, price - 0.01, price + 0.02, price - 0.02, price, "0", "100"])
+            else:
+                price = 1.0 + index * 0.0001
+                rows.append([timestamp, price - 0.0001, price + 0.0001, price - 0.0001, price, "0", "1000"])
+        return {"result": {params["pair"]: rows, "last": str(base + 39 * 3600)}}
+
+    monkeypatch.setattr(KrakenPublicProvider, "_request_json", fake_request_json)
+    dataset = asyncio.run(
+        KrakenPublicProvider().get_cross_candles("SUI/USDT", Timeframe.HOUR_1, 40)
+    )
+
+    assert dataset.symbol == "SUI/USDT"
+    assert dataset.source == "kraken_public_cross"
+    assert len(dataset.completed_candles) == 40
+    assert dataset.completed_candles[-1].close > 0
+    assert all(candle.volume is None for candle in dataset.candles)
+    assert dataset.fallback_used is True
