@@ -84,29 +84,48 @@ def test_candidate_levels_reject_very_tight_structural_resistance() -> None:
     )
     assert levels.stop_loss == 97.0
     assert levels.structural_target == 100.5
-    assert levels.take_profit == 100.5
+    assert levels.take_profit is None
     assert levels.risk_reward == 0.5 / 3.0
-    assert any("conflicts with the ATR-derived minimum target" in r for r in levels.reasons)
-    assert any("below the 1.50 minimum" in r for r in levels.reasons)
+    assert any("does not satisfy" in r for r in levels.reasons)
+    assert any("Nearest structural target" in r for r in levels.reasons)
 
 
-def test_candidate_levels_reject_insufficient_rr() -> None:
+def test_candidate_levels_reject_when_all_structural_targets_fail_rr() -> None:
     levels = _candidate_trade_levels(
-        SignalDirection.BUY, 100.0, 2.0, [_candle(103.0, 98.0)], 1.5,
+        SignalDirection.BUY,
+        100.0,
+        2.0,
+        [_candle(103.0, 98.0), _candle(103.5, 99.0)],
+        1.5,
         stop_atr_multiplier=2.0,
     )
-    assert levels.take_profit == 103.0
+    assert levels.take_profit is None
     assert levels.risk_reward == 3.0 / 4.0
-    assert any("below the 1.50 minimum" in r for r in levels.reasons)
+    assert any("does not satisfy" in r for r in levels.reasons)
+    assert any("Nearest structural target" in r for r in levels.reasons)
 
 
-def test_candidate_levels_accept_valid_atr_based_rr() -> None:
+def test_candidate_levels_accept_valid_structural_rr() -> None:
     levels = _candidate_trade_levels(
         SignalDirection.BUY, 100.0, 2.0, [_candle(105.0, 98.0)], 1.5
     )
     assert levels.stop_distance == 3.0
     assert levels.stop_loss == 97.0
     assert levels.atr_minimum_target == 104.5
+    assert levels.take_profit == 105.0
+    assert levels.risk_reward == 5.0 / 3.0
+    assert levels.reasons == ()
+
+
+def test_candidate_levels_scan_to_next_resistance_when_nearest_fails_rr() -> None:
+    levels = _candidate_trade_levels(
+        SignalDirection.BUY,
+        100.0,
+        2.0,
+        [_candle(100.5, 98.0), _candle(105.0, 99.0)],
+        1.5,
+    )
+    assert levels.structural_target == 105.0
     assert levels.take_profit == 105.0
     assert levels.risk_reward == 5.0 / 3.0
     assert levels.reasons == ()
@@ -124,6 +143,20 @@ def test_candidate_levels_are_symmetric_for_buy_and_sell() -> None:
     assert buy.take_profit == 105.0
     assert sell.take_profit == 95.0
     assert buy.risk_reward == sell.risk_reward == 5.0 / 3.0
+
+
+def test_candidate_levels_scan_to_next_support_when_nearest_fails_rr() -> None:
+    levels = _candidate_trade_levels(
+        SignalDirection.SELL,
+        100.0,
+        2.0,
+        [_candle(102.0, 99.5), _candle(101.0, 95.0)],
+        1.5,
+    )
+    assert levels.structural_target == 95.0
+    assert levels.take_profit == 95.0
+    assert levels.risk_reward == 5.0 / 3.0
+    assert levels.reasons == ()
 
 
 def test_candidate_levels_reject_missing_structural_levels() -> None:
