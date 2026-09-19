@@ -70,7 +70,7 @@ def test_sell_target_tag_uses_low():
     assert result is not None
     assert result["target_tagged_at"].endswith("12:15:00+00:00")
     assert result["outcome"] == SignalOutcomeStatus.TARGET_HIT.value
-    assert result["first_touch_price"] == 109
+    assert result["first_touch_price"] == 89
 
 
 def test_stop_loss_is_recorded_when_it_is_the_first_terminal_touch():
