@@ -1,6 +1,7 @@
 from datetime import datetime, timezone
 
 import pytest
+import httpx
 
 from app.config import settings
 from app.providers.twelve_data import TwelveDataProvider
@@ -183,3 +184,59 @@ async def test_get_candles_rejects_partial_or_reverse_range(monkeypatch):
             start_date=datetime(2026, 8, 2, tzinfo=timezone.utc),
             end_date=datetime(2026, 8, 1, tzinfo=timezone.utc),
         )
+
+@pytest.mark.asyncio
+async def test_get_candles_uses_cross_endpoint_for_unsupported_crypto_pair(monkeypatch):
+    provider = TwelveDataProvider()
+    calls: list[dict] = []
+
+    class SequenceClient:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return None
+
+        async def get(self, url: str, *, params: dict):
+            calls.append({"url": url, "params": params})
+            request = httpx.Request("GET", url)
+            if url.endswith("/time_series"):
+                return httpx.Response(
+                    404,
+                    request=request,
+                    json={"status": "error", "message": "Symbol not found"},
+                )
+            return httpx.Response(
+                200,
+                request=request,
+                json={
+                    "meta": {"base_instrument": "SUI/USD", "quote_instrument": "USDT/USD"},
+                    "values": [
+                        {
+                            "datetime": "2026-09-19 08:00:00",
+                            "open": "3.01",
+                            "high": "3.05",
+                            "low": "2.99",
+                            "close": "3.04",
+                        }
+                    ],
+                },
+            )
+
+    monkeypatch.setattr(
+        "app.providers.twelve_data.httpx.AsyncClient",
+        lambda **kwargs: SequenceClient(),
+    )
+    monkeypatch.setattr(settings, "twelve_data_api_key", "test-key")
+    monkeypatch.setattr(settings, "http_max_retries", 0)
+
+    dataset = await provider.get_candles("SUI/USDT", "1h", 50)
+
+    assert dataset.symbol == "SUI/USDT"
+    assert dataset.source == "twelve_data"
+    assert calls[0]["url"] == "https://api.twelvedata.com/time_series"
+    assert calls[1]["url"] == "https://api.twelvedata.com/time_series/cross"
+    assert calls[1]["params"]["base"] == "SUI"
+    assert calls[1]["params"]["quote"] == "USDT"
+    assert calls[1]["params"]["base_type"] == "Digital Currency"
+    assert calls[1]["params"]["quote_type"] == "Digital Currency"
