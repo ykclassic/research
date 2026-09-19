@@ -23,7 +23,6 @@ router = APIRouter(prefix="/api/signal-outcomes", tags=["signal-outcomes"])
 
 class LogSignalRequest(BaseModel):
     signal: CryptoSignal
-    dispatched_at: datetime | None = None
 
 
 def _token(access_token: str | None) -> str:
@@ -43,7 +42,7 @@ def _map_error(exc: DataServiceError) -> HTTPException:
 @router.post("/log", response_model=SignalOutcomeRecord, status_code=status.HTTP_201_CREATED, dependencies=[Depends(_require_csrf)])
 async def log_signal(payload: LogSignalRequest, user: Annotated[UserResponse, Depends(get_current_user)], access_token: Annotated[str | None, Cookie(alias="mr_access_token")] = None):
     try:
-        return create_signal_audit(_token(access_token), user.id, payload.signal, signal_engine_version=APPLICATION_VERSION, dispatched_at=payload.dispatched_at)
+        return create_signal_audit(_token(access_token), user.id, payload.signal, signal_engine_version=APPLICATION_VERSION)
     except DataServiceError as exc:
         raise _map_error(exc) from exc
 
