@@ -301,7 +301,7 @@ class MarketDataOrchestrator:
             output[key] = Quote(symbol=key, provider_symbol=mapping.twelve_data, status=QuoteStatus.UNAVAILABLE, source=None, error=f"{self._error_text(ProviderErrorCode.ALL_PROVIDERS_UNAVAILABLE)}: {detail}", error_code=ProviderErrorCode.ALL_PROVIDERS_UNAVAILABLE, fallback_used=bool(diagnostics[key]), provider_attempts=tuple(diagnostics[key]))
         return [output[normalize_symbol(symbol).internal] for symbol in symbols]
 
-    async def get_candles(self, symbol: str, timeframe: Timeframe, outputsize: int = 250, start_date: datetime | None = None, end_date: datetime | None = None, *, excluded_providers: set[str] | None = None) -> OHLCVDataset:
+    async def get_candles(self, symbol: str, timeframe: Timeframe, outputsize: int = 250, start_date: datetime | None = None, end_date: datetime | None = None, *, excluded_providers: set[str] | None = None, allow_stale: bool = False) -> OHLCVDataset:
         mapping = normalize_symbol(symbol)
         timeframe = Timeframe(timeframe)
         range_key = "recent" if start_date is None else f"{start_date.isoformat()}:{end_date.isoformat()}"
@@ -370,7 +370,8 @@ class MarketDataOrchestrator:
                     timeout=max(settings.analysis_timeout_seconds, settings.provider_timeout_seconds),
                 )
                 latency_ms = int((time.perf_counter() - started) * 1000)
-                if not self._fresh_dataset(dataset):
+                stale_market_closed = allow_stale and not is_market_open(mapping.internal) and bool(dataset.completed_candles)
+                if not self._fresh_dataset(dataset) and not stale_market_closed:
                     self._record_failure(provider, "Provider candle set is stale or incomplete", latency_ms, ProviderErrorCode.PROVIDER_UNAVAILABLE, "candles")
                     provider_diagnostics.append(f"{provider.name}=stale_or_incomplete")
                     continue
