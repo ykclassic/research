@@ -110,7 +110,18 @@ async def verify_fallback_path(symbol: str, timeframe: Timeframe = Query(Timefra
         quote = await service.orchestrator.get_quote(symbol, force_refresh=True, excluded_providers={"twelve_data"})
         candles = await service.orchestrator.get_candles(symbol, timeframe, limit, excluded_providers={"twelve_data"})
     except (RuntimeError, ValueError) as exc:
-        raise HTTPException(status_code=503, detail=str(exc)) from exc
+        quote_status = service.orchestrator.provider_status("quote")
+        candle_status = service.orchestrator.provider_status("candles")
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "error": str(exc),
+                "symbol": symbol,
+                "timeframe": timeframe.value,
+                "quote_providers": [item.model_dump(mode="json") for item in quote_status],
+                "candle_providers": [item.model_dump(mode="json") for item in candle_status],
+            },
+        ) from exc
     return {
         "quote": quote.model_dump(mode="json"),
         "candles": candles.model_dump(mode="json"),

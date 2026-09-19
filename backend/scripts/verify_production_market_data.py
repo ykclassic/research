@@ -480,6 +480,12 @@ def main() -> int:
                 params={"timeframe": args.fallback_timeframe, "limit": args.limit},
                 headers=headers,
             )
+            if fallback.status_code >= 400:
+                raise httpx.HTTPStatusError(
+                    f"Protected provider fallback HTTP {fallback.status_code}: {fallback.text[:1500]}",
+                    request=fallback.request,
+                    response=fallback,
+                )
             fallback.raise_for_status()
             if expected_commit:
                 require(
