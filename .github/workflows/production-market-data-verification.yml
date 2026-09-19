@@ -97,3 +97,19 @@ jobs:
 
       - name: Verify deployed market-data path and fallback path
         run: python backend/scripts/verify_production_market_data.py
+
+      - name: Diagnose live crypto signal pipeline
+        run: |
+          python backend/scripts/diagnose_live_signals.py \
+            --base-url "${MARKET_API_BASE}" \
+            --limit "${MARKET_ANALYSIS_LIMIT}" \
+            --oidc-token "${GITHUB_OIDC_TOKEN}" \
+            --output live-signal-diagnostic.json
+
+      - name: Upload live signal diagnostic
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: live-signal-diagnostic
+          path: live-signal-diagnostic.json
+          if-no-files-found: ignore
