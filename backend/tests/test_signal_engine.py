@@ -43,5 +43,5 @@ def test_confidence_mapping_does_not_adapt_to_preference_threshold() -> None:
 
     # Qualification policy may change independently; the deterministic score
     # mapping itself must remain unchanged.
-    assert _confidence_from_score(0.64) == 0.82
+    assert _confidence_from_score(0.64) == pytest.approx(0.82)
     assert _confidence_from_score(0.64) == _confidence_from_score(-0.64)
