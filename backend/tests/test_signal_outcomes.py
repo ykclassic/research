@@ -19,8 +19,8 @@ def snapshot(signal: str = "BUY") -> SignalOutcomeAuditRecord:
         confidence=0.9,
         dispatched_at=dispatched,
         entry_price=100,
-        stop_loss=95,
-        target_price=110,
+        stop_loss=105 if signal == "SELL" else 95,
+        target_price=90 if signal == "SELL" else 110,
         provider="kraken_public",
         timeframe="15m",
         signal_engine_version="1.18.0",
@@ -65,7 +65,7 @@ def test_sell_target_tag_uses_low():
     snap = snapshot("SELL")
     result = evaluate_first_touch(
         snap,
-        (candle(snap.dispatched_at + timedelta(minutes=15), 101, 109),),
+        (candle(snap.dispatched_at + timedelta(minutes=15), 101, 89),),
     )
     assert result is not None
     assert result["target_tagged_at"].endswith("12:15:00+00:00")
