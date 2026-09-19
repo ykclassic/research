@@ -166,7 +166,7 @@ def test_candidate_levels_reject_when_all_structural_targets_fail_rr() -> None:
     )
     assert levels.take_profit is None
     assert levels.risk_reward == 2.0 / 4.0
-    assert any("does not satisfy" in r for r in levels.reasons)
+    assert any("minimum risk/reward" in r for r in levels.reasons)
     assert any("Nearest structural target" in r for r in levels.reasons)
 
 
