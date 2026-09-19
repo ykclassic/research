@@ -112,6 +112,11 @@ export default function SignalPage({ user, onLogout, setPage }: { user: User; on
     }
   }, [onLogout, selected]);
 
+  useEffect(() => { void loadUniverse(); }, [loadUniverse]);
+  useEffect(() => { if (selected) void loadSignal(selected); }, [selected, loadSignal]);
+
+  const selectedState = selected ? pairStates[selected] : undefined;
+  const selectedSignal = selectedState?.signal;
   const logSelectedSignal = useCallback(async () => {
     if (!selectedSignal || logging) return;
     setLogging(true);
@@ -128,11 +133,6 @@ export default function SignalPage({ user, onLogout, setPage }: { user: User; on
     }
   }, [logging, onLogout, selectedSignal, setPage]);
 
-  useEffect(() => { void loadUniverse(); }, [loadUniverse]);
-  useEffect(() => { if (selected) void loadSignal(selected); }, [selected, loadSignal]);
-
-  const selectedState = selected ? pairStates[selected] : undefined;
-  const selectedSignal = selectedState?.signal;
   const directionalCount = selectedSignal && selectedSignal.signal !== "NEUTRAL" ? 1 : 0;
   const selectedClass = useMemo(() => assetClass(universe, selected), [universe, selected]);
   const selectedStatus = selectedSignal ? statusLabel(selectedSignal) : null;
