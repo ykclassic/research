@@ -266,6 +266,86 @@ class TwelveDataProvider(MarketDataProvider):
     async def get_quote(self, internal_symbol: str) -> Quote:
         return (await self.get_quotes([internal_symbol]))[0]
 
+    async def _get_cross_crypto_candles(
+        self,
+        internal_symbol: str,
+        timeframe: Timeframe,
+        outputsize: int,
+        start_date: datetime | None,
+        end_date: datetime | None,
+    ) -> OHLCVDataset:
+        mapping = normalize_symbol(internal_symbol)
+        base, quote = mapping.internal.split("/")
+        requested_at = datetime.now(timezone.utc)
+        started = time.perf_counter()
+        params = {
+            "base": base,
+            "base_type": "Digital Currency",
+            "quote": quote,
+            "quote_type": "Digital Currency",
+            "interval": self._intervals[timeframe],
+            "apikey": settings.twelve_data_api_key,
+            "timezone": "UTC",
+        }
+        if start_date is not None and end_date is not None:
+            params["start_date"] = self._format_range_timestamp(start_date)
+            params["end_date"] = self._format_range_timestamp(end_date)
+        else:
+            params["outputsize"] = str(min(max(outputsize, 50), 5000))
+
+        async with httpx.AsyncClient(
+            timeout=httpx.Timeout(settings.provider_timeout_seconds)
+        ) as client:
+            response = await client.get(f"{self.base_url}/time_series/cross", params=params)
+        self._record_usage(getattr(response, "headers", None))
+        response.raise_for_status()
+        payload = response.json()
+        if payload.get("status") == "error" or "values" not in payload:
+            raise ValueError(str(payload.get("message", "Twelve Data cross endpoint returned no historical data.")))
+
+        now = datetime.now(timezone.utc)
+        duration = timedelta(seconds=timeframe.seconds)
+        candles: list[Candle] = []
+        for row in reversed(payload["values"]):
+            timestamp = self._parse_timestamp(str(row["datetime"]))
+            candles.append(
+                Candle(
+                    timestamp=timestamp,
+                    open=float(row["open"]),
+                    high=float(row["high"]),
+                    low=float(row["low"]),
+                    close=float(row["close"]),
+                    volume=None,
+                    symbol=mapping.internal,
+                    timeframe=timeframe,
+                    source=self.name,
+                    is_complete=timestamp + duration <= now,
+                )
+            )
+        if not candles:
+            raise ValueError("Twelve Data cross endpoint returned no candles.")
+        provider_timestamp = candles[-1].timestamp
+        provisional = OHLCVDataset.model_construct(
+            symbol=mapping.internal,
+            timeframe=timeframe,
+            source=self.name,
+            requested_at=requested_at,
+            provider_timestamp=provider_timestamp,
+            candles=tuple(candles),
+        )
+        dataset = OHLCVDataset(
+            symbol=mapping.internal,
+            timeframe=timeframe,
+            source=self.name,
+            requested_at=requested_at,
+            provider_timestamp=provider_timestamp,
+            candles=tuple(candles),
+            request_latency_ms=int((time.perf_counter() - started) * 1000),
+            completeness_status=dataset_completeness(provisional),
+            provider_attempts=(self.name,),
+        )
+        return validate_ohlcv_dataset(refresh_candle_freshness(dataset))
+
     async def get_candles(
         self,
         internal_symbol: str,
@@ -365,4 +445,13 @@ class TwelveDataProvider(MarketDataProvider):
                 if not retryable_provider_error(code) or attempt >= settings.http_max_retries:
                     break
                 await asyncio.sleep(2**attempt)
+        if mapping.asset_class == "crypto" and "symbol" in last_error.lower():
+            try:
+                return await self._get_cross_crypto_candles(
+                    mapping.internal, timeframe, outputsize, start_date, end_date
+                )
+            except (httpx.HTTPError, ValueError, TypeError, KeyError) as cross_exc:
+                raise ValueError(
+                    f"{last_error}; cross endpoint failed: {cross_exc}"
+                ) from cross_exc
         raise ValueError(last_error)
