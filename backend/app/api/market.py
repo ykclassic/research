@@ -108,7 +108,7 @@ async def verify_fallback_path(symbol: str, timeframe: Timeframe = Query(Timefra
     """
     try:
         quote = await service.orchestrator.get_quote(symbol, force_refresh=True, excluded_providers={"twelve_data"})
-        candles = await service.orchestrator.get_candles(symbol, timeframe, limit, excluded_providers={"twelve_data"})
+        candles = await service.orchestrator.get_candles(symbol, timeframe, limit, excluded_providers={"twelve_data"}, allow_stale=True)
     except (RuntimeError, ValueError) as exc:
         quote_status = service.orchestrator.provider_status("quote")
         candle_status = service.orchestrator.provider_status("candles")
