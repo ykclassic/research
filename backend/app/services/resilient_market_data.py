@@ -25,10 +25,13 @@ class ResilientMarketDataOrchestrator:
         start_date=None,
         end_date=None,
         excluded_providers: set[str] | None = None,
+        allow_stale: bool = False,
     ) -> OHLCVDataset:
         kwargs = {"start_date": start_date, "end_date": end_date}
         if excluded_providers is not None:
             kwargs["excluded_providers"] = excluded_providers
+        if allow_stale:
+            kwargs["allow_stale"] = True
         try:
             return await self._delegate.get_candles(symbol, timeframe, limit, **kwargs)
         except (RuntimeError, asyncio.TimeoutError) as first_error:
@@ -41,6 +44,8 @@ class ResilientMarketDataOrchestrator:
             if excluded_providers is not None:
                 recovery_kwargs["excluded_providers"] = excluded_providers
             try:
+                if allow_stale:
+                    recovery_kwargs["allow_stale"] = True
                 return await recovery.get_candles(symbol, timeframe, limit, **recovery_kwargs)
             except Exception as recovery_error:
                 raise first_error from recovery_error
