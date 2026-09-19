@@ -10,6 +10,7 @@ class SymbolMapping:
     asset_class: str
     display_name: str
     kraken: str | None = None
+    unsupported_providers: frozenset[str] = frozenset()
 
 
 CRYPTO_PAIRS: tuple[str, ...] = (
@@ -61,7 +62,7 @@ SYMBOLS: dict[str, SymbolMapping] = {
     "SOL/USDT": SymbolMapping("SOL/USDT", "SOL/USDT", "crypto", "Solana / Tether", "SOLUSDT"),
     "DOGE/USDT": SymbolMapping("DOGE/USDT", "DOGE/USDT", "crypto", "Dogecoin / Tether", "DOGEUSDT"),
     "ADA/USDT": SymbolMapping("ADA/USDT", "ADA/USDT", "crypto", "Cardano / Tether", "ADAUSDT"),
-    "SUI/USDT": SymbolMapping("SUI/USDT", "SUI/USDT", "crypto", "Sui / Tether", None),
+    "SUI/USDT": SymbolMapping("SUI/USDT", "SUI/USDT", "crypto", "Sui / Tether", None, frozenset({"twelve_data"})),
     "LTC/USDT": SymbolMapping("LTC/USDT", "LTC/USDT", "crypto", "Litecoin / Tether", "LTCUSDT"),
     "NZDUSD": SymbolMapping("NZDUSD", "NZD/USD", "forex", "New Zealand Dollar / US Dollar"),
     "EURUSD": SymbolMapping("EURUSD", "EUR/USD", "forex", "Euro / US Dollar"),
