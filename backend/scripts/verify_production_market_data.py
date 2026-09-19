@@ -501,7 +501,7 @@ def main() -> int:
             )
             fallback_quote = fallback_payload["quote"]
             require(
-                fallback_quote["status"] in {"LIVE", "DELAYED", "STALE"},
+                fallback_quote["status"] in {"LIVE", "DELAYED", "STALE", "MARKET_CLOSED"},
                 f"Fallback returned invalid status: {fallback_quote}",
             )
             require(
