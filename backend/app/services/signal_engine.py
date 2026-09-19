@@ -160,8 +160,31 @@ def _signal_for_score(score: float) -> SignalDirection:
 
 def _structural_levels(candles: list[Any], price: float) -> tuple[list[float], list[float]]:
     window = candles[-SIGNAL_LEVEL_LOOKBACK:]
-    supports = [float(candle.low) for candle in window if candle.low < price]
-    resistances = [float(candle.high) for candle in window if candle.high > price]
+    swing_length = 2
+    supports: list[float] = []
+    resistances: list[float] = []
+
+    for index in range(swing_length, len(window) - swing_length):
+        current = window[index]
+        current_low = float(current.low)
+        current_high = float(current.high)
+
+        is_swing_low = all(
+            float(window[index - offset].low) > current_low
+            and float(window[index + offset].low) > current_low
+            for offset in range(1, swing_length + 1)
+        )
+        if is_swing_low and current_low < price:
+            supports.append(current_low)
+
+        is_swing_high = all(
+            float(window[index - offset].high) < current_high
+            and float(window[index + offset].high) < current_high
+            for offset in range(1, swing_length + 1)
+        )
+        if is_swing_high and current_high > price:
+            resistances.append(current_high)
+
     return (
         sorted(set(supports), reverse=True),
         sorted(set(resistances)),
