@@ -107,7 +107,10 @@ class SignalCandleScheduler:
                 try:
                     dataset = await asyncio.wait_for(
                         self.quote_service.orchestrator.get_candles(
-                            mapping.internal, timeframe, limit
+                            mapping.internal,
+                            timeframe,
+                            limit,
+                            excluded_providers=set(mapping.unsupported_providers),
                         ),
                         timeout=self.FALLBACK_TIMEOUT_SECONDS,
                     )
