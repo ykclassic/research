@@ -14,6 +14,7 @@ import httpx
 
 DEFAULT_API_BASE = "https://research-76vr.onrender.com"
 DEFAULT_SYMBOL = "BTC/USD"
+DEFAULT_FALLBACK_SYMBOL = "EUR/USD"
 DEFAULT_TIMEFRAME = "1h"
 DEFAULT_ANALYSIS_LIMIT = 250
 DIRECT_PROVIDER_TOLERANCE = 0.001
@@ -183,6 +184,7 @@ def main() -> int:
     parser.add_argument("--api-base", default=os.getenv("MARKET_API_BASE", DEFAULT_API_BASE))
     parser.add_argument("--symbol", default=os.getenv("MARKET_SYMBOL", DEFAULT_SYMBOL))
     parser.add_argument("--timeframe", default=os.getenv("MARKET_TIMEFRAME", DEFAULT_TIMEFRAME))
+    parser.add_argument("--fallback-symbol", default=os.getenv("MARKET_FALLBACK_SYMBOL", DEFAULT_FALLBACK_SYMBOL))
     parser.add_argument(
         "--limit",
         type=int,
@@ -468,9 +470,10 @@ def main() -> int:
                 )
             )
 
+            fallback_symbol = args.fallback_symbol.upper()
             fallback = request(
                 client,
-                f"{base_url}/api/market/verification/fallback/{symbol}",
+                f"{base_url}/api/market/verification/fallback/{fallback_symbol}",
                 stage="Protected provider fallback",
                 params={"timeframe": args.timeframe, "limit": args.limit},
                 headers=headers,
