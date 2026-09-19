@@ -158,11 +158,14 @@ def _signal_for_score(score: float) -> SignalDirection:
     return SignalDirection.NEUTRAL
 
 
-def _structural_levels(candles: list[Any], price: float) -> tuple[float | None, float | None]:
+def _structural_levels(candles: list[Any], price: float) -> tuple[list[float], list[float]]:
     window = candles[-SIGNAL_LEVEL_LOOKBACK:]
     supports = [float(candle.low) for candle in window if candle.low < price]
     resistances = [float(candle.high) for candle in window if candle.high > price]
-    return (max(supports) if supports else None, min(resistances) if resistances else None)
+    return (
+        sorted(set(supports), reverse=True),
+        sorted(set(resistances)),
+    )
 
 
 def _candidate_trade_levels(
@@ -199,9 +202,8 @@ def _candidate_trade_levels(
             reasons=("ATR-based stop distance is invalid.",),
         )
 
-    support, resistance = _structural_levels(candles, entry_price)
+    supports, resistances = _structural_levels(candles, entry_price)
     direction_is_buy = signal in {SignalDirection.BUY, SignalDirection.STRONG_BUY}
-    structural_target = resistance if direction_is_buy else support
     stop_loss = entry_price - stop_distance if direction_is_buy else entry_price + stop_distance
     atr_minimum_target = (
         entry_price + stop_distance * minimum_risk_reward
@@ -219,8 +221,10 @@ def _candidate_trade_levels(
             risk_reward=0.0, reasons=tuple(reasons),
         )
 
-    if structural_target is None:
-        side = "resistance" if direction_is_buy else "support"
+    candidate_targets = resistances if direction_is_buy else supports
+    side = "resistance" if direction_is_buy else "support"
+
+    if not candidate_targets:
         reasons.append(f"No structural {side} level exists beyond the entry.")
         return CandidateTradeLevels(
             entry_price=entry_price, atr=atr_value, stop_distance=stop_distance,
@@ -229,42 +233,72 @@ def _candidate_trade_levels(
             risk_reward=0.0, reasons=tuple(reasons),
         )
 
-    if direction_is_buy:
-        if structural_target <= entry_price:
-            reasons.append("Structural resistance is not above the BUY entry.")
-        elif structural_target < atr_minimum_target:
-            reasons.append(
-                f"Structural target {structural_target:.8f} conflicts with the "
-                f"ATR-derived minimum target {atr_minimum_target:.8f}."
-            )
-    else:
-        if structural_target >= entry_price:
-            reasons.append("Structural support is not below the SELL entry.")
-        elif structural_target > atr_minimum_target:
-            reasons.append(
-                f"Structural target {structural_target:.8f} conflicts with the "
-                f"ATR-derived minimum target {atr_minimum_target:.8f}."
-            )
+    valid_target = None
+    valid_risk_reward = 0.0
+    risk = abs(entry_price - stop_loss)
 
-    if (
-        (direction_is_buy and structural_target <= entry_price)
-        or (not direction_is_buy and structural_target >= entry_price)
-    ):
+    for target in candidate_targets:
+        if direction_is_buy and target <= entry_price:
+            continue
+        if not direction_is_buy and target >= entry_price:
+            continue
+
+        reward = abs(target - entry_price)
+        risk_reward = reward / risk if risk > 0 else 0.0
+        if risk_reward >= minimum_risk_reward:
+            valid_target = target
+            valid_risk_reward = risk_reward
+            break
+
+    if valid_target is None:
+        nearest_target = candidate_targets[0]
+        nearest_risk_reward = (
+            abs(nearest_target - entry_price) / risk if risk > 0 else 0.0
+        )
+        reasons.append(
+            f"No structural {side} level satisfies the "
+            f"{minimum_risk_reward:.2f}:1 minimum risk/reward."
+        )
+        if nearest_risk_reward < minimum_risk_reward:
+            reasons.append(
+                f"Nearest structural target {nearest_target:.8f} provides "
+                f"{nearest_risk_reward:.2f}:1 risk/reward."
+            )
+        if direction_is_buy:
+            if nearest_target > entry_price and nearest_target < atr_minimum_target:
+                reasons.append(
+                    f"Structural target {nearest_target:.8f} conflicts with the "
+                    f"ATR-derived minimum target {atr_minimum_target:.8f}."
+                )
+        elif nearest_target < entry_price and nearest_target > atr_minimum_target:
+            reasons.append(
+                f"Structural target {nearest_target:.8f} conflicts with the "
+                f"ATR-derived minimum target {atr_minimum_target:.8f}."
+            )
         return CandidateTradeLevels(
             entry_price=entry_price, atr=atr_value, stop_distance=stop_distance,
-            stop_loss=stop_loss, structural_target=structural_target,
+            stop_loss=stop_loss, structural_target=nearest_target,
             atr_minimum_target=atr_minimum_target, take_profit=None,
-            risk_reward=0.0, reasons=tuple(reasons),
+            risk_reward=max(0.0, nearest_risk_reward), reasons=tuple(reasons),
         )
 
-    take_profit = structural_target
-    risk_reward = abs(take_profit - entry_price) / stop_distance
-    if risk_reward < minimum_risk_reward:
-        reasons.append(f"Risk/reward {risk_reward:.2f} is below the {minimum_risk_reward:.2f} minimum.")
+    take_profit = valid_target
+    risk_reward = valid_risk_reward
+
+    if direction_is_buy and take_profit < atr_minimum_target:
+        reasons.append(
+            f"Structural target {take_profit:.8f} is below the "
+            f"ATR-derived minimum target {atr_minimum_target:.8f}."
+        )
+    elif not direction_is_buy and take_profit > atr_minimum_target:
+        reasons.append(
+            f"Structural target {take_profit:.8f} is above the "
+            f"ATR-derived minimum target {atr_minimum_target:.8f}."
+        )
 
     return CandidateTradeLevels(
         entry_price=entry_price, atr=atr_value, stop_distance=stop_distance,
-        stop_loss=stop_loss, structural_target=structural_target,
+        stop_loss=stop_loss, structural_target=take_profit,
         atr_minimum_target=atr_minimum_target, take_profit=take_profit,
         risk_reward=max(0.0, risk_reward), reasons=tuple(reasons),
     )
