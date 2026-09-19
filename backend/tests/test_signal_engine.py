@@ -1,3 +1,4 @@
+import pytest
 from app.models.signal import SignalDirection
 from app.services.signal_engine import _signal_for_score
 
@@ -30,8 +31,8 @@ def test_confidence_mapping_is_fixed_monotonic_and_threshold_boundary() -> None:
     assert _confidence_from_score(0.0) == 0.50
     assert _confidence_from_score(0.40) == 0.70
     assert _confidence_from_score(0.60) == 0.80
-    assert _confidence_from_score(0.64) == 0.82
-    assert _confidence_from_score(-0.64) == 0.82
+    assert _confidence_from_score(0.64) == pytest.approx(0.82)
+    assert _confidence_from_score(-0.64) == pytest.approx(0.82)
     assert _confidence_from_score(0.80) == 0.90
     assert _confidence_from_score(1.0) == 1.0
     assert _confidence_from_score(0.65) > _confidence_from_score(0.64)
