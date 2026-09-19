@@ -353,6 +353,7 @@ class MarketDataOrchestrator:
                     else:
                         candle_state.last_error = "Candle quota scheduler has no capacity; routing to fallback providers."
                         candle_state.last_error_code = ProviderErrorCode.QUOTA_EXHAUSTED
+                        provider_diagnostics.append(f"{provider.name}=quota_exhausted")
                         continue
                 else:
                     candle_state.last_error = "Candle quota scheduler has no capacity; routing to fallback providers."
