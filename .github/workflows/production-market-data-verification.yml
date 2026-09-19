@@ -12,6 +12,10 @@ permissions:
   contents: read
   id-token: write
 
+concurrency:
+  group: production-verification
+  cancel-in-progress: false
+
 jobs:
   verify-production-market-data:
     runs-on: ubuntu-latest
@@ -20,7 +24,7 @@ jobs:
     env:
       MARKET_API_BASE: https://research-76vr.onrender.com
       MARKET_SYMBOL: BTC/USD
-      MARKET_FALLBACK_SYMBOL: EUR/USD
+      MARKET_FALLBACK_SYMBOL: BTC/USDT
       MARKET_TIMEFRAME: 1h
       MARKET_ANALYSIS_LIMIT: 250
       MARKET_MAX_PROVIDER_AGE: 180
