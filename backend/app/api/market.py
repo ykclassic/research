@@ -122,13 +122,32 @@ async def verify_fallback_path(symbol: str, timeframe: Timeframe = Query(Timefra
                 "candle_providers": [item.model_dump(mode="json") for item in candle_status],
             },
         ) from exc
+    secondary_providers = {"finnhub", "alpha_vantage"}
+    selected_quote_provider = quote.source
+    selected_candle_provider = candles.source
+    if selected_quote_provider not in secondary_providers:
+        raise HTTPException(status_code=503, detail=f"Secondary quote routing contract violated: selected={selected_quote_provider!r}")
+    if selected_candle_provider not in secondary_providers:
+        raise HTTPException(status_code=503, detail=f"Secondary candle routing contract violated: selected={selected_candle_provider!r}")
+    quote_attempts = tuple(quote.provider_attempts)
+    candle_attempts = tuple(candles.provider_attempts)
+    if "twelve_data" in quote_attempts or "twelve_data" in candle_attempts:
+        raise HTTPException(status_code=503, detail="Secondary routing contract violated: twelve_data was attempted.")
     return {
         "quote": quote.model_dump(mode="json"),
         "candles": candles.model_dump(mode="json"),
-        "fallback_verified": quote.fallback_used or candles.fallback_used,
-        "selected_quote_provider": quote.source,
-        "selected_candle_provider": candles.source,
-        "provider_attempts": {"quote": quote.provider_attempts, "candles": candles.provider_attempts},
+        "fallback_verified": True,
+        "routing_contract": {
+            "primary_provider_excluded": "twelve_data",
+            "allowed_secondary_providers": sorted(secondary_providers),
+            "selected_quote_provider": selected_quote_provider,
+            "selected_candle_provider": selected_candle_provider,
+            "quote_attempts": quote_attempts,
+            "candle_attempts": candle_attempts,
+        },
+        "selected_quote_provider": selected_quote_provider,
+        "selected_candle_provider": selected_candle_provider,
+        "provider_attempts": {"quote": quote_attempts, "candles": candle_attempts},
     }
 
 
