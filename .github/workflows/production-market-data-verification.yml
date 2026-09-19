@@ -49,6 +49,34 @@ jobs:
       - name: Install backend dependencies
         run: python -m pip install -r backend/requirements.txt
 
+      - name: Synchronize production provider secrets to Render
+        if: github.event_name == 'push'
+        env:
+          RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+          TWELVE_DATA_API_KEY: ${{ secrets.TWELVE_DATA_API_KEY }}
+          FINNHUB_API_KEY: ${{ secrets.FINNHUB_API_KEY }}
+          ALPHA_VANTAGE_API_KEY: ${{ secrets.ALPHA_VANTAGE_API_KEY }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${RENDER_API_KEY}"
+          test -n "${TWELVE_DATA_API_KEY}"
+          test -n "${FINNHUB_API_KEY}"
+          test -n "${ALPHA_VANTAGE_API_KEY}"
+          update_render_env() {
+            local key="$1"
+            local value="$2"
+            curl --fail-with-body --silent --show-error --request PUT \
+              --header "Authorization: Bearer ${RENDER_API_KEY}" \
+              --header "Content-Type: application/json" \
+              --data "$(python -c 'import json,sys; print(json.dumps({"value": sys.argv[1]}))' "$value")" \
+              "https://api.render.com/v1/services/${RENDER_SERVICE_ID}/env-vars/${key}" >/dev/null
+            echo "Synchronized Render secret: ${key}"
+          }
+          update_render_env TWELVE_DATA_API_KEY "${TWELVE_DATA_API_KEY}"
+          update_render_env FINNHUB_API_KEY "${FINNHUB_API_KEY}"
+          update_render_env ALPHA_VANTAGE_API_KEY "${ALPHA_VANTAGE_API_KEY}"
+
       - name: Trigger and wait for matching Render deployment on push
         if: github.event_name == 'push'
         env:
