@@ -145,5 +145,6 @@ async def test_sui_routes_directly_to_canonical_orchestrator() -> None:
 
     assert dataset.symbol == "SUI/USDT"
     assert provider.calls == []
-    assert service.calls == 1
+    assert provider.cross_calls == 1
+    assert service.calls == 0
     assert service.last_kwargs == {}
