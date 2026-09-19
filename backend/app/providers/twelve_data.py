@@ -439,13 +439,32 @@ class TwelveDataProvider(MarketDataProvider):
                     provider_attempts=(self.name,),
                 )
                 return validate_ohlcv_dataset(refresh_candle_freshness(dataset))
+            except httpx.HTTPStatusError as exc:
+                response_body = exc.response.text if exc.response is not None else ""
+                last_error = f"{exc}; body={response_body}"
+                code = classify_provider_error(
+                    exc,
+                    message=response_body,
+                    status_code=exc.response.status_code if exc.response is not None else None,
+                )
+                if (
+                    mapping.asset_class == "crypto"
+                    and exc.response is not None
+                    and exc.response.status_code == 404
+                ):
+                    break
+                if not retryable_provider_error(code) or attempt >= settings.http_max_retries:
+                    break
+                await asyncio.sleep(2**attempt)
             except (httpx.HTTPError, ValueError, TypeError, KeyError) as exc:
                 last_error = str(exc)
                 code = classify_provider_error(exc, message=str(exc))
                 if not retryable_provider_error(code) or attempt >= settings.http_max_retries:
                     break
                 await asyncio.sleep(2**attempt)
-        if mapping.asset_class == "crypto" and "symbol" in last_error.lower():
+        if mapping.asset_class == "crypto" and (
+            "symbol" in last_error.lower() or "404" in last_error
+        ):
             try:
                 return await self._get_cross_crypto_candles(
                     mapping.internal, timeframe, outputsize, start_date, end_date
