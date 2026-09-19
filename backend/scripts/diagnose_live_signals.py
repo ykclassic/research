@@ -1,20 +1,24 @@
 #!/usr/bin/env python3
 """Run a non-gating live diagnostic across the configured crypto signal universe.
 
-The diagnostic records the deterministic score, heuristic confidence, RR, per-timeframe
-components, and qualification reasons without changing signal preferences. It is intended
-for observability/calibration, not threshold tuning.
+This diagnostic is deliberately observational: it never changes signal preferences,
+searches for a better threshold, or fits parameters to the current observations.
+It records pair-level qualification reasons, score components, provider/source data,
+and distribution summaries so threshold decisions can be made on independent
+historical holdouts rather than today's live sample.
 """
 
 from __future__ import annotations
 
 import argparse
 import json
+import math
 import sys
-from pathlib import Path
 import urllib.error
 import urllib.request
+from collections import Counter
 from datetime import datetime, timezone
+from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
@@ -40,6 +44,81 @@ def fetch_signal(base_url: str, symbol: str, limit: int, oidc_token: str | None 
         return {"http_status": exc.code, "url": url, "payload": payload}
 
 
+def _bucket(value: float, boundaries: tuple[float, ...]) -> str:
+    for upper in boundaries:
+        if value < upper:
+            return f"<{upper:g}"
+    return f">={boundaries[-1]:g}"
+
+
+def _summarize(rows: list[dict]) -> dict:
+    successful = [row for row in rows if row.get("http_status") == 200 and row.get("score") is not None]
+    rejection_reasons = Counter(
+        reason
+        for row in successful
+        if row.get("qualification_status") == "REJECTED"
+        for reason in row.get("qualification_reasons", [])
+    )
+    score_buckets = Counter(
+        _bucket(abs(float(row["score"])), (0.25, 0.40, 0.50, 0.60, 0.64, 0.65, 0.80, 0.90))
+        for row in successful
+    )
+    confidence_buckets = Counter(
+        _bucket(float(row["confidence"]), (0.65, 0.70, 0.75, 0.80, 0.82, 0.85, 0.90, 0.95))
+        for row in successful
+    )
+    rr_buckets = Counter(
+        _bucket(float(row["risk_reward"]), (1.0, 1.5, 2.0, 3.0, 5.0))
+        for row in successful
+    )
+    component_summary: dict[str, dict[str, float]] = {}
+    for timeframe in ("1d", "4h", "1h", "15m"):
+        components = [
+            component
+            for row in successful
+            for component in row.get("components", [])
+            if component.get("timeframe") == timeframe
+        ]
+        if not components:
+            continue
+        component_summary[timeframe] = {
+            "count": float(len(components)),
+            "mean_indicator_score": sum(float(item["indicator_score"]) for item in components) / len(components),
+            "mean_smc_score": sum(float(item["smc_score"]) for item in components) / len(components),
+            "mean_combined_score": sum(float(item["combined_score"]) for item in components) / len(components),
+        }
+
+    return {
+        "successful_pairs": len(successful),
+        "http_failures": len(rows) - len(successful),
+        "qualified": sum(row.get("qualification_status") == "QUALIFIED" for row in successful),
+        "rejected": sum(row.get("qualification_status") == "REJECTED" for row in successful),
+        "score_magnitude_buckets": dict(sorted(score_buckets.items())),
+        "confidence_buckets": dict(sorted(confidence_buckets.items())),
+        "risk_reward_buckets": dict(sorted(rr_buckets.items())),
+        "rejection_reasons": dict(rejection_reasons.most_common()),
+        "component_summary": component_summary,
+    }
+
+
+def _validate_observational_invariants(report: dict) -> list[str]:
+    errors: list[str] = []
+    for row in report["signals"]:
+        if row.get("http_status") != 200:
+            continue
+        score = row.get("score")
+        confidence = row.get("confidence")
+        if not isinstance(score, (int, float)) or not isinstance(confidence, (int, float)):
+            errors.append(f"{row['symbol']}: missing numeric score/confidence")
+            continue
+        expected = min(1.0, 0.50 + 0.50 * abs(float(score)))
+        if not math.isclose(float(confidence), expected, rel_tol=0.0, abs_tol=1e-9):
+            errors.append(
+                f"{row['symbol']}: confidence {confidence} does not match fixed score mapping {expected}"
+            )
+    return errors
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--base-url", default="https://research-76vr.onrender.com")
@@ -52,6 +131,13 @@ def main() -> int:
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "base_url": args.base_url,
         "limit": args.limit,
+        "methodology": {
+            "threshold_tuning": False,
+            "parameter_fitting": False,
+            "uses_current_live_sample_for_threshold_selection": False,
+            "confidence_is_calibrated_probability": False,
+            "note": "Use audit_signal_calibration.py with chronological labeled outcomes for walk-forward calibration; do not tune thresholds on this live sample.",
+        },
         "signals": [],
     }
     failures = 0
@@ -70,6 +156,7 @@ def main() -> int:
                 report["signals"].append(row)
                 print(f"{symbol}: HTTP {result['http_status']} {payload}")
                 continue
+
             components = payload.get("components", [])
             row = {
                 "symbol": symbol,
@@ -113,11 +200,21 @@ def main() -> int:
             report["signals"].append(row)
             print(f"{symbol}: ERROR {row['error']}")
 
+    report["summary"] = _summarize(report["signals"])
+    report["invariant_errors"] = _validate_observational_invariants(report)
+
+    print("\nLIVE SIGNAL DIAGNOSTIC SUMMARY")
+    print(json.dumps(report["summary"], indent=2))
+    if report["invariant_errors"]:
+        print("\nINVARIANT ERRORS")
+        for error in report["invariant_errors"]:
+            print(f"  {error}")
+
     if args.output:
         with open(args.output, "w", encoding="utf-8") as handle:
             json.dump(report, handle, indent=2)
 
-    return 1 if failures else 0
+    return 1 if failures or report["invariant_errors"] else 0
 
 
 if __name__ == "__main__":
