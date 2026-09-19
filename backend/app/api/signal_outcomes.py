@@ -9,7 +9,6 @@ from app.api.auth import UserResponse, _require_csrf, get_current_user
 from app.models.market import Timeframe
 from app.models.signal import CryptoSignal
 from app.models.signal_outcome import SignalOutcomeAuditRecord, SignalOutcomeStatus
-from app.services.signal_candle_scheduler import SignalCandleScheduler
 from app.services.signal_outcomes import (
     append_outcome_snapshot,
     create_signal_audit,
@@ -31,7 +30,6 @@ router = APIRouter(prefix="/api/signal-outcomes", tags=["signal-outcomes"])
 
 quote_service = QuoteService()
 kraken_public = KrakenPublicProvider()
-audit_scheduler = SignalCandleScheduler(quote_service, kraken_public)
 
 
 class LogSignalRequest(BaseModel):
