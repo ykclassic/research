@@ -1,6 +1,6 @@
 import math
 
-from backend.scripts.diagnose_live_signals import _bucket, _summarize, _validate_observational_invariants
+from scripts.diagnose_live_signals import _bucket, _summarize, _validate_observational_invariants
 
 
 def test_live_diagnostic_bucket_boundaries_are_deterministic() -> None:
