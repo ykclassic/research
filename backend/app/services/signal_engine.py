@@ -22,6 +22,8 @@ TIMEFRAME_WEIGHTS = {
 
 SIGNAL_LEVEL_LOOKBACK = 50
 SIGNAL_STOP_ATR_MULTIPLIER = RiskPolicy().stop_atr_multiplier
+CONFIDENCE_BASE = 0.50
+CONFIDENCE_SCORE_SCALE = 0.50
 
 
 @dataclass(frozen=True)
@@ -268,6 +270,16 @@ def _candidate_trade_levels(
     )
 
 
+def _confidence_from_score(score: float) -> float:
+    """Convert deterministic score magnitude to the existing heuristic strength value.
+
+    This is intentionally a fixed, monotonic mapping. It is not a probability
+    calibration and must not be tuned against the same observations used to
+    evaluate future performance.
+    """
+    return min(1.0, CONFIDENCE_BASE + CONFIDENCE_SCORE_SCALE * abs(score))
+
+
 def _preferred_direction(signal: SignalDirection) -> str:
     if signal in {SignalDirection.BUY, SignalDirection.STRONG_BUY}:
         return "BUY"
@@ -366,7 +378,7 @@ def generate_crypto_signal(
 
     weighted_score = max(-1.0, min(1.0, weighted_score))
     signal = _signal_for_score(weighted_score)
-    confidence = min(1.0, 0.50 + 0.50 * abs(weighted_score))
+    confidence = _confidence_from_score(weighted_score)
     entry_price = datasets[Timeframe.MINUTE_15].completed_candles[-1].close
     m15_indicators = calculate_indicators(list(datasets[Timeframe.MINUTE_15].completed_candles))
     atr = m15_indicators.get("atr14")
