@@ -508,13 +508,37 @@ def main() -> int:
                 fallback_quote.get("fallback_used") is True,
                 "Fallback response did not mark fallback_used=true",
             )
+            contract = fallback_payload.get("routing_contract", {})
+            allowed_secondary = {"finnhub", "alpha_vantage"}
+            require(
+                contract.get("primary_provider_excluded") == "twelve_data",
+                f"Fallback contract did not exclude Twelve Data: {contract}",
+            )
+            require(
+                set(contract.get("allowed_secondary_providers", [])) == allowed_secondary,
+                f"Unexpected secondary-provider contract: {contract}",
+            )
+            require(
+                contract.get("selected_quote_provider") in allowed_secondary,
+                f"Quote routing did not select a secondary provider: {contract}",
+            )
+            require(
+                contract.get("selected_candle_provider") in allowed_secondary,
+                f"Candle routing did not select a secondary provider: {contract}",
+            )
+            require(
+                "twelve_data" not in tuple(contract.get("quote_attempts", []))
+                and "twelve_data" not in tuple(contract.get("candle_attempts", [])),
+                f"Twelve Data was attempted during fallback: {contract}",
+            )
             results.append(
                 CheckResult(
-                    "Protected provider fallback path",
+                    "Protected provider fallback routing contract",
                     True,
-                    f"quote_provider={fallback_payload.get('selected_quote_provider')}; "
-                    f"candle_provider={fallback_payload.get('selected_candle_provider')}; "
-                    f"attempts={fallback_payload.get('provider_attempts')}",
+                    f"quote_provider={contract.get('selected_quote_provider')}; "
+                    f"candle_provider={contract.get('selected_candle_provider')}; "
+                    f"quote_attempts={contract.get('quote_attempts')}; "
+                    f"candle_attempts={contract.get('candle_attempts')}",
                 )
             )
 
