@@ -346,13 +346,18 @@ def append_outcome_snapshot(
     payload.update(result)
     payload.pop("created_at", None)
 
-    response = _request(
-        "POST",
-        "signal_outcome_audit",
-        access_token,
-        json=payload,
-        prefer="return=representation",
-    )
+    try:
+        response = _request(
+            "POST",
+            "signal_outcome_audit",
+            access_token,
+            json=payload,
+            prefer="return=representation",
+        )
+    except DataConflictError:
+        # Another refresh may have appended the same revision first.
+        return get_signal_audit(access_token, user_id, snapshot.signal_id)
+
     rows = response.json()
     if not rows:
         raise DataRequestError("Signal outcome snapshot was not recorded.")
