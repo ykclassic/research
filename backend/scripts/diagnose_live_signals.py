@@ -11,9 +11,12 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+from pathlib import Path
 import urllib.error
 import urllib.request
 from datetime import datetime, timezone
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from app.symbols import CRYPTO_PAIRS
 
