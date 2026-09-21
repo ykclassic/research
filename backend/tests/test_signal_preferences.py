@@ -234,8 +234,10 @@ def test_candidate_levels_reject_missing_structural_levels() -> None:
     )
     assert levels.structural_target is None
     assert levels.take_profit is None
-    assert levels.risk_reward == 0.0
-    assert any("No structural resistance" in r for r in levels.reasons)
+    assert levels.risk_reward is None
+    assert levels.risk_reward_reason is not None
+    assert "risk/reward is unavailable" in levels.risk_reward_reason
+    assert any("No validated structural resistance" in r for r in levels.reasons)
 
 
 def test_candidate_levels_reject_conflicting_structural_and_atr_targets() -> None:
@@ -251,3 +253,17 @@ def test_candidate_levels_reject_conflicting_structural_and_atr_targets() -> Non
 
 def test_signal_stop_multiplier_remains_aligned_with_risk_policy() -> None:
     assert SIGNAL_STOP_ATR_MULTIPLIER == 1.5
+
+
+def test_candidate_levels_keep_real_rr_when_target_exists_but_fails_minimum() -> None:
+    levels = _candidate_trade_levels(
+        SignalDirection.BUY,
+        100.0,
+        2.0,
+        _buy_levels(100.5),
+        1.5,
+    )
+    assert levels.take_profit is None
+    assert levels.structural_target == 100.5
+    assert levels.risk_reward == 0.5 / 3.0
+    assert levels.risk_reward_reason is None
