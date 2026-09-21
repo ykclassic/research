@@ -1,4 +1,4 @@
-import { Clock3, Gauge2, Radio } from "lucide-react";
+import { Clock3, Gauge, Radio } from "lucide-react";
 import type { MarketSession, MarketSessionState } from "./api";
 
 type Props = { session: MarketSession | null };
@@ -81,7 +81,7 @@ export default function TradingSessionPanel({ session }: Props) {
         </div>
       )}
       <div className="trading-session-footnote">
-        <Gauge2 size={14} />
+        <Gauge size={14} />
         <span>Volatility is normalized against recent completed hourly candles for a liquid representative asset in each market class.</span>
       </div>
     </section>
