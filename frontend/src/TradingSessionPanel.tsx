@@ -1,4 +1,4 @@
-import { Activity, Clock3, Droplets, Gauge2, Radio } from "lucide-react";
+import { Clock3, Gauge2, Radio } from "lucide-react";
 import { MarketSession, MarketSessionState } from "./api";
 
 type Props = { session: MarketSession | null };
@@ -22,18 +22,6 @@ function volatilityLabel(state: MarketSessionState["volatility_state"]): string 
     VERY_LOW: "Very Low",
     UNKNOWN: "Unavailable",
   }[state];
-}
-
-function formatCountdown(timestamp: string | null): string {
-  if (!timestamp) return "24/7";
-  const remaining = Math.max(0, new Date(timestamp).getTime() - Date.now());
-  const totalSeconds = Math.floor(remaining / 1000);
-  const hours = Math.floor(totalSeconds / 3600);
-  const minutes = Math.floor((totalSeconds % 3600) / 60);
-  const seconds = totalSeconds % 60;
-  return hours > 0
-    ? `${hours}h ${String(minutes).padStart(2, "0")}m`
-    : `${minutes}m ${String(seconds).padStart(2, "0")}s`;
 }
 
 function SessionRow({ state }: { state: MarketSessionState }) {
