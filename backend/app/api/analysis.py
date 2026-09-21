@@ -13,7 +13,7 @@ from app.models import Quote
 from app.models.market import CompletenessStatus, FreshnessStatus, Timeframe
 from app.preferences.service import preferences_service
 from app.providers.kraken_public import KrakenPublicProvider
-from app.services.feature_engine import calculate_feature_set
+from app.services.entitlement import UsageLimitExceededError, consume_usage\nfrom app.services.feature_engine import calculate_feature_set
 from app.services.indicator_series import calculate_indicator_panes
 from app.services.quote_service import QuoteService
 from app.services.settings_integration import (
