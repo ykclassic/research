@@ -30,7 +30,7 @@ function serialize(value: PreferencesDraft | null): string {
 interface Props {
   user: User;
   onLogout: () => void;
-  setPage: (page: "market" | "watchlists" | "analysis" | "market-structure" | "mtf" | "signals" | "portfolio" | "ai-research" | "news-research" | "research-reports" | "research-history" | "alerts" | "settings") => void;
+  setPage: (page: "market" | "watchlists" | "analysis" | "market-structure" | "mtf" | "signals" | "portfolio" | "ai-research" | "news-research" | "research-reports" | "research-history" | "alerts" | "settings" | "billing") => void;
 }
 
 const NAV = [
@@ -43,7 +43,7 @@ const NAV = [
   ["privacy-data", "Privacy, Data & System"],
 ] as const;
 
-export default function SettingsPage({ user, onLogout }: Props) {
+export default function SettingsPage({ user, onLogout, setPage }: Props) {
   const [account, setAccount] = useState<AccountInfo | null>(null);
   const [original, setOriginal] = useState<PreferencesDraft | null>(null);
   const [draft, setDraft] = useState<PreferencesDraft | null>(null);
@@ -126,6 +126,7 @@ export default function SettingsPage({ user, onLogout }: Props) {
       <div className="settings-layout">
         <aside className="settings-nav" aria-label="Settings sections">
           <div className="settings-nav-title">Settings</div>
+          <button type="button" className="settings-nav-item settings-nav-billing" onClick={() => setPage("billing")}><span>08</span>Plans & Billing</button>
           {NAV.map(([id, label], index) => <button key={id} type="button" className="settings-nav-item" onClick={() => jump(id)}><span>{String(index + 1).padStart(2, "0")}</span>{label}</button>)}
         </aside>
 
