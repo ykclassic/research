@@ -16,8 +16,9 @@ import ResearchHistoryPage from "./ResearchHistoryPage";
 import AlertsPage from "./AlertsPage";
 import SettingsPage from "./SettingsPage";
 import TradingSessionPanel from "./TradingSessionPanel";
+import BillingPage from "./BillingPage";
 
-export type AppPage = "market" | "watchlists" | "analysis" | "market-structure" | "mtf" | "signals" | "signal-outcome" | "portfolio" | "ai-research" | "news-research" | "research-reports" | "research-history" | "alerts" | "settings";
+export type AppPage = "market" | "watchlists" | "analysis" | "market-structure" | "mtf" | "signals" | "signal-outcome" | "portfolio" | "ai-research" | "news-research" | "research-reports" | "research-history" | "alerts" | "settings" | "billing";
 
 type AuthMode = "login" | "register" | "forgot" | "reset";
 
@@ -36,6 +37,7 @@ const ROUTES: Record<AppPage, string> = {
   "research-history": "/research/history",
   alerts: "/monitoring/alerts",
   settings: "/settings",
+  billing: "/billing",
 };
 
 const PAGE_BY_ROUTE = new Map(Object.entries(ROUTES).map(([page, route]) => [route, page as AppPage]));
@@ -137,7 +139,7 @@ function AuthScreen({ onAuthenticated }: { onAuthenticated: (u: User) => void })
 
 function Header({ user, page, setPage, onLogout }: { user: User; page: AppPage; setPage: (p: AppPage) => void; onLogout: () => void }) {
   const signOut = async () => { try { await logout(); } finally { onLogout(); } };
-  const items: [AppPage,string][] = [["market","Market Data"],["watchlists","Watchlists"],["analysis","Technical Analysis"],["market-structure","Market Structure"],["mtf","MTF Analysis"],["signals","Signals"],["portfolio","Portfolio"]];
+  const items: [AppPage,string][] = [["market","Market Data"],["watchlists","Watchlists"],["analysis","Technical Analysis"],["market-structure","Market Structure"],["mtf","MTF Analysis"],["signals","Signals"],["portfolio","Portfolio"],["billing","Plans & Billing"]];
   return <header className="topbar"><div><div className="eyebrow">Adaptive Intelligence</div><h1>Market Research</h1></div><nav className="main-nav" aria-label="Research sections">{items.map(([id,label])=><button key={id} className={`nav-button ${page===id?"active":""}`} onClick={()=>setPage(id)}>{label}</button>)}</nav><div className="topbar-actions"><span className="user-email">{user.email}</span><button className="logout" onClick={()=>void signOut()}><LogOut size={16}/>Sign out</button></div></header>;
 }
 
@@ -238,6 +240,7 @@ function App(){
   if(page==="research-reports")return <ResearchReportsPage/>;
   if(page==="research-history")return <ResearchHistoryPage/>;
   if(page==="settings")return <SettingsPage user={user} onLogout={onLogout} setPage={navigate}/>;
+  if(page==="billing")return <BillingPage user={user} onLogout={onLogout}/>;
   return <AlertsPage/>;
 }
 
