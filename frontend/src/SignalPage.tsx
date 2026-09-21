@@ -123,6 +123,8 @@ export default function SignalPage({ user, onLogout, setPage }: { user: User; on
   const selectedStatus = selectedSignal ? statusLabel(selectedSignal) : null;
   const minimumConfidence = selectedSignal?.minimum_confidence ?? 0.82;
   const minimumRiskReward = selectedSignal?.minimum_risk_reward ?? 1.5;
+  const confidenceGateFailed = selectedSignal?.qualification_reasons.some(reason => reason.startsWith("Confidence ")) ?? false;
+  const riskRewardGateFailed = selectedSignal?.qualification_reasons.some(reason => reason.startsWith("Risk/reward ")) ?? false;
 
   return <div className="app">
     <header className="topbar">
@@ -202,6 +204,18 @@ export default function SignalPage({ user, onLogout, setPage }: { user: User; on
               </div>
             </div>
 
+            <div className={"qualification-summary " + (selectedStatus === "Qualified" ? "passed" : "failed")}>
+              <div className="qualification-summary-head">
+                <strong>{selectedStatus === "Qualified" ? "All qualification gates passed" : "Qualification gate result"}</strong>
+                <span>{selectedStatus === "Qualified" ? "This signal meets the configured requirements." : "The signal can have high confidence and still fail another required gate."}</span>
+              </div>
+              {selectedStatus === "Rejected" && selectedSignal.qualification_reasons.length > 0 && (
+                <ul className="qualification-reasons">
+                  {selectedSignal.qualification_reasons.map(reason => <li key={reason}>{reason}</li>)}
+                </ul>
+              )}
+            </div>
+
             <div className="signal-audit-action">
               {selectedSignal.qualification_status === "QUALIFIED" ? (
                 <button
@@ -232,8 +246,16 @@ export default function SignalPage({ user, onLogout, setPage }: { user: User; on
             <div className="signal-detail-score"><span>Confluence</span><strong>{formatPercent(selectedSignal.confluence)}</strong><small>Directional score: {selectedSignal.score.toFixed(3)}</small></div>
 
             <div className="signal-thresholds">
-              <div><span>Confidence</span><strong>{formatPercent(selectedSignal.confidence)} / {formatPercent(minimumConfidence)} required</strong></div>
-              <div><span>Risk / reward</span><strong>{selectedSignal.risk_reward.toFixed(2)}:1 / {minimumRiskReward.toFixed(2)}:1 required</strong></div>
+              <div className={confidenceGateFailed ? "gate-failed" : "gate-passed"}>
+                <span>Confidence gate</span>
+                <strong>{formatPercent(selectedSignal.confidence)} / {formatPercent(minimumConfidence)} required</strong>
+                <small>{confidenceGateFailed ? "FAILED" : "PASSED"}</small>
+              </div>
+              <div className={riskRewardGateFailed ? "gate-failed" : "gate-passed"}>
+                <span>Risk / reward gate</span>
+                <strong>{selectedSignal.risk_reward.toFixed(2)}:1 / {minimumRiskReward.toFixed(2)}:1 required</strong>
+                <small>{riskRewardGateFailed ? "FAILED" : "PASSED"}</small>
+              </div>
             </div>
 
             <div className="signal-levels">
@@ -260,7 +282,7 @@ export default function SignalPage({ user, onLogout, setPage }: { user: User; on
 
             <div className="signal-section"><h4>Evidence</h4><ul className="signal-evidence">{selectedSignal.evidence.map(item => <li key={item}>{item}</li>)}</ul></div>
 
-            {selectedSignal.qualification_reasons.length > 0 && <div className="signal-section signal-warnings"><h4>Qualification notes</h4><ul className="signal-evidence">{selectedSignal.qualification_reasons.map(item => <li key={item}>{item}</li>)}</ul></div>}
+            {selectedStatus === "Qualified" && selectedSignal.qualification_reasons.length > 0 && <div className="signal-section signal-warnings"><h4>Qualification notes</h4><ul className="signal-evidence">{selectedSignal.qualification_reasons.map(item => <li key={item}>{item}</li>)}</ul></div>}
           </div> :
           <div className="empty">Select {selected} to calculate its signal.</div>}
         </aside>
