@@ -9,6 +9,8 @@
 .settings-nav-title { padding:6px 10px 10px; color:#6fe7ff; font-size:10px; text-transform:uppercase; letter-spacing:.16em; font-weight:750; }
 .settings-nav-item { width:100%; display:flex; align-items:center; gap:9px; border:1px solid transparent; background:transparent; color:#8195ae; border-radius:9px; padding:9px 10px; text-align:left; font-size:11px; }
 .settings-nav-item:hover { background:rgba(255,255,255,.04); color:#e7f3ff; }
+.settings-nav-billing { margin-bottom:10px; border-color:rgba(111,231,255,.22); background:rgba(111,231,255,.07); color:#dff9ff; font-weight:700; }
+.settings-nav-billing:hover { background:rgba(111,231,255,.12); color:#ffffff; }
 .settings-nav-item span { width:20px; color:#4f6682; font-size:9px; font-variant-numeric:tabular-nums; }
 .settings-content { min-width:0; display:grid; gap:18px; }
 .settings-section { border:1px solid rgba(255,255,255,.09); border-radius:18px; background:rgba(10,24,41,.82); overflow:hidden; scroll-margin-top:90px; }
