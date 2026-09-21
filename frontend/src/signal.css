@@ -35,14 +35,27 @@
 .signal-detail-status { display:flex; align-items:center; gap:10px; margin:14px 18px 18px; padding:15px; border-radius:13px; font-size:18px; }
 .signal-detail-status div { display:grid; gap:3px; }
 .signal-detail-status span { color:#91a4bc; font-size:10px; font-weight:600; }
+.qualification-summary { margin:0 18px 14px; padding:12px; border-radius:11px; border:1px solid rgba(255,255,255,.07); background:rgba(255,255,255,.025); }
+.qualification-summary.passed { border-color:rgba(98,230,166,.18); background:rgba(98,230,166,.05); }
+.qualification-summary.failed { border-color:rgba(255,125,145,.20); background:rgba(255,125,145,.05); }
+.qualification-summary-head strong, .qualification-summary-head span { display:block; }
+.qualification-summary-head strong { font-size:11px; }
+.qualification-summary-head span { margin-top:4px; color:#91a4bc; font-size:9px; line-height:1.45; }
+.qualification-reasons { margin:9px 0 0; padding-left:16px; color:#d5deeb; font-size:10px; line-height:1.5; }
+.qualification-reasons li + li { margin-top:4px; }
 .signal-detail-score { padding:2px 18px 14px; }
 .signal-detail-score span, .signal-detail-score small { display:block; color:#667c97; font-size:10px; }
 .signal-detail-score strong { display:block; margin:4px 0; font-size:34px; font-variant-numeric:tabular-nums; }
 .signal-thresholds { display:grid; grid-template-columns:1fr 1fr; gap:8px; padding:0 18px 10px; }
-.signal-thresholds > div { background:rgba(255,255,255,.025); padding:10px; border-radius:10px; }
-.signal-thresholds span, .signal-thresholds strong { display:block; }
+.signal-thresholds > div { background:rgba(255,255,255,.025); padding:10px; border-radius:10px; border:1px solid transparent; }
+.signal-thresholds > div.gate-passed { border-color:rgba(98,230,166,.14); }
+.signal-thresholds > div.gate-failed { border-color:rgba(255,125,145,.20); background:rgba(255,125,145,.045); }
+.signal-thresholds span, .signal-thresholds strong, .signal-thresholds small { display:block; }
 .signal-thresholds span { color:#667c97; font-size:10px; }
 .signal-thresholds strong { margin-top:4px; font-size:11px; word-break:break-word; }
+.signal-thresholds small { margin-top:5px; font-size:9px; font-weight:800; letter-spacing:.05em; }
+.signal-thresholds .gate-passed small { color:#91f0bf; }
+.signal-thresholds .gate-failed small { color:#ff9c91; }
 .signal-levels { display:grid; grid-template-columns:repeat(2,1fr); gap:8px; padding:0 18px 4px; }
 .signal-levels > div { background:rgba(111,231,255,.035); padding:11px; border-radius:10px; }
 .signal-levels span, .signal-levels strong { display:block; }
