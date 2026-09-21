@@ -40,6 +40,9 @@ function formatPrice(value: number | null): string {
   return value.toLocaleString(undefined, { maximumFractionDigits: 8 });
 }
 function formatPercent(value: number): string { return Math.round(value * 100) + "%"; }
+function formatRiskReward(value: number | null): string {
+  return value === null ? "N/A" : value.toFixed(2) + ":1";
+}
 function formatTime(value: string): string { return new Date(value).toLocaleTimeString(); }
 function assetClass(universe: MarketUniverse | null, symbol: string): string {
   if (!universe) return "Market";
@@ -124,7 +127,8 @@ export default function SignalPage({ user, onLogout, setPage }: { user: User; on
   const minimumConfidence = selectedSignal?.minimum_confidence ?? 0.82;
   const minimumRiskReward = selectedSignal?.minimum_risk_reward ?? 1.5;
   const confidenceGateFailed = selectedSignal?.qualification_reasons.some(reason => reason.startsWith("Confidence ")) ?? false;
-  const riskRewardGateFailed = selectedSignal?.qualification_reasons.some(reason => reason.startsWith("Risk/reward ")) ?? false;
+  const riskRewardGateFailed = selectedSignal?.qualification_reasons.some(reason => reason.startsWith("Risk/reward")) ?? false;
+  const riskRewardUnavailable = selectedSignal?.risk_reward_status === "UNAVAILABLE";
 
   return <div className="app">
     <header className="topbar">
@@ -253,8 +257,8 @@ export default function SignalPage({ user, onLogout, setPage }: { user: User; on
               </div>
               <div className={riskRewardGateFailed ? "gate-failed" : "gate-passed"}>
                 <span>Risk / reward gate</span>
-                <strong>{selectedSignal.risk_reward.toFixed(2)}:1 / {minimumRiskReward.toFixed(2)}:1 required</strong>
-                <small>{riskRewardGateFailed ? "FAILED" : "PASSED"}</small>
+                <strong>{riskRewardUnavailable ? "N/A" : formatRiskReward(selectedSignal.risk_reward)} / {minimumRiskReward.toFixed(2)}:1 required</strong>
+                <small>{riskRewardUnavailable ? "UNAVAILABLE — TARGET REQUIRED" : riskRewardGateFailed ? "FAILED" : "PASSED"}</small>
               </div>
             </div>
 
@@ -263,7 +267,9 @@ export default function SignalPage({ user, onLogout, setPage }: { user: User; on
               <div><span>ATR14</span><strong>{formatPrice(selectedSignal.atr)}</strong></div>
               <div><span>Stop</span><strong>{formatPrice(selectedSignal.stop_loss)}</strong></div>
               <div><span>Target</span><strong>{formatPrice(selectedSignal.take_profit)}</strong></div>
-              <div><span>Candidate RR</span><strong>{selectedSignal.risk_reward.toFixed(2)}:1</strong></div>
+              <div><span>Nearest structural level</span><strong>{formatPrice(selectedSignal.structural_target)}</strong></div>
+              <div><span>ATR minimum target</span><strong>{formatPrice(selectedSignal.atr_minimum_target)}</strong></div>
+              <div><span>Validated RR</span><strong>{formatRiskReward(selectedSignal.risk_reward)}</strong></div>
             </div>
 
             <div className="signal-metrics">
