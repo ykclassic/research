@@ -6,7 +6,7 @@ from fastapi import APIRouter, Cookie, Depends, HTTPException, status
 
 from app.api.auth import UserResponse, _require_csrf, get_current_user
 from app.models.portfolio import PortfolioPositionCreate, PortfolioPositionUpdate, RiskRewardRequest, ScenarioRequest
-from app.services.portfolio import create_position, delete_position, list_positions, risk_reward, scenario, summarize, update_position
+from app.services.entitlement import FeatureNotEntitledError, require_feature\nfrom app.services.portfolio import create_position, delete_position, list_positions, risk_reward, scenario, summarize, update_position
 from app.services.supabase_data import DataServiceError
 from app.symbols import normalize_symbol
 
