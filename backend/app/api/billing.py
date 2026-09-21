@@ -9,6 +9,7 @@ from app.api.auth import UserResponse, _require_csrf, get_current_user
 from app.services.entitlement import EntitlementError, get_entitlement_snapshot, get_usage, start_pro_trial
 from app.services.billing_provider import BillingProviderError, get_billing_provider
 from app.services.billing_service import cancel_subscription, change_subscription, process_webhook, resume_subscription, start_checkout
+from app.services.supabase_data import _request
 
 router = APIRouter(prefix="/api/billing", tags=["billing"])
 
