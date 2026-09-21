@@ -160,6 +160,10 @@ async def export_research(
             archive.writestr("reports.csv", reports)
             archive.writestr("research_history.csv", history)
         return _download(bundle.getvalue(), "research_export.zip", "application/zip")
+    except FeatureNotEntitledError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    except UsageLimitExceededError as exc:
+        raise HTTPException(status_code=429, detail=str(exc)) from exc
     except DataServiceError as exc:
         raise _map_data_error(exc) from exc
 
@@ -174,6 +178,10 @@ async def export_reports(
         require_feature(token, user.id, "exports")
         consume_usage(token, user.id, "exports", 1)
         return _download(history_csv(_access_token(access_token), user.id, record_type="REPORT"), "reports.csv", "text/csv; charset=utf-8")
+    except FeatureNotEntitledError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    except UsageLimitExceededError as exc:
+        raise HTTPException(status_code=429, detail=str(exc)) from exc
     except DataServiceError as exc:
         raise _map_data_error(exc) from exc
 
@@ -188,6 +196,10 @@ async def export_watchlists(
         require_feature(token, user.id, "exports")
         consume_usage(token, user.id, "exports", 1)
         return _download(watchlists_csv(_access_token(access_token), user.id), "watchlists.csv", "text/csv; charset=utf-8")
+    except FeatureNotEntitledError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    except UsageLimitExceededError as exc:
+        raise HTTPException(status_code=429, detail=str(exc)) from exc
     except DataServiceError as exc:
         raise _map_data_error(exc) from exc
 
@@ -205,6 +217,10 @@ async def export_account_data(
         payload["account"].update({"email": user.email, "created_at": user.created_at, "email_confirmed_at": user.email_confirmed_at, "last_sign_in_at": user.last_sign_in_at})
         content = json.dumps(payload, ensure_ascii=False, indent=2).encode("utf-8")
         return _download(content, "account_data.json", "application/json")
+    except FeatureNotEntitledError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    except UsageLimitExceededError as exc:
+        raise HTTPException(status_code=429, detail=str(exc)) from exc
     except FeatureNotEntitledError as exc:
         raise HTTPException(status_code=403, detail=str(exc)) from exc
     except UsageLimitExceededError as exc:
