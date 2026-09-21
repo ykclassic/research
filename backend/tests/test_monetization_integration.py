@@ -1,6 +1,7 @@
 from datetime import datetime, timedelta, timezone
 
 import pytest
+from unittest.mock import Mock
 from fastapi.testclient import TestClient
 
 from app.api.auth import get_current_user, get_current_user_or_github_actions
@@ -84,9 +85,12 @@ def test_premium_strategy_access_is_feature_gated(auth_client, monkeypatch):
     assert response.status_code == 200
 
 
-def test_free_plan_hard_limit_is_enforced_by_usage_service():
-    with pytest.raises(entitlement.UsageLimitExceededError):
-        entitlement.consume_usage  # contract exists and raises when RPC denies; endpoint tests cover mapping
+def test_free_plan_hard_limit_is_enforced_by_usage_service(monkeypatch):
+    response = Mock()
+    response.json.return_value = [{"allowed": False, "used": 5, "limit_value": 5, "plan_id": "free"}]
+    monkeypatch.setattr(entitlement, "_request", lambda *args, **kwargs: response)
+    with pytest.raises(entitlement.UsageLimitExceededError, match="5/5"):
+        entitlement.consume_usage("token", "u1", "ai_research_runs")
 
 
 def test_plan_matrix_defines_free_pro_premium_access():
