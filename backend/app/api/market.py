@@ -6,7 +6,8 @@ from app.api.auth import UserResponse, get_current_user, get_current_user_or_git
 from app.models import QuoteStatus
 from app.models.market import Timeframe
 from app.preferences.service import preferences_service
-from app.services.market_data_health import market_data_health\nfrom app.services.entitlement import FeatureNotEntitledError, UsageLimitExceededError, consume_usage, require_feature
+from app.services.market_data_health import market_data_health
+from app.services.entitlement import FeatureNotEntitledError, UsageLimitExceededError, consume_usage, require_feature
 from app.services.quote_service import QuoteService
 from app.services.scoring import score_quote
 from app.services.settings_integration import market_coverage
