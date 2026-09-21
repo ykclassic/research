@@ -29,6 +29,7 @@ from app.api.strategy_selection import router as strategy_selection_router
 from app.api.watchlists import router as watchlists_router
 from app.config import settings
 from app.preferences.router import router as preferences_router
+from app.security import VERCEL_ORIGIN_REGEX
 from app.services.system_status import APPLICATION_VERSION
 
 
@@ -49,7 +50,7 @@ trusted_hosts = [item.strip() for item in settings.trusted_hosts.split(",") if i
 # branch URL. Keep the explicit CORS allow-list for fixed origins, while also
 # allowing only this project's Vercel hostname family. This is required because
 # browser credentials cannot use a wildcard CORS origin.
-vercel_origin_regex = r"https://research(?:-tech-solut-hub|-[a-z0-9-]+-tech-solut-hub|-dusky-six)\.vercel\.app"
+vercel_origin_regex = VERCEL_ORIGIN_REGEX
 
 app.add_middleware(
     TrustedHostMiddleware,
