@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 from app.services.billing_provider import BillingProviderError, get_billing_provider
-from app.services.supabase_data import DataRequestError, _request
+from app.services.supabase_data import DataRequestError, _request, service_request
 
 
 def _now() -> str:
