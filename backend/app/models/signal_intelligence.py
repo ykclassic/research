@@ -49,7 +49,7 @@ class SignalIntelligenceSnapshot(BaseModel):
     signal_engine_version: str
     evidence: tuple[str, ...] = ()
     replay_candles: tuple[SignalReplayCandle, ...] = ()
-    structural_conditions: dict[str, object] = {}
+    structural_conditions: dict[str, object] = Field(default_factory=dict)
 
 
 class CalibrationBucket(BaseModel):
