@@ -9,6 +9,7 @@ from fastapi.testclient import TestClient
 from app.api.auth import _csrf_token, _require_csrf
 from app.api.auth import router as auth_router
 from app.config import settings
+from app.security import is_allowed_web_origin
 from app.main import app
 from app.preferences.router import router as preferences_router
 
@@ -61,6 +62,46 @@ def test_production_csrf_accepts_configured_origin(monkeypatch: pytest.MonkeyPat
     monkeypatch.setattr(settings, "cors_origins", "https://research.example")
     token = "session-token"
     _require_csrf(None, _csrf_token(token), token, "https://research.example")
+
+
+@pytest.mark.parametrize(
+    "origin",
+    [
+        "https://research-tech-solut-hub.vercel.app",
+        "https://research-dusky-six.vercel.app",
+        "https://research-jpavf4c3i-tech-solut-hub.vercel.app",
+        "https://research-git-main-tech-solut-hub.vercel.app/",
+    ],
+)
+def test_production_csrf_accepts_allowed_vercel_origins(monkeypatch: pytest.MonkeyPatch, origin: str) -> None:
+    monkeypatch.setattr(settings, "app_env", "production")
+    monkeypatch.setattr(settings, "cors_origins", "https://research.example")
+    token = "session-token"
+    _require_csrf(None, _csrf_token(token), token, origin)
+
+
+def test_production_csrf_rejects_untrusted_vercel_origin(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(settings, "app_env", "production")
+    monkeypatch.setattr(settings, "cors_origins", "https://research.example")
+    token = "session-token"
+    with pytest.raises(HTTPException, match="CSRF origin validation failed"):
+        _require_csrf(
+            None,
+            _csrf_token(token),
+            token,
+            "https://research-example-other-team.vercel.app",
+        )
+
+
+def test_origin_policy_is_shared_between_cors_and_csrf() -> None:
+    assert is_allowed_web_origin(
+        "https://research-git-main-tech-solut-hub.vercel.app",
+        "https://research.example",
+    )
+    assert not is_allowed_web_origin(
+        "https://research-example-other-team.vercel.app",
+        "https://research.example",
+    )
 
 
 def test_password_change_requires_csrf(client: TestClient) -> None:
