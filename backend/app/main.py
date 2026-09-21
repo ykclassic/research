@@ -7,6 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from app.api.ai_research import router as ai_research_router
+from app.api.billing import router as billing_router
 from app.api.alerts import router as alerts_router
 from app.api.analysis import router as analysis_router
 from app.api.auth import router as auth_router
@@ -89,6 +90,7 @@ async def security_headers(request: Request, call_next):
 
 
 app.include_router(auth_router)
+app.include_router(billing_router)
 app.include_router(preferences_router)
 app.include_router(market_router)
 app.include_router(market_session_router)
