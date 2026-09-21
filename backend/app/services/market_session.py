@@ -39,20 +39,6 @@ def _in_window(now: datetime, start: time, end: time) -> bool:
     return local >= start or local < end
 
 
-def _window_datetimes(now: datetime, start: time, end: time) -> tuple[datetime, datetime]:
-    local_now = now.astimezone(SESSION_ZONE)
-    start_dt = datetime.combine(local_now.date(), start, tzinfo=SESSION_ZONE)
-    end_date = local_now.date()
-    if end <= start:
-        end_date = end_date.fromordinal(end_date.toordinal() + 1)
-    end_dt = datetime.combine(end_date, end, tzinfo=SESSION_ZONE)
-    if local_now < start_dt:
-        start_dt -= __import__("datetime").timedelta(days=1) if end <= start else __import__("datetime").timedelta(days=0)
-        if end <= start:
-            end_dt -= __import__("datetime").timedelta(days=1)
-    return start_dt.astimezone(timezone.utc), end_dt.astimezone(timezone.utc)
-
-
 def _volatility(dataset: OHLCVDataset) -> tuple[float | None, str, float | None]:
     candles = [c for c in dataset.completed_candles if c.close > 0 and c.high >= c.low]
     if len(candles) < 20:
