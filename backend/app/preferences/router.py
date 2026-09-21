@@ -16,7 +16,7 @@ from app.preferences.repository import (
 )
 from app.preferences.schemas import MessageResponse, UserPreferences, UserPreferencesResponse
 from app.preferences.service import preferences_service
-from app.services.privacy_data import account_data, apply_retention, history_csv, watchlists_csv
+from app.services.entitlement import FeatureNotEntitledError, UsageLimitExceededError, consume_usage, require_feature\nfrom app.services.privacy_data import account_data, apply_retention, history_csv, watchlists_csv
 from app.services.supabase_data import DataServiceError, delete_all_watchlists, delete_research_history
 from app.services.system_status import system_status
 
@@ -166,8 +166,7 @@ async def export_reports(
     user: Annotated[UserResponse, Depends(get_current_user)],
     access_token: Annotated[str | None, Cookie(alias="mr_access_token")] = None,
 ) -> Response:
-    try:
-        return _download(history_csv(_access_token(access_token), user.id, record_type="REPORT"), "reports.csv", "text/csv; charset=utf-8")
+    token = _access_token(access_token)\n    try:\n        require_feature(token, user.id, "exports")\n        consume_usage(token, user.id, "exports", 1)\n        return _download(history_csv(_access_token(access_token), user.id, record_type="REPORT"), "reports.csv", "text/csv; charset=utf-8")
     except DataServiceError as exc:
         raise _map_data_error(exc) from exc
 
@@ -177,8 +176,7 @@ async def export_watchlists(
     user: Annotated[UserResponse, Depends(get_current_user)],
     access_token: Annotated[str | None, Cookie(alias="mr_access_token")] = None,
 ) -> Response:
-    try:
-        return _download(watchlists_csv(_access_token(access_token), user.id), "watchlists.csv", "text/csv; charset=utf-8")
+    token = _access_token(access_token)\n    try:\n        require_feature(token, user.id, "exports")\n        consume_usage(token, user.id, "exports", 1)\n        return _download(watchlists_csv(_access_token(access_token), user.id), "watchlists.csv", "text/csv; charset=utf-8")
     except DataServiceError as exc:
         raise _map_data_error(exc) from exc
 
