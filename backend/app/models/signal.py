@@ -86,6 +86,7 @@ class CryptoSignal(BaseModel):
     volatility: float | None = None
     session: str | None = None
     strategy: str = "signal_engine"
+    signal_engine_version: str = "unknown"
     structural_conditions: dict[str, object] = Field(default_factory=dict)
     replay_candles: tuple[SignalReplayCandle, ...] = ()
 
