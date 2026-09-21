@@ -20,6 +20,11 @@ class SignalQualificationStatus(str, Enum):
     REJECTED = "REJECTED"
 
 
+class RiskRewardStatus(str, Enum):
+    AVAILABLE = "AVAILABLE"
+    UNAVAILABLE = "UNAVAILABLE"
+
+
 class SignalComponent(BaseModel):
     model_config = ConfigDict(frozen=True)
     timeframe: str
@@ -37,7 +42,13 @@ class CryptoSignal(BaseModel):
     score: float = Field(ge=-1, le=1)
     confidence: float = Field(ge=0, le=1)
     confluence: float = Field(ge=0, le=1)
-    risk_reward: float = Field(ge=0)
+    # None means a risk/reward ratio cannot be calculated because there is no
+    # validated target. Zero is a real ratio and must not be used as a sentinel.
+    risk_reward: float | None = Field(default=None, ge=0)
+    risk_reward_status: RiskRewardStatus = RiskRewardStatus.UNAVAILABLE
+    risk_reward_reason: str | None = None
+    structural_target: float | None = Field(default=None, gt=0)
+    atr_minimum_target: float | None = Field(default=None, gt=0)
     price: float = Field(gt=0)
     entry_price: float = Field(gt=0)
     stop_loss: float | None = Field(default=None, gt=0)

@@ -28,8 +28,9 @@ export interface MTFResearchConclusion { alignment_count: number; alignment_tota
 export interface MultiTimeframeResult { symbol: string; calculated_at: string; timeframes: MTFTimeframeAnalysis[]; research: MTFResearchConclusion; }
 export type SignalDirection = "NEUTRAL" | "BUY" | "STRONG_BUY" | "SELL" | "STRONG_SELL";
 export type SignalQualificationStatus = "QUALIFIED" | "REJECTED";
+export type RiskRewardStatus = "AVAILABLE" | "UNAVAILABLE";
 export interface SignalComponent { timeframe: string; indicator_score: number; smc_score: number; combined_score: number; evidence: string[]; }
-export interface CryptoSignal { signal_id: string; symbol: string; signal: SignalDirection; score: number; confidence: number; confluence: number; risk_reward: number; price: number; entry_price: number; stop_loss: number | null; take_profit: number | null; atr: number | null; calculated_at: string; latest_candle_timestamp: string; source: string; components: SignalComponent[]; evidence: string[]; research_eligible: boolean; qualification_reasons: string[]; minimum_confidence: number; minimum_risk_reward: number; qualification_status: SignalQualificationStatus; }
+export interface CryptoSignal { signal_id: string; symbol: string; signal: SignalDirection; score: number; confidence: number; confluence: number; risk_reward: number | null; risk_reward_status: RiskRewardStatus; risk_reward_reason: string | null; structural_target: number | null; atr_minimum_target: number | null; price: number; entry_price: number; stop_loss: number | null; take_profit: number | null; atr: number | null; calculated_at: string; latest_candle_timestamp: string; source: string; components: SignalComponent[]; evidence: string[]; research_eligible: boolean; qualification_reasons: string[]; minimum_confidence: number; minimum_risk_reward: number; qualification_status: SignalQualificationStatus; }
 export interface CryptoSignalList { calculated_at: string; signals: CryptoSignal[]; }
 export type SignalOutcomeStatus = "PENDING" | "TARGET_HIT" | "STOP_LOSS_HIT" | "AMBIGUOUS";
 export interface SignalOutcomeRecord {
