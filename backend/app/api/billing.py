@@ -7,12 +7,21 @@ from pydantic import BaseModel, Field
 
 from app.api.auth import UserResponse, _require_csrf, get_current_user
 from app.services.entitlement import EntitlementError, get_entitlement_snapshot, get_usage, start_pro_trial
-from app.services.billing_provider import BillingProviderError, get_billing_provider\nfrom app.services.billing_service import cancel_subscription, change_subscription, process_webhook, resume_subscription, start_checkout
+from app.services.billing_provider import BillingProviderError, get_billing_provider
+from app.services.billing_service import cancel_subscription, change_subscription, process_webhook, resume_subscription, start_checkout
 
 router = APIRouter(prefix="/api/billing", tags=["billing"])
 
 
-class PlanRequest(BaseModel):\n    plan_id: str = Field(min_length=2, max_length=32)\n\n\nclass CancelRequest(BaseModel):\n    at_period_end: bool = True\n\n\nclass TrialRequest(BaseModel):
+class PlanRequest(BaseModel):
+    plan_id: str = Field(min_length=2, max_length=32)
+
+
+class CancelRequest(BaseModel):
+    at_period_end: bool = True
+
+
+class TrialRequest(BaseModel):
     days: int = Field(default=14, ge=1, le=30)
 
 
