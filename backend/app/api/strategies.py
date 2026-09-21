@@ -60,6 +60,8 @@ async def get_strategy_portfolio(
         regime = detect_regime(completed_dataset)
         result = evaluate_strategy_portfolio(completed_dataset, features, regime)
         return result
+    except FeatureNotEntitledError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
     except asyncio.TimeoutError as exc:
         raise HTTPException(
             status_code=503,
