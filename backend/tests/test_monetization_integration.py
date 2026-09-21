@@ -47,6 +47,7 @@ def auth_client():
     app.dependency_overrides[get_current_user_or_github_actions] = lambda: USER
     app.dependency_overrides[get_current_user] = lambda: USER
     with TestClient(app) as client:
+        client.cookies.set("mr_access_token", "test-access-token")
         yield client
     app.dependency_overrides.pop(get_current_user_or_github_actions, None)
     app.dependency_overrides.pop(get_current_user, None)
@@ -66,10 +67,9 @@ def test_pro_plan_can_use_scanner_and_consumes_scan(auth_client, monkeypatch):
     monkeypatch.setattr("app.api.market.require_feature", lambda *args: {"plan_id": "pro"})
     monkeypatch.setattr("app.api.market.consume_usage", lambda *args: calls.append(args) or {"allowed": True, "used": 1, "limit_value": 500, "plan_id": "pro"})
     async def quotes(symbols, force_refresh=False):
-        class Q:
-            def model_dump(self, mode="json"):
-                return {"symbol": "BTC/USD", "price": 100}
-        return [Q()]
+        from app.models import Quote, QuoteStatus
+        now = datetime.now(timezone.utc)
+        return [Quote(symbol="BTC/USD", provider_symbol="BTC/USD", price=100, currency="USD", timestamp=now, provider_timestamp=now, observed_at=now, source="test", status=QuoteStatus.LIVE, latency_ms=1, cache_hit=False)]
     monkeypatch.setattr(market_service, "get_quotes", quotes)
     response = auth_client.get("/api/market/scanner")
     assert response.status_code == 200
