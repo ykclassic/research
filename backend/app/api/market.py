@@ -169,8 +169,8 @@ async def scanner(
     if user is None or not access_token:
         raise HTTPException(status_code=401, detail="Authentication required.")
     try:
-        require_feature(access_token, user.id, "scanner")
-        consume_usage(access_token, user.id, "scans", 1)
+        require_feature(access_token, user["id"] if isinstance(user, dict) else user.id, "scanner")
+        consume_usage(access_token, user["id"] if isinstance(user, dict) else user.id, "scans", 1)
     except FeatureNotEntitledError as exc:
         raise HTTPException(status_code=403, detail=str(exc)) from exc
     except UsageLimitExceededError as exc:
