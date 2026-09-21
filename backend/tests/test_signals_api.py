@@ -9,7 +9,7 @@ from fastapi import HTTPException
 
 from app.api import signals
 from app.services import signal_candle_scheduler as scheduler_service
-from app.models.signal import CryptoSignal, SignalDirection
+from app.models.signal import CryptoSignal, RiskRewardStatus, SignalDirection
 
 
 def _fake_signal(symbol: str) -> CryptoSignal:
@@ -21,6 +21,10 @@ def _fake_signal(symbol: str) -> CryptoSignal:
         confidence=0.65,
         confluence=0.65,
         risk_reward=2.0,
+        risk_reward_status=RiskRewardStatus.AVAILABLE,
+        risk_reward_reason=None,
+        structural_target=106.0,
+        atr_minimum_target=107.5,
         price=100.0,
         entry_price=100.0,
         stop_loss=97.0,
