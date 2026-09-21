@@ -1,5 +1,5 @@
 import { Clock3, Gauge2, Radio } from "lucide-react";
-import { MarketSession, MarketSessionState } from "./api";
+import type { MarketSession, MarketSessionState } from "./api";
 
 type Props = { session: MarketSession | null };
 
