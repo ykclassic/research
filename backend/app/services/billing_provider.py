@@ -24,6 +24,7 @@ class CheckoutSession:
 class BillingProvider(Protocol):
     name: str
     def create_checkout(self, *, user_id: str, email: str, plan_id: str) -> CheckoutSession: ...
+    def change_subscription(self, provider_subscription_id: str, *, price_id: str) -> dict[str, Any]: ...
     def cancel_subscription(self, provider_subscription_id: str, *, at_period_end: bool) -> dict[str, Any]: ...
     def resume_subscription(self, provider_subscription_id: str) -> dict[str, Any]: ...
     def verify_webhook(self, payload: bytes, signature: str | None) -> dict[str, Any]: ...
@@ -71,6 +72,21 @@ class StripeBillingProvider:
         )
         return CheckoutSession(id=str(payload["id"]), url=str(payload["url"]))
 
+    def change_subscription(self, provider_subscription_id: str, *, price_id: str) -> dict[str, Any]:
+        subscription = self._request("GET", f"subscriptions/{provider_subscription_id}")
+        item = subscription.get("items", {}).get("data", [])
+        if not item:
+            raise BillingProviderError("Stripe subscription has no billable item.")
+        return self._request(
+            "POST",
+            f"subscriptions/{provider_subscription_id}",
+            data={
+                "items[0][id]": item[0]["id"],
+                "items[0][price]": price_id,
+                "proration_behavior": "create_prorations",
+            },
+        )
+
     def cancel_subscription(self, provider_subscription_id: str, *, at_period_end: bool) -> dict[str, Any]:
         if at_period_end:
             return self._request(
@@ -93,14 +109,14 @@ class StripeBillingProvider:
         if not signature:
             raise BillingProviderError("Missing Stripe webhook signature.")
         try:
-            timestamp, signatures = signature.split(",", 1)[0], signature.split(",", 1)[1]
-            timestamp_value = int(timestamp.split("=", 1)[1])
-            provided = signatures.split("=", 1)[1]
-        except (IndexError, ValueError) as exc:
+            parts = dict(item.split("=", 1) for item in signature.split(",") if "=" in item)
+            timestamp_value = int(parts["t"])
+            provided_values = [item.split("=", 1)[1] for item in signature.split(",") if item.startswith("v1=")]
+        except (KeyError, IndexError, ValueError) as exc:
             raise BillingProviderError("Invalid Stripe webhook signature.") from exc
         signed = f"{timestamp_value}.{payload.decode('utf-8')}".encode()
         expected = hmac.new(settings.stripe_webhook_secret.encode(), signed, hashlib.sha256).hexdigest()
-        if not hmac.compare_digest(expected, provided):
+        if not any(hmac.compare_digest(expected, provided) for provided in provided_values):
             raise BillingProviderError("Invalid Stripe webhook signature.")
         return json.loads(payload.decode("utf-8"))
 
