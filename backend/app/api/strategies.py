@@ -43,7 +43,7 @@ async def get_strategy_portfolio(
     symbol: str,
     timeframe: Timeframe = Query(Timeframe.HOUR_1),
     limit: int = Query(250, ge=220, le=5000),
-    user: UserResponse | None = None,
+    user: UserResponse | None = Depends(get_current_user_or_github_actions),
     access_token: str | None = Cookie(None, alias="mr_access_token"),
 ) -> StrategyPortfolioResult:
     if user is None or not access_token:
