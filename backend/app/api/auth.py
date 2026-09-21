@@ -12,6 +12,7 @@ from jwt import PyJWKClient
 from pydantic import BaseModel, EmailStr, Field
 
 from app.config import settings
+from app.security import is_allowed_web_origin
 from app.services.supabase_auth import (
     AuthConfigurationError,
     AuthEmailNotConfirmedError,
@@ -99,10 +100,6 @@ def _clear_auth_cookies(response: Response) -> None:
     response.delete_cookie(CSRF_COOKIE, path="/")
 
 
-def _configured_origins() -> set[str]:
-    return {origin.strip().rstrip("/") for origin in settings.cors_origins.split(",") if origin.strip()}
-
-
 def _require_csrf(
     csrf_cookie: Annotated[str | None, Cookie(alias=CSRF_COOKIE)] = None,
     csrf_header: Annotated[str | None, Header(alias=CSRF_HEADER)] = None,
@@ -112,8 +109,7 @@ def _require_csrf(
     if not csrf_header:
         raise HTTPException(status_code=403, detail="CSRF validation failed.")
     if settings.app_env.lower() in {"production", "prod"} and origin:
-        normalized_origin = origin.rstrip("/")
-        if normalized_origin not in _configured_origins():
+        if not is_allowed_web_origin(origin, settings.cors_origins):
             raise HTTPException(status_code=403, detail="CSRF origin validation failed.")
     cookie_valid = bool(csrf_cookie and secrets.compare_digest(csrf_cookie, csrf_header))
     signed_valid = bool(access_token and secrets.compare_digest(_csrf_token(access_token), csrf_header))
