@@ -6,7 +6,8 @@ from fastapi import APIRouter, Cookie, Depends, HTTPException, status
 
 from app.api.auth import UserResponse, _require_csrf, get_current_user
 from app.models.portfolio import PortfolioPositionCreate, PortfolioPositionUpdate, RiskRewardRequest, ScenarioRequest
-from app.services.entitlement import FeatureNotEntitledError, require_feature\nfrom app.services.portfolio import create_position, delete_position, list_positions, risk_reward, scenario, summarize, update_position
+from app.services.entitlement import FeatureNotEntitledError, require_feature
+from app.services.portfolio import create_position, delete_position, list_positions, risk_reward, scenario, summarize, update_position
 from app.services.supabase_data import DataServiceError
 from app.symbols import normalize_symbol
 
@@ -72,7 +73,10 @@ async def remove_position(position_id: str, user: Annotated[UserResponse, Depend
 @router.get("/summary")
 async def get_summary(user: Annotated[UserResponse, Depends(get_current_user)], access_token: Annotated[str | None, Cookie(alias="mr_access_token")] = None):
     try:
+        require_feature(_token(access_token), user.id, "advanced_portfolio_analytics")
         return await summarize(_token(access_token), user.id)
+    except FeatureNotEntitledError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
     except DataServiceError as exc:
         raise _db_error(exc) from exc
 
@@ -80,12 +84,19 @@ async def get_summary(user: Annotated[UserResponse, Depends(get_current_user)], 
 @router.post("/scenario")
 async def run_scenario(payload: ScenarioRequest, user: Annotated[UserResponse, Depends(get_current_user)], access_token: Annotated[str | None, Cookie(alias="mr_access_token")] = None):
     try:
+        require_feature(_token(access_token), user.id, "advanced_portfolio_analytics")
         summary = await summarize(_token(access_token), user.id)
         return scenario(summary, payload.price_change_percent)
+    except FeatureNotEntitledError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
     except DataServiceError as exc:
         raise _db_error(exc) from exc
 
 
 @router.post("/risk-reward")
-async def calculate_risk_reward(payload: RiskRewardRequest, _: Annotated[UserResponse, Depends(get_current_user)]):
-    return risk_reward(payload)
+async def calculate_risk_reward(payload: RiskRewardRequest, user: Annotated[UserResponse, Depends(get_current_user)], access_token: Annotated[str | None, Cookie(alias="mr_access_token")] = None):
+    try:
+        require_feature(_token(access_token), user.id, "advanced_portfolio_analytics")
+        return risk_reward(payload)
+    except FeatureNotEntitledError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
