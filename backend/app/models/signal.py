@@ -7,6 +7,18 @@ from uuid import uuid4
 from pydantic import BaseModel, ConfigDict, Field
 
 
+class SignalReplayCandle(BaseModel):
+    model_config = ConfigDict(frozen=True)
+    timestamp: datetime
+    open: float = Field(gt=0)
+    high: float = Field(gt=0)
+    low: float = Field(gt=0)
+    close: float = Field(gt=0)
+    volume: float = Field(ge=0)
+    timeframe: str
+    source: str
+
+
 class SignalDirection(str, Enum):
     NEUTRAL = "NEUTRAL"
     BUY = "BUY"
@@ -64,6 +76,18 @@ class CryptoSignal(BaseModel):
     minimum_confidence: float = Field(ge=0, le=1)
     minimum_risk_reward: float = Field(ge=0)
     qualification_status: SignalQualificationStatus = SignalQualificationStatus.QUALIFIED
+    mtf_bias: str | None = None
+    mtf_alignment: int | None = Field(default=None, ge=0, le=4)
+    regime: str | None = None
+    regime_confidence: float | None = Field(default=None, ge=0, le=1)
+    market_structure: str | None = None
+    liquidity_conditions: str | None = None
+    momentum: float | None = None
+    volatility: float | None = None
+    session: str | None = None
+    strategy: str = "signal_engine"
+    structural_conditions: dict[str, object] = Field(default_factory=dict)
+    replay_candles: tuple[SignalReplayCandle, ...] = ()
 
 
 class CryptoSignalList(BaseModel):
