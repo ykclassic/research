@@ -52,7 +52,7 @@ def cancel_subscription(access_token: str, user_id: str, at_period_end: bool = T
         raise DataRequestError("Subscription is not attached to a billing provider.")
     updated = get_billing_provider().cancel_subscription(provider_id, at_period_end=at_period_end)
     if at_period_end:
-        _request("PATCH", "billing_subscriptions", access_token, params={"id":f"eq.{current['id']}","user_id":f"eq.{user_id}"}, json={"cancel_at_period_end":True,"updated_at":_now()}, prefer="return=minimal")
+        service_request("PATCH", "billing_subscriptions", params={"id":f"eq.{current['id']}","user_id":f"eq.{user_id}"}, json={"cancel_at_period_end":True,"updated_at":_now()}, prefer="return=minimal")
     return updated
 
 
@@ -64,7 +64,7 @@ def resume_subscription(access_token: str, user_id: str) -> dict[str, Any]:
     if not provider_id:
         raise DataRequestError("Subscription is not attached to a billing provider.")
     updated = get_billing_provider().resume_subscription(provider_id)
-    _request("PATCH", "billing_subscriptions", access_token, params={"id":f"eq.{current['id']}","user_id":f"eq.{user_id}"}, json={"cancel_at_period_end":False,"canceled_at":None,"updated_at":_now()}, prefer="return=minimal")
+    service_request("PATCH", "billing_subscriptions", params={"id":f"eq.{current['id']}","user_id":f"eq.{user_id}"}, json={"cancel_at_period_end":False,"canceled_at":None,"updated_at":_now()}, prefer="return=minimal")
     return updated
 
 
