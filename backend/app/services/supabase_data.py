@@ -100,6 +100,25 @@ def _request(
     return response
 
 
+def service_request(method: str, path: str, *, params: dict[str, str] | None = None, json: Any = None, prefer: str | None = None) -> httpx.Response:
+    if not settings.supabase_url or not settings.supabase_service_role_key:
+        raise DataConfigurationError("Supabase service-role access is not configured.")
+    try:
+        headers = {
+            "apikey": settings.supabase_service_role_key,
+            "Authorization": f"Bearer {settings.supabase_service_role_key}",
+            "Content-Type": "application/json",
+        }
+        if prefer:
+            headers["Prefer"] = prefer
+        response = httpx.request(method, f"{settings.supabase_url.rstrip('/')}/rest/v1/{path}", headers=headers, params=params, json=json, timeout=settings.http_timeout_seconds)
+    except httpx.RequestError as exc:
+        raise DataUnavailableError("Database service is temporarily unavailable.") from exc
+    if response.status_code >= 400:
+        raise DataRequestError(_message(response))
+    return response
+
+
 def list_watchlists(access_token: str, user_id: str) -> list[dict[str, Any]]:
     response = _request(
         "GET",

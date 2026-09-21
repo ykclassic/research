@@ -16,6 +16,7 @@ from app.preferences.repository import (
 )
 from app.preferences.schemas import MessageResponse, UserPreferences, UserPreferencesResponse
 from app.preferences.service import preferences_service
+from app.services.entitlement import FeatureNotEntitledError, UsageLimitExceededError, consume_usage, require_feature
 from app.services.privacy_data import account_data, apply_retention, history_csv, watchlists_csv
 from app.services.supabase_data import DataServiceError, delete_all_watchlists, delete_research_history
 from app.services.system_status import system_status
@@ -150,6 +151,8 @@ async def export_research(
 ) -> Response:
     token = _access_token(access_token)
     try:
+        require_feature(token, user.id, "exports")
+        consume_usage(token, user.id, "exports", 1)
         reports = history_csv(token, user.id, record_type="REPORT")
         history = history_csv(token, user.id)
         bundle = io.BytesIO()
@@ -157,6 +160,10 @@ async def export_research(
             archive.writestr("reports.csv", reports)
             archive.writestr("research_history.csv", history)
         return _download(bundle.getvalue(), "research_export.zip", "application/zip")
+    except FeatureNotEntitledError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    except UsageLimitExceededError as exc:
+        raise HTTPException(status_code=429, detail=str(exc)) from exc
     except DataServiceError as exc:
         raise _map_data_error(exc) from exc
 
@@ -166,8 +173,15 @@ async def export_reports(
     user: Annotated[UserResponse, Depends(get_current_user)],
     access_token: Annotated[str | None, Cookie(alias="mr_access_token")] = None,
 ) -> Response:
+    token = _access_token(access_token)
     try:
+        require_feature(token, user.id, "exports")
+        consume_usage(token, user.id, "exports", 1)
         return _download(history_csv(_access_token(access_token), user.id, record_type="REPORT"), "reports.csv", "text/csv; charset=utf-8")
+    except FeatureNotEntitledError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    except UsageLimitExceededError as exc:
+        raise HTTPException(status_code=429, detail=str(exc)) from exc
     except DataServiceError as exc:
         raise _map_data_error(exc) from exc
 
@@ -177,8 +191,15 @@ async def export_watchlists(
     user: Annotated[UserResponse, Depends(get_current_user)],
     access_token: Annotated[str | None, Cookie(alias="mr_access_token")] = None,
 ) -> Response:
+    token = _access_token(access_token)
     try:
+        require_feature(token, user.id, "exports")
+        consume_usage(token, user.id, "exports", 1)
         return _download(watchlists_csv(_access_token(access_token), user.id), "watchlists.csv", "text/csv; charset=utf-8")
+    except FeatureNotEntitledError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    except UsageLimitExceededError as exc:
+        raise HTTPException(status_code=429, detail=str(exc)) from exc
     except DataServiceError as exc:
         raise _map_data_error(exc) from exc
 
@@ -188,11 +209,22 @@ async def export_account_data(
     user: Annotated[UserResponse, Depends(get_current_user)],
     access_token: Annotated[str | None, Cookie(alias="mr_access_token")] = None,
 ) -> Response:
+    token = _access_token(access_token)
     try:
+        require_feature(token, user.id, "exports")
+        consume_usage(token, user.id, "exports", 1)
         payload = account_data(_access_token(access_token), user.id)
         payload["account"].update({"email": user.email, "created_at": user.created_at, "email_confirmed_at": user.email_confirmed_at, "last_sign_in_at": user.last_sign_in_at})
         content = json.dumps(payload, ensure_ascii=False, indent=2).encode("utf-8")
         return _download(content, "account_data.json", "application/json")
+    except FeatureNotEntitledError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    except UsageLimitExceededError as exc:
+        raise HTTPException(status_code=429, detail=str(exc)) from exc
+    except FeatureNotEntitledError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    except UsageLimitExceededError as exc:
+        raise HTTPException(status_code=429, detail=str(exc)) from exc
     except DataServiceError as exc:
         raise _map_data_error(exc) from exc
 

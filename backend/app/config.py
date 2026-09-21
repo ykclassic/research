@@ -40,6 +40,14 @@ class Settings(BaseSettings):
     openai_model: str = "gpt-5.6-luna"
     openai_timeout_seconds: float = 30.0
     openai_max_output_tokens: int = 2500
+    billing_provider: str = "stripe"
+    stripe_secret_key: str = ""
+    stripe_webhook_secret: str = ""
+    stripe_price_pro: str = ""
+    stripe_price_premium: str = ""
+    stripe_success_url: str = "http://localhost:5173/?billing=success"
+    stripe_cancel_url: str = "http://localhost:5173/?billing=cancelled"
+    supabase_service_role_key: str = ""
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", case_sensitive=False, extra="ignore")
 

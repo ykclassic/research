@@ -7,6 +7,8 @@ from app.models import QuoteStatus
 from app.models.market import Timeframe
 from app.preferences.service import preferences_service
 from app.services.market_data_health import market_data_health
+from app.services.entitlement import FeatureNotEntitledError, UsageLimitExceededError, consume_usage, require_feature
+from app.services.entitlement import FeatureNotEntitledError, UsageLimitExceededError, consume_usage, require_feature
 from app.services.quote_service import QuoteService
 from app.services.scoring import score_quote
 from app.services.settings_integration import market_coverage
@@ -159,7 +161,20 @@ async def verify_fallback_path(symbol: str):
     }
 
 @router.get("/scanner")
-async def scanner(symbols: str = Query("BTC/USDT,ETH/USDT,EURUSD,NVDA,SPY")):
+async def scanner(
+    symbols: str = Query("BTC/USDT,ETH/USDT,EURUSD,NVDA,SPY"),
+    user: Annotated[UserResponse | None, Depends(get_current_user_or_github_actions)] = None,
+    access_token: Annotated[str | None, Cookie(alias="mr_access_token")] = None,
+):
+    if user is None or not access_token:
+        raise HTTPException(status_code=401, detail="Authentication required.")
+    try:
+        require_feature(access_token, user["id"] if isinstance(user, dict) else user.id, "scanner")
+        consume_usage(access_token, user["id"] if isinstance(user, dict) else user.id, "scans", 1)
+    except FeatureNotEntitledError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    except UsageLimitExceededError as exc:
+        raise HTTPException(status_code=429, detail=str(exc)) from exc
     requested = [item.strip() for item in symbols.split(",") if item.strip()]
     quotes = await service.get_quotes(requested)
     return {"items": [score_quote(quote) | {"quote": quote.model_dump(mode="json")} for quote in quotes]}

@@ -2,12 +2,13 @@ from __future__ import annotations
 
 import asyncio
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Cookie, Depends, HTTPException, Query
 
-from app.api.auth import get_current_user_or_github_actions
+from app.api.auth import UserResponse, get_current_user_or_github_actions
 from app.config import settings
 from app.models.market import OHLCVDataset, Timeframe
 from app.models.strategy import StrategyPortfolioResult
+from app.services.entitlement import FeatureNotEntitledError, require_feature
 from app.services.feature_engine import calculate_feature_set
 from app.services.quote_service import QuoteService
 from app.services.regime_detection import MINIMUM_CANDLES, detect_regime
@@ -42,8 +43,13 @@ async def get_strategy_portfolio(
     symbol: str,
     timeframe: Timeframe = Query(Timeframe.HOUR_1),
     limit: int = Query(250, ge=220, le=5000),
+    user: UserResponse | None = Depends(get_current_user_or_github_actions),
+    access_token: str | None = Cookie(None, alias="mr_access_token"),
 ) -> StrategyPortfolioResult:
+    if user is None or not access_token:
+        raise HTTPException(status_code=401, detail="Authentication required.")
     try:
+        require_feature(access_token, user["id"] if isinstance(user, dict) else user.id, "backtesting")
         mapping = normalize_symbol(symbol)
         dataset = await asyncio.wait_for(
             quote_service.orchestrator.get_candles(mapping.internal, timeframe, limit),
@@ -54,6 +60,8 @@ async def get_strategy_portfolio(
         regime = detect_regime(completed_dataset)
         result = evaluate_strategy_portfolio(completed_dataset, features, regime)
         return result
+    except FeatureNotEntitledError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
     except asyncio.TimeoutError as exc:
         raise HTTPException(
             status_code=503,

@@ -110,6 +110,7 @@ def get_usage(access_token: str, user_id: str) -> dict[str, Any]:
     return {
         "period_start": datetime.now(timezone.utc).date().replace(day=1).isoformat(),
         "plan_id": snapshot["plan_id"],
+        "notifications": notifications,
         "metrics": {
             metric: {
                 "used": int(used.get(metric, {}).get("used", 0)),

@@ -2,14 +2,24 @@ from __future__ import annotations
 
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Cookie, Depends, HTTPException
+from fastapi import APIRouter, Cookie, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from app.api.auth import UserResponse, _require_csrf, get_current_user
 from app.services.entitlement import EntitlementError, get_entitlement_snapshot, get_usage, start_pro_trial
+from app.services.billing_provider import BillingProviderError, get_billing_provider
+from app.services.billing_service import cancel_subscription, change_subscription, process_webhook, resume_subscription, start_checkout
 from app.services.supabase_data import _request
 
 router = APIRouter(prefix="/api/billing", tags=["billing"])
+
+
+class PlanRequest(BaseModel):
+    plan_id: str = Field(min_length=2, max_length=32)
+
+
+class CancelRequest(BaseModel):
+    at_period_end: bool = True
 
 
 class TrialRequest(BaseModel):
@@ -23,7 +33,7 @@ def _token(token: str | None) -> str:
 
 
 def _map_error(exc: Exception) -> HTTPException:
-    if isinstance(exc, EntitlementError):
+    if isinstance(exc, (EntitlementError, BillingProviderError)):
         return HTTPException(status_code=409, detail=str(exc))
     return HTTPException(status_code=503, detail="Billing service is temporarily unavailable.")
 
@@ -102,3 +112,60 @@ async def billing_history(
         return {"events": rows}
     except Exception as exc:
         raise _map_error(exc) from exc
+
+
+@router.post("/checkout", dependencies=[Depends(_require_csrf)])
+async def checkout(
+    request: PlanRequest,
+    user: Annotated[UserResponse, Depends(get_current_user)],
+    access_token: Annotated[str | None, Cookie(alias="mr_access_token")] = None,
+) -> dict[str, Any]:
+    try:
+        return start_checkout(_token(access_token), user.id, str(user.email), request.plan_id)
+    except Exception as exc:
+        raise _map_error(exc) from exc
+
+
+@router.post("/change", dependencies=[Depends(_require_csrf)])
+async def change(
+    request: PlanRequest,
+    user: Annotated[UserResponse, Depends(get_current_user)],
+    access_token: Annotated[str | None, Cookie(alias="mr_access_token")] = None,
+) -> dict[str, Any]:
+    try:
+        return change_subscription(_token(access_token), user.id, request.plan_id)
+    except Exception as exc:
+        raise _map_error(exc) from exc
+
+
+@router.post("/cancel", dependencies=[Depends(_require_csrf)])
+async def cancel(
+    request: CancelRequest,
+    user: Annotated[UserResponse, Depends(get_current_user)],
+    access_token: Annotated[str | None, Cookie(alias="mr_access_token")] = None,
+) -> dict[str, Any]:
+    try:
+        return cancel_subscription(_token(access_token), user.id, request.at_period_end)
+    except Exception as exc:
+        raise _map_error(exc) from exc
+
+
+@router.post("/resume", dependencies=[Depends(_require_csrf)])
+async def resume(
+    user: Annotated[UserResponse, Depends(get_current_user)],
+    access_token: Annotated[str | None, Cookie(alias="mr_access_token")] = None,
+) -> dict[str, Any]:
+    try:
+        return resume_subscription(_token(access_token), user.id)
+    except Exception as exc:
+        raise _map_error(exc) from exc
+
+
+@router.post("/webhooks/stripe", include_in_schema=False)
+async def stripe_webhook(request: Request) -> dict[str, Any]:
+    try:
+        payload = await request.body()
+        event = get_billing_provider().verify_webhook(payload, request.headers.get("Stripe-Signature"))
+        return process_webhook(event)
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
