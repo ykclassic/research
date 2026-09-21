@@ -5,6 +5,29 @@ export type ProviderErrorCode = "RATE_LIMITED" | "QUOTA_EXHAUSTED" | "AUTHENTICA
 export interface Quote { symbol: string; provider_symbol: string; price: number | null; currency: string | null; timestamp: string | null; provider_timestamp?: string | null; observed_at?: string | null; source: string | null; status: QuoteStatus; market_open: boolean | null; latency_ms: number | null; cache_hit?: boolean; error: string | null; error_code?: ProviderErrorCode | null; freshness_status?: FreshnessStatus; freshness_age_seconds?: number | null; completeness_status?: CompletenessStatus; fallback_used?: boolean; provider_attempts?: string[]; provider_credits_used?: number | null; provider_credits_remaining?: number | null; }
 export interface ProviderStatus { provider: string; configured: boolean; reachable: boolean | null; circuit_open: boolean; consecutive_failures: number; last_latency_ms: number | null; last_error: string | null; last_error_code: ProviderErrorCode | null; credits_used: number | null; credits_remaining: number | null; usage_observed_at: string | null; quote_budget_remaining: number | null; daily_quote_budget_remaining: number | null; message: string; }
 export interface MarketStatus { providers: ProviderStatus[]; quote_cache_entries: number; candle_cache_entries: number; }
+export type MarketSessionAssetClass = "crypto" | "forex" | "stocks";
+export type MarketSessionVolatilityState = "VERY_HIGH" | "HIGH" | "MODERATE" | "LOW" | "VERY_LOW" | "UNKNOWN";
+export interface MarketSessionState {
+  asset_class: MarketSessionAssetClass;
+  label: string;
+  phase: string;
+  status: "OPEN" | "CLOSED";
+  market_open: boolean;
+  volatility_score: number | null;
+  volatility_state: MarketSessionVolatilityState;
+  activity_score: number | null;
+  liquidity_state: "VERY_HIGH" | "HIGH" | "MODERATE" | "UNKNOWN";
+  starts_at: string | null;
+  ends_at: string | null;
+  next_transition_at: string | null;
+  volatility_source: string | null;
+  timestamp: string;
+}
+export interface MarketSession {
+  calculated_at: string;
+  sessions: MarketSessionState[];
+  representative_symbols: Record<MarketSessionAssetClass, string>;
+}
 export interface User { id: string; email: string; created_at: string; }
 export interface WatchlistItem { id: string; symbol: string; created_at: string; }
 export interface Watchlist { id: string; user_id: string; name: string; created_at: string; updated_at: string; watchlist_items: WatchlistItem[]; }
@@ -149,6 +172,7 @@ export async function getCurrentUser(): Promise<User> { return request<User>("/a
 export async function logout(): Promise<void> { await authenticatedMutation<void>("/api/auth/logout", { method: "POST" }); storeCsrf(null); }
 export async function getQuotes(symbols: string[], refresh = false): Promise<Quote[]> { const params = new URLSearchParams({ symbols: symbols.join(","), refresh: String(refresh) }); return (await request<{ quotes: Quote[] }>(`/api/market/quotes?${params}`)).quotes; }
 export async function getMarketStatus(): Promise<MarketStatus> { return request<MarketStatus>("/api/market/status"); }
+export async function getMarketSession(): Promise<MarketSession> { return request<MarketSession>("/api/market/session"); }
 export async function getWatchlists(): Promise<Watchlist[]> { return (await request<{ watchlists: Watchlist[] }>("/api/watchlists")).watchlists; }
 export async function createWatchlist(name: string): Promise<Watchlist> { return authenticatedMutation<Watchlist>("/api/watchlists", { method: "POST", body: JSON.stringify({ name }) }); }
 export async function renameWatchlist(id: string, name: string): Promise<Watchlist> { return authenticatedMutation<Watchlist>(`/api/watchlists/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify({ name }) }); }
