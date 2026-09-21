@@ -14,6 +14,7 @@ from app.services.mtf_analysis import analyze_multi_timeframe
 from app.services.technical_analysis import calculate_indicators
 from app.services.regime_detection import detect_regime
 from app.services.market_session import build_session_state
+from app.services.system_status import APPLICATION_VERSION
 
 TIMEFRAME_WEIGHTS = {
     Timeframe.DAY_1: 0.35,
