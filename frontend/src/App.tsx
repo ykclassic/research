@@ -8,6 +8,7 @@ import MarketStructurePage from "./MarketStructurePage";
 import MTFAnalysisPage from "./MTFAnalysisPage";
 import SignalPage from "./SignalPage";
 import SignalOutcomePage from "./SignalOutcomePage";
+import SignalIntelligencePage from "./SignalIntelligencePage";
 import PortfolioPage from "./PortfolioPage";
 import AIResearchPage from "./AIResearchPage";
 import NewsResearchPage from "./NewsResearchPage";
@@ -18,7 +19,7 @@ import SettingsPage from "./SettingsPage";
 import TradingSessionPanel from "./TradingSessionPanel";
 import BillingPage from "./BillingPage";
 
-export type AppPage = "market" | "watchlists" | "analysis" | "market-structure" | "mtf" | "signals" | "signal-outcome" | "portfolio" | "ai-research" | "news-research" | "research-reports" | "research-history" | "alerts" | "settings" | "billing";
+export type AppPage = "market" | "watchlists" | "analysis" | "market-structure" | "mtf" | "signals" | "signal-outcome" | "signal-intelligence" | "portfolio" | "ai-research" | "news-research" | "research-reports" | "research-history" | "alerts" | "settings" | "billing";
 
 type AuthMode = "login" | "register" | "forgot" | "reset";
 
@@ -30,6 +31,7 @@ const ROUTES: Record<AppPage, string> = {
   mtf: "/analysis/multi-timeframe",
   signals: "/analysis/signals",
   "signal-outcome": "/analysis/signals/outcomes",
+  "signal-intelligence": "/analysis/signals/intelligence",
   portfolio: "/portfolio",
   "ai-research": "/research/ai",
   "news-research": "/research/news",
@@ -139,7 +141,7 @@ function AuthScreen({ onAuthenticated }: { onAuthenticated: (u: User) => void })
 
 function Header({ user, page, setPage, onLogout }: { user: User; page: AppPage; setPage: (p: AppPage) => void; onLogout: () => void }) {
   const signOut = async () => { try { await logout(); } finally { onLogout(); } };
-  const items: [AppPage,string][] = [["market","Market Data"],["watchlists","Watchlists"],["analysis","Technical Analysis"],["market-structure","Market Structure"],["mtf","MTF Analysis"],["signals","Signals"],["portfolio","Portfolio"],["billing","Plans & Billing"]];
+  const items: [AppPage,string][] = [["market","Market Data"],["watchlists","Watchlists"],["analysis","Technical Analysis"],["market-structure","Market Structure"],["mtf","MTF Analysis"],["signals","Signals"],["signal-intelligence","Signal Intelligence"],["portfolio","Portfolio"],["billing","Plans & Billing"]];
   return <header className="topbar"><div><div className="eyebrow">Adaptive Intelligence</div><h1>Market Research</h1></div><nav className="main-nav" aria-label="Research sections">{items.map(([id,label])=><button key={id} className={`nav-button ${page===id?"active":""}`} onClick={()=>setPage(id)}>{label}</button>)}</nav><div className="topbar-actions"><span className="user-email">{user.email}</span><button className="logout" onClick={()=>void signOut()}><LogOut size={16}/>Sign out</button></div></header>;
 }
 
@@ -234,6 +236,7 @@ function App(){
   if(page==="mtf")return <MTFAnalysisPage user={user} onLogout={onLogout} setPage={navigate}/>;
   if(page==="signals")return <SignalPage user={user} onLogout={onLogout} setPage={navigate}/>;
   if(page==="signal-outcome")return <SignalOutcomePage user={user} onLogout={onLogout} setPage={navigate}/>;
+  if(page==="signal-intelligence")return <SignalIntelligencePage user={user} onLogout={onLogout} setPage={navigate}/>;
   if(page==="portfolio")return <PortfolioPage user={user} onLogout={onLogout} setPage={navigate}/>;
   if(page==="ai-research")return <AIResearchPage user={user} onLogout={onLogout} setPage={navigate}/>;
   if(page==="news-research")return <NewsResearchPage onLogout={onLogout}/>;
