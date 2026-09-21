@@ -16,6 +16,7 @@ from app.preferences.repository import PreferencesRepositoryError
 from app.preferences.schemas import AIPreferences
 from app.preferences.service import preferences_service
 from app.services.ai_research import AIResearchError, AIResearchService
+from app.services.entitlement import UsageLimitExceededError, consume_usage, require_feature
 from app.services.research_history import create_history_record
 from app.services.research_preferences import resolve_research_preferences
 from app.services.supabase_data import DataServiceError
@@ -67,6 +68,11 @@ async def create_ai_research(
     if not preferences.enabled:
         raise HTTPException(status_code=409, detail="AI research is disabled in Settings.")
 
+    try:
+        require_feature(access_token, user.id, "ai_research")
+    except Exception as exc:
+        raise HTTPException(status_code=402, detail=str(exc)) from exc
+
     research_config = resolve_research_preferences(preference_record)
     if not research_config.ai_interpretation_enabled:
         raise HTTPException(status_code=409, detail="AI interpretation is disabled in Research Preferences.")
@@ -113,6 +119,11 @@ async def create_ai_research(
             raise HTTPException(status_code=409, detail="No verified research evidence was produced for the enabled components.")
 
         context = {"context_version": "1.2", "research_configuration": research_config.__dict__, "evidence": evidence}
+        try:
+            consume_usage(access_token, user.id, "ai_research_runs", 1)
+        except UsageLimitExceededError as exc:
+            raise HTTPException(status_code=429, detail=str(exc)) from exc
+
         ai_result = await ai_service.interpret(context, request.question, preferences)
         result = AIResearchResponse(symbol=analysis.symbol if analysis is not None else request.symbol.upper(), timeframe=analysis.timeframe if analysis is not None else timeframe, deterministic_gate="PASSED", verified_context=context, report=ai_result["report"], model=ai_result["model"])
         if user is not None and access_token:
