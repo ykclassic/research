@@ -4,7 +4,15 @@ export interface EntitlementSnapshot { plan:BillingPlan; plan_id:string; feature
 export interface UsageMetric { used:number; limit:number; remaining:number|null; reset_period:string; }
 export interface UsageSummary { period_start:string; plan_id:string; metrics:Record<string,UsageMetric>; }
 export interface BillingEvent { id:string; provider:string; event_type:string; processed_at:string|null; created_at:string; payload:Record<string,unknown>; }
-async function billingRequest<T>(path:string,init:RequestInit={}):Promise<T>{const r=await fetch(window.location.origin+"/api"+path,{...init,credentials:"include",headers:{"Content-Type":"application/json",...(init.headers??{})}});if(!r.ok){let d="Billing request failed.";try{const b=await r.json();if(typeof b.detail==="string")d=b.detail}catch{}throw new Error(d)}return r.status===204?undefined as T:await r.json() as T}
+
+const PROD="https://research-76vr.onrender.com";
+const configured=(import.meta.env.VITE_API_BASE_URL??"").trim();
+const host=typeof window!=="undefined"?window.location.hostname:"";
+const local=host==="localhost"||host==="127.0.0.1"||host==="[::1]";
+const API_BASE=(configured&&(!local||!/^https?:\/\/(localhost|127\.0\.0\.1)/i.test(configured)))?configured:(local?(configured||"http://localhost:8000"):PROD);
+const csrf=()=>document.cookie.split(";").map(x=>x.trim()).find(x=>x.startsWith("mr_csrf="))?.slice(8)??sessionStorage.getItem("mr_csrf_token");
+async function csrfToken(){const r=await fetch(API_BASE+"/api/auth/csrf",{credentials:"include"});if(!r.ok)throw new Error("Authentication session expired.");const token=r.headers.get("X-CSRF-Token");if(!token)throw new Error("CSRF token unavailable.");sessionStorage.setItem("mr_csrf_token",token);return token;}
+async function billingRequest<T>(path:string,init:RequestInit={}):Promise<T>{const headers=new Headers(init.headers);headers.set("Content-Type","application/json");if(init.method&&init.method!=="GET"){let token=csrf();if(!token)token=await csrfToken();headers.set("X-CSRF-Token",token)}const r=await fetch(API_BASE+"/api"+path,{...init,credentials:"include",headers});if(!r.ok){let d="Billing request failed.";try{const b=await r.json();if(typeof b.detail==="string")d=b.detail}catch{}throw new Error(d)}return r.status===204?undefined as T:await r.json() as T}
 export const getBillingPlans=()=>billingRequest<{plans:BillingPlan[]}>("/billing/plans");
 export const getEntitlements=()=>billingRequest<EntitlementSnapshot>("/billing/entitlements");
 export const getSubscription=()=>billingRequest<{plan:BillingPlan;subscription:BillingSubscription|null;plan_id:string}>("/billing/subscription");
