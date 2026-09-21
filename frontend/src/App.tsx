@@ -1,6 +1,6 @@
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import { AlertTriangle, LogOut, Plus, RefreshCw, ShieldCheck, Trash2 } from "lucide-react";
-import { ApiError, confirmPasswordReset, createWatchlist, deleteWatchlist, getCurrentUser, getQuotes, getWatchlists, login, logout, Quote, register, requestPasswordReset, removeWatchlistSymbol, User, Watchlist } from "./api";
+import { ApiError, confirmPasswordReset, createWatchlist, deleteWatchlist, getCurrentUser, getMarketSession, getQuotes, getWatchlists, login, logout, MarketSession, Quote, register, requestPasswordReset, removeWatchlistSymbol, User, Watchlist } from "./api";
 import { getMarketUniverse, MarketUniverse } from "./settingsApi";
 import TechnicalAnalysisPage from "./TechnicalAnalysisPage";
 import MarketStructurePage from "./MarketStructurePage";
@@ -14,6 +14,7 @@ import ResearchReportsPage from "./ResearchReportsPage";
 import ResearchHistoryPage from "./ResearchHistoryPage";
 import AlertsPage from "./AlertsPage";
 import SettingsPage from "./SettingsPage";
+import TradingSessionPanel from "./TradingSessionPanel";
 
 export type AppPage = "market" | "watchlists" | "analysis" | "market-structure" | "mtf" | "signals" | "signal-outcome" | "portfolio" | "ai-research" | "news-research" | "research-reports" | "research-history" | "alerts" | "settings";
 
@@ -142,6 +143,7 @@ function Header({ user, page, setPage, onLogout }: { user: User; page: AppPage; 
 function MarketPage({ user, onLogout, setPage }: { user: User; onLogout: ()=>void; setPage:(p:AppPage)=>void }) {
   const [quotes,setQuotes]=useState<Quote[]>([]);
   const [universe,setUniverse]=useState<MarketUniverse|null>(null);
+  const [marketSession,setMarketSession]=useState<MarketSession|null>(null);
   const [error,setError]=useState<string|null>(null);
   const [refreshing,setRefreshing]=useState(false);
 
@@ -149,8 +151,9 @@ function MarketPage({ user, onLogout, setPage }: { user: User; onLogout: ()=>voi
     try{
       setError(null);
       if(force)setRefreshing(true);
-      const nextUniverse = await getMarketUniverse();
+      const [nextUniverse, nextSession] = await Promise.all([getMarketUniverse(), getMarketSession()]);
       setUniverse(nextUniverse);
+      setMarketSession(nextSession);
       setQuotes(nextUniverse.enabled_symbols.length ? await getQuotes(nextUniverse.enabled_symbols,force) : []);
     }catch(e){
       if(e instanceof ApiError&&e.status===401){onLogout();return;}
@@ -164,6 +167,7 @@ function MarketPage({ user, onLogout, setPage }: { user: User; onLogout: ()=>voi
     <section className="hero dashboard-hero"><div><div className="eyebrow">Phase 1 · Live market data</div><h2>Validated market snapshots.</h2><p>Only provider-validated quotes are presented as current market data.</p></div><div className="hero-stat"><ShieldCheck size={20}/><strong>{quotes.filter(q=>q.status==="LIVE").length}</strong><span>live quotes</span></div></section>
     {error&&<div className="error"><AlertTriangle size={17}/>{error}</div>}
     {universe && <div className="market-coverage-summary">Showing {universe.enabled_symbols.length} of {universe.symbols.crypto.length + universe.symbols.forex.length + universe.symbols.stocks.length} configured markets.</div>}
+    <TradingSessionPanel session={marketSession}/>
     <section className="panel dashboard-market-panel"><div className="panel-head"><div><h3>Market scanner</h3><span>Provider timestamp and provenance are preserved.</span></div><button className="refresh" onClick={()=>void load(true)} disabled={refreshing}><RefreshCw size={16}/>{refreshing?"Refreshing":"Refresh prices"}</button></div>
       {!universe && !error && <div className="settings-health-empty">Loading configured markets…</div>}
       {universe && universe.enabled_symbols.length===0 && <div className="settings-health-empty">All market classes are disabled. Enable at least one market in Settings → Market Data.</div>}
