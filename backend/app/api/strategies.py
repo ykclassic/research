@@ -49,7 +49,7 @@ async def get_strategy_portfolio(
     if user is None or not access_token:
         raise HTTPException(status_code=401, detail="Authentication required.")
     try:
-        require_feature(access_token, user.id, "backtesting")
+        require_feature(access_token, user["id"] if isinstance(user, dict) else user.id, "backtesting")
         mapping = normalize_symbol(symbol)
         dataset = await asyncio.wait_for(
             quote_service.orchestrator.get_candles(mapping.internal, timeframe, limit),
