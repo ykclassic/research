@@ -6,7 +6,7 @@ import re
 # Vercel generates stable production, preview, and branch deployment origins for
 # this project. Keep the pattern narrow to the project's known hostname family;
 # never use a wildcard origin for credentialed requests.
-VERCEL_ORIGIN_REGEX = r"https://research(?:-tech-solut-hub|-[a-z0-9-]+-tech-solut-hub|-dusky-six)\\.vercel\\.app"
+VERCEL_ORIGIN_REGEX = r"https://research(?:-tech-solut-hub|-[a-z0-9-]+-tech-solut-hub|-dusky-six)\.vercel\.app"
 
 
 def configured_origins(cors_origins: str) -> set[str]:
