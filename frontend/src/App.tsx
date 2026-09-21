@@ -1,6 +1,7 @@
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import { AlertTriangle, LogOut, Plus, RefreshCw, ShieldCheck, Trash2 } from "lucide-react";
-import { ApiError, confirmPasswordReset, createWatchlist, deleteWatchlist, getCurrentUser, getMarketSession, getQuotes, getWatchlists, login, logout, MarketSession, Quote, register, requestPasswordReset, removeWatchlistSymbol, User, Watchlist } from "./api";
+import { ApiError, confirmPasswordReset, createWatchlist, deleteWatchlist, getCurrentUser, getMarketSession, getQuotes, getWatchlists, login, logout, Quote, register, requestPasswordReset, removeWatchlistSymbol, User, Watchlist } from "./api";
+import type { MarketSession } from "./api";
 import { getMarketUniverse, MarketUniverse } from "./settingsApi";
 import TechnicalAnalysisPage from "./TechnicalAnalysisPage";
 import MarketStructurePage from "./MarketStructurePage";
