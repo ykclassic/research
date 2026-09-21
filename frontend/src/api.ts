@@ -191,6 +191,27 @@ export async function createPortfolioPosition(payload: { symbol: string; side: P
 export async function deletePortfolioPosition(id: string): Promise<void> { await authenticatedMutation<void>(`/api/portfolio/positions/${encodeURIComponent(id)}`, { method: "DELETE" }); }
 export async function runPortfolioScenario(priceChangePercent: number): Promise<PortfolioScenario> { return request<PortfolioScenario>("/api/portfolio/scenario", { method: "POST", body: JSON.stringify({ price_change_percent: priceChangePercent }) }); }
 
+export interface SignalIntelligenceSnapshot {
+  id: string; signal_id: string; revision: number; symbol: string; direction: string;
+  confidence: number; entry_price: number; stop_loss: number; target_price: number;
+  risk_reward: number | null; timeframe: string; mtf_bias: string | null; mtf_alignment: number | null;
+  regime: string | null; regime_confidence: number | null; market_structure: string | null;
+  liquidity_conditions: string | null; momentum: number | null; volatility: number | null;
+  session: string | null; strategy: string; outcome: string; dispatched_at: string;
+  target_timestamp: string | null; stop_timestamp: string | null; first_touch_timestamp: string | null;
+  r_result: number | null; outcome_latency_seconds: number | null; signal_engine_version: string;
+  evidence: string[]; replay_candles: Array<{timestamp:string;open:number;high:number;low:number;close:number;volume:number;timeframe:string;source:string}>;
+  structural_conditions: Record<string, unknown>;
+}
+export interface SignalExplorerResult { total: number; sample_size_note: string; signals: SignalIntelligenceSnapshot[]; }
+export interface CalibrationBucket { label: string; lower: number; upper: number | null; sample_size: number; observed_outcome_rate: number | null; mean_r: number | null; statistically_meaningful: boolean; note: string; }
+export interface SignalCalibration { minimum_sample_size: number; total_samples: number; buckets: CalibrationBucket[]; }
+export interface SignalReplay { signal: SignalIntelligenceSnapshot; chronological_states: Array<Record<string, unknown>>; outcome: string; methodology_note: string; }
+export async function getSignalIntelligence(filters: Record<string,string|number|undefined> = {}): Promise<SignalExplorerResult> { const params = new URLSearchParams(); Object.entries(filters).forEach(([k,v])=>{ if(v!==undefined&&v!=="") params.set(k,String(v)); }); return request<SignalExplorerResult>("/api/signal-intelligence/explorer?"+params.toString()); }
+export async function getSignalCalibration(): Promise<SignalCalibration> { return request<SignalCalibration>("/api/signal-intelligence/calibration"); }
+export async function getSignalSimilarity(signalId: string): Promise<SignalExplorerResult> { return request<SignalExplorerResult>("/api/signal-intelligence/similar/"+encodeURIComponent(signalId)); }
+export async function getSignalReplay(signalId: string): Promise<SignalReplay> { return request<SignalReplay>("/api/signal-intelligence/replay/"+encodeURIComponent(signalId)); }
+
 export async function logSignal(signal: CryptoSignal): Promise<SignalOutcomeRecord> { return authenticatedMutation<SignalOutcomeRecord>("/api/signal-outcomes/log", { method: "POST", body: JSON.stringify({ signal }) }); }
 export async function getSignalOutcomes(limit = 50): Promise<SignalOutcomeRecord[]> { const params = new URLSearchParams({ limit: String(limit) }); return request<SignalOutcomeRecord[]>(`/api/signal-outcomes?${params}`); }
 export async function getSignalOutcome(signalId: string, refresh = true): Promise<SignalOutcomeRecord> { const params = new URLSearchParams({ refresh: String(refresh) }); return request<SignalOutcomeRecord>(`/api/signal-outcomes/${encodeURIComponent(signalId)}?${params}`); }
