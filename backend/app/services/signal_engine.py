@@ -8,7 +8,7 @@ from typing import Any
 from app.models.market import OHLCVDataset, Timeframe
 from app.models.mtf import MTFBias
 from app.models.risk import RiskPolicy
-from app.models.signal import CryptoSignal, SignalComponent, SignalDirection
+from app.models.signal import CryptoSignal, RiskRewardStatus, SignalComponent, SignalDirection
 from app.services.market_structure import analyze_market_structure
 from app.services.mtf_analysis import analyze_multi_timeframe
 from app.services.technical_analysis import calculate_indicators
@@ -35,7 +35,8 @@ class CandidateTradeLevels:
     structural_target: float | None
     atr_minimum_target: float | None
     take_profit: float | None
-    risk_reward: float
+    risk_reward: float | None
+    risk_reward_reason: str | None
     reasons: tuple[str, ...] = ()
 
 
@@ -203,7 +204,8 @@ def _candidate_trade_levels(
         return CandidateTradeLevels(
             entry_price=entry_price, atr=atr, stop_distance=None, stop_loss=None,
             structural_target=None, atr_minimum_target=None, take_profit=None,
-            risk_reward=0.0,
+            risk_reward=None,
+            risk_reward_reason="Directional bias is neutral; no directional risk/reward setup is available.",
             reasons=("Directional bias is neutral; no trade levels are generated.",),
         )
 
@@ -211,7 +213,8 @@ def _candidate_trade_levels(
         return CandidateTradeLevels(
             entry_price=entry_price, atr=atr, stop_distance=None, stop_loss=None,
             structural_target=None, atr_minimum_target=None, take_profit=None,
-            risk_reward=0.0,
+            risk_reward=None,
+            risk_reward_reason="A positive finite ATR14 is required before risk/reward can be calculated.",
             reasons=("A positive finite ATR14 is required for candidate trade levels.",),
         )
 
@@ -221,7 +224,8 @@ def _candidate_trade_levels(
         return CandidateTradeLevels(
             entry_price=entry_price, atr=atr_value, stop_distance=None, stop_loss=None,
             structural_target=None, atr_minimum_target=None, take_profit=None,
-            risk_reward=0.0,
+            risk_reward=None,
+            risk_reward_reason="ATR-based stop distance is invalid; risk/reward is unavailable.",
             reasons=("ATR-based stop distance is invalid.",),
         )
 
@@ -241,19 +245,24 @@ def _candidate_trade_levels(
             entry_price=entry_price, atr=atr_value, stop_distance=stop_distance,
             stop_loss=stop_loss, structural_target=None,
             atr_minimum_target=atr_minimum_target, take_profit=None,
-            risk_reward=0.0, reasons=tuple(reasons),
+            risk_reward=None,
+            risk_reward_reason="ATR-based candidate stop is non-positive; risk/reward is unavailable.",
+            reasons=tuple(reasons),
         )
 
     candidate_targets = resistances if direction_is_buy else supports
     side = "resistance" if direction_is_buy else "support"
 
     if not candidate_targets:
-        reasons.append(f"No structural {side} level exists beyond the entry.")
+        reason = f"No validated structural {side} target exists beyond the entry; risk/reward is unavailable."
+        reasons.append(reason)
         return CandidateTradeLevels(
             entry_price=entry_price, atr=atr_value, stop_distance=stop_distance,
             stop_loss=stop_loss, structural_target=None,
             atr_minimum_target=atr_minimum_target, take_profit=None,
-            risk_reward=0.0, reasons=tuple(reasons),
+            risk_reward=None,
+            risk_reward_reason=reason,
+            reasons=tuple(reasons),
         )
 
     valid_target = None
@@ -302,7 +311,9 @@ def _candidate_trade_levels(
             entry_price=entry_price, atr=atr_value, stop_distance=stop_distance,
             stop_loss=stop_loss, structural_target=nearest_target,
             atr_minimum_target=atr_minimum_target, take_profit=None,
-            risk_reward=max(0.0, nearest_risk_reward), reasons=tuple(reasons),
+            risk_reward=max(0.0, nearest_risk_reward),
+            risk_reward_reason=None,
+            reasons=tuple(reasons),
         )
 
     take_profit = valid_target
@@ -323,7 +334,9 @@ def _candidate_trade_levels(
         entry_price=entry_price, atr=atr_value, stop_distance=stop_distance,
         stop_loss=stop_loss, structural_target=take_profit,
         atr_minimum_target=atr_minimum_target, take_profit=take_profit,
-        risk_reward=max(0.0, risk_reward), reasons=tuple(reasons),
+        risk_reward=max(0.0, risk_reward),
+        risk_reward_reason=None,
+        reasons=tuple(reasons),
     )
 
 
@@ -348,7 +361,7 @@ def _preferred_direction(signal: SignalDirection) -> str:
 def _qualify(
     signal: SignalDirection,
     confidence: float,
-    risk_reward: float,
+    risk_reward: float | None,
     mtf_bias: MTFBias,
     mtf_alignment: int,
     structure_score: float,
@@ -363,8 +376,14 @@ def _qualify(
         reasons.append(f"Confidence {confidence:.1%} is below the {minimum_confidence:.1%} minimum.")
     if direction not in preferred:
         reasons.append(f"{direction} is not an enabled preferred signal type.")
-    if direction != "NEUTRAL" and risk_reward < minimum_rr:
-        reasons.append(f"Risk/reward {risk_reward:.2f} is below the {minimum_rr:.2f} minimum.")
+    if direction != "NEUTRAL":
+        if risk_reward is None:
+            reasons.append(
+                f"Risk/reward is unavailable because no validated target exists; "
+                f"{minimum_rr:.2f}:1 minimum is required."
+            )
+        elif risk_reward < minimum_rr:
+            reasons.append(f"Risk/reward {risk_reward:.2f} is below the {minimum_rr:.2f} minimum.")
     if preferences.get("require_multi_timeframe_confirmation") and direction != "NEUTRAL":
         aligned = (direction == "BUY" and mtf_bias == MTFBias.BULLISH) or (direction == "SELL" and mtf_bias == MTFBias.BEARISH)
         if not aligned or mtf_alignment < 3:
@@ -456,11 +475,13 @@ def generate_crypto_signal(
         evidence.append(f"Structural target: {levels.structural_target:.8f}.")
     if levels.atr_minimum_target is not None:
         evidence.append(f"ATR-derived minimum target for {minimum_rr:.2f}:1 RR: {levels.atr_minimum_target:.8f}.")
-    if levels.take_profit is not None:
+    if levels.take_profit is not None and levels.risk_reward is not None:
         evidence.append(
             f"Candidate levels: entry {levels.entry_price:.8f}, stop {levels.stop_loss:.8f}, "
             f"target {levels.take_profit:.8f}, RR {levels.risk_reward:.2f}:1."
         )
+    elif levels.risk_reward is None and levels.risk_reward_reason:
+        evidence.append(f"Risk/reward unavailable: {levels.risk_reward_reason}")
     evidence.extend(levels.reasons)
 
     qualified, qualification_reasons = _qualify(
@@ -476,6 +497,14 @@ def generate_crypto_signal(
         confidence=confidence,
         confluence=confidence,
         risk_reward=levels.risk_reward,
+        risk_reward_status=(
+            RiskRewardStatus.AVAILABLE
+            if levels.risk_reward is not None
+            else RiskRewardStatus.UNAVAILABLE
+        ),
+        risk_reward_reason=levels.risk_reward_reason,
+        structural_target=levels.structural_target,
+        atr_minimum_target=levels.atr_minimum_target,
         price=entry_price,
         entry_price=levels.entry_price,
         stop_loss=levels.stop_loss,
