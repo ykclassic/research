@@ -230,3 +230,43 @@ def r_result(entry: float, stop: float, target: float, direction: str, outcome: 
     if outcome == "STOP_LOSS_HIT":
         return -1.0
     return None
+
+
+def sync_outcome_snapshot(access_token: str, user_id: str, outcome_record) -> SignalIntelligenceSnapshot:
+    require_feature(access_token, user_id, "signal_intelligence")
+    rows = _request("GET", "signal_intelligence", access_token, params={
+        "select": SELECT, "user_id": f"eq.{user_id}", "signal_id": f"eq.{outcome_record.signal_id}",
+        "order": "revision.desc", "limit": "1",
+    }).json()
+    if not rows:
+        raise DataRequestError("Signal intelligence snapshot is missing.")
+    prior = _row(rows[0])
+    if prior.outcome == outcome_record.outcome.value and prior.revision >= outcome_record.revision:
+        return prior
+    target_latency = outcome_record.target_tag_latency_seconds
+    stop_latency = outcome_record.stop_tag_latency_seconds
+    rvalue = None
+    if outcome_record.outcome == "TARGET_HIT":
+        rvalue = abs(prior.target_price - prior.entry_price) / abs(prior.entry_price - prior.stop_loss)
+    elif outcome_record.outcome == "STOP_LOSS_HIT":
+        rvalue = -1.0
+    payload = {
+        "signal_id": prior.signal_id, "revision": outcome_record.revision, "user_id": user_id,
+        "symbol": prior.symbol, "direction": prior.direction, "confidence": prior.confidence,
+        "dispatched_at": prior.dispatched_at.isoformat(), "entry_price": prior.entry_price,
+        "stop_loss": prior.stop_loss, "target_price": prior.target_price, "risk_reward": prior.risk_reward,
+        "timeframe": prior.timeframe, "mtf_bias": prior.mtf_bias, "mtf_alignment": prior.mtf_alignment,
+        "regime": prior.regime, "regime_confidence": prior.regime_confidence,
+        "market_structure": prior.market_structure, "liquidity_conditions": prior.liquidity_conditions,
+        "momentum": prior.momentum, "volatility": prior.volatility, "session": prior.session,
+        "strategy": prior.strategy, "outcome": outcome_record.outcome.value,
+        "target_timestamp": outcome_record.target_tagged_at.isoformat() if outcome_record.target_tagged_at else None,
+        "stop_timestamp": outcome_record.stop_tagged_at.isoformat() if outcome_record.stop_tagged_at else None,
+        "first_touch_timestamp": outcome_record.first_touch_timestamp.isoformat() if outcome_record.first_touch_timestamp else None,
+        "r_result": rvalue, "outcome_latency_seconds": target_latency or stop_latency,
+        "signal_engine_version": prior.signal_engine_version, "evidence": list(prior.evidence),
+        "replay_candles": [item.model_dump(mode="json") for item in prior.replay_candles],
+        "structural_conditions": prior.structural_conditions,
+    }
+    response = _request("POST", "signal_intelligence", access_token, json=payload, prefer="return=representation")
+    return _row(response.json()[0])
