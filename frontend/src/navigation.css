@@ -112,3 +112,47 @@ body.sidebar-collapsed .app > main {
   .chrome-heading strong { font-size: 16px; }
   .chrome-signout { padding: 7px 9px; }
 }
+
+
+.trading-session-panel { margin: 16px 0; overflow: hidden; }
+.trading-session-panel .panel-head { align-items: flex-start; }
+.trading-session-legend { display: flex; align-items: center; gap: 7px; color: rgba(255,255,255,.52); font-size: 11px; white-space: nowrap; }
+.legend-dot { width: 8px; height: 8px; border-radius: 999px; display: inline-block; }
+.legend-dot.very-low, .legend-dot.low { background: #ef4444; }
+.legend-dot.moderate { background: #f59e0b; }
+.legend-dot.high, .legend-dot.very-high { background: #22c55e; }
+.trading-session-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+.trading-session-row { position: relative; min-width: 0; padding: 16px; border: 1px solid rgba(255,255,255,.08); border-radius: 12px; background: rgba(255,255,255,.025); overflow: hidden; }
+.trading-session-row::before { content: ""; position: absolute; inset: 0 auto 0 0; width: 3px; background: #6b7280; }
+.trading-session-row.very-low::before, .trading-session-row.low::before { background: #ef4444; }
+.trading-session-row.moderate::before { background: #f59e0b; }
+.trading-session-row.high::before, .trading-session-row.very-high::before { background: #22c55e; }
+.trading-session-row.is-closed { opacity: .68; }
+.trading-session-main { display: flex; align-items: flex-start; gap: 10px; }
+.trading-session-indicator { width: 10px; height: 10px; margin-top: 5px; flex: 0 0 auto; border-radius: 999px; background: #6b7280; box-shadow: 0 0 0 3px rgba(107,114,128,.12); }
+.trading-session-row.very-low .trading-session-indicator, .trading-session-row.low .trading-session-indicator { background: #ef4444; box-shadow: 0 0 0 3px rgba(239,68,68,.12); }
+.trading-session-row.moderate .trading-session-indicator { background: #f59e0b; box-shadow: 0 0 0 3px rgba(245,158,11,.12); }
+.trading-session-row.high .trading-session-indicator, .trading-session-row.very-high .trading-session-indicator { background: #22c55e; box-shadow: 0 0 0 3px rgba(34,197,94,.12); }
+.trading-session-indicator.pulse { animation: trading-session-pulse 1.8s ease-in-out infinite; }
+.trading-session-row.low .trading-session-indicator.pulse, .trading-session-row.very-low .trading-session-indicator.pulse { animation-duration: 3s; }
+.trading-session-row.very-high .trading-session-indicator.pulse { animation-duration: .9s; }
+.trading-session-asset { color: rgba(255,255,255,.44); font-size: 10px; font-weight: 700; letter-spacing: .09em; text-transform: uppercase; margin-bottom: 4px; }
+.trading-session-main strong { display: block; font-size: 14px; color: rgba(255,255,255,.94); }
+.trading-session-metrics { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin-top: 18px; }
+.trading-session-metrics div { min-width: 0; }
+.trading-session-metrics span { display: block; color: rgba(255,255,255,.4); font-size: 9px; text-transform: uppercase; letter-spacing: .06em; margin-bottom: 3px; }
+.trading-session-metrics strong { display: block; color: rgba(255,255,255,.82); font-size: 11px; text-transform: capitalize; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.trading-session-transition { display: flex; align-items: center; gap: 6px; margin-top: 14px; color: rgba(255,255,255,.45); font-size: 10px; }
+.trading-session-loading { display: flex; align-items: center; gap: 8px; min-height: 92px; color: rgba(255,255,255,.55); font-size: 12px; }
+.trading-session-footnote { display: flex; align-items: flex-start; gap: 7px; margin-top: 12px; padding-top: 10px; border-top: 1px solid rgba(255,255,255,.06); color: rgba(255,255,255,.38); font-size: 10px; line-height: 1.45; }
+@keyframes trading-session-pulse {
+  0%, 100% { transform: scale(1); opacity: .7; }
+  50% { transform: scale(1.55); opacity: 1; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .trading-session-indicator.pulse { animation: none; }
+}
+@media (max-width: 900px) {
+  .trading-session-grid { grid-template-columns: 1fr; }
+  .trading-session-legend { display: none; }
+}

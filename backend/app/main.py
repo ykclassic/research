@@ -12,6 +12,7 @@ from app.api.analysis import router as analysis_router
 from app.api.auth import router as auth_router
 from app.api.execution import router as execution_router
 from app.api.market import router as market_router
+from app.api.market_session import router as market_session_router
 from app.api.market_structure import router as market_structure_router
 from app.api.mtf import router as mtf_router
 from app.api.news import router as news_router
@@ -90,6 +91,7 @@ async def security_headers(request: Request, call_next):
 app.include_router(auth_router)
 app.include_router(preferences_router)
 app.include_router(market_router)
+app.include_router(market_session_router)
 app.include_router(providers_router)
 app.include_router(watchlists_router)
 app.include_router(analysis_router)
