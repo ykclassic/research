@@ -206,9 +206,12 @@ export interface SignalIntelligenceSnapshot {
 export interface SignalExplorerResult { total: number; sample_size_note: string; signals: SignalIntelligenceSnapshot[]; }
 export interface CalibrationBucket { label: string; lower: number; upper: number | null; sample_size: number; observed_outcome_rate: number | null; mean_r: number | null; statistically_meaningful: boolean; note: string; }
 export interface SignalCalibration { minimum_sample_size: number; total_samples: number; buckets: CalibrationBucket[]; }
+export interface EngineVersionMetric { engine_version: string; sample_size: number; target_hit_rate: number; mean_r: number | null; median_r: number | null; mean_latency_seconds: number | null; statistically_meaningful: boolean; note: string; }
+export interface EngineVersionAnalytics { minimum_sample_size: number; versions: EngineVersionMetric[]; }
 export interface SignalReplay { signal: SignalIntelligenceSnapshot; chronological_states: Array<Record<string, unknown>>; outcome: string; methodology_note: string; }
 export async function getSignalIntelligence(filters: Record<string,string|number|undefined> = {}): Promise<SignalExplorerResult> { const params = new URLSearchParams(); Object.entries(filters).forEach(([k,v])=>{ if(v!==undefined&&v!=="") params.set(k,String(v)); }); return request<SignalExplorerResult>("/api/signal-intelligence/explorer?"+params.toString()); }
 export async function getSignalCalibration(): Promise<SignalCalibration> { return request<SignalCalibration>("/api/signal-intelligence/calibration"); }
+export async function getSignalEngineVersions(): Promise<EngineVersionAnalytics> { return request<EngineVersionAnalytics>("/api/signal-intelligence/engine-versions"); }
 export async function getSignalSimilarity(signalId: string): Promise<SignalExplorerResult> { return request<SignalExplorerResult>("/api/signal-intelligence/similar/"+encodeURIComponent(signalId)); }
 export async function getSignalReplay(signalId: string): Promise<SignalReplay> { return request<SignalReplay>("/api/signal-intelligence/replay/"+encodeURIComponent(signalId)); }
 
