@@ -41,6 +41,7 @@ class Settings(BaseSettings):
     openai_timeout_seconds: float = 30.0
     openai_max_output_tokens: int = 2500
     billing_provider: str = "stripe"
+    billing_test_mode: bool = False
     stripe_secret_key: str = ""
     stripe_webhook_secret: str = ""
     stripe_price_pro: str = ""
