@@ -25,6 +25,7 @@ from app.api.research_history import router as research_history_router
 from app.api.research_reports import router as research_reports_router
 from app.api.risk_management import router as risk_management_router
 from app.api.signals import router as signals_router
+from app.api.scanner import router as scanner_router
 from app.api.signal_outcomes import router as signal_outcomes_router
 from app.api.signal_intelligence import router as signal_intelligence_router
 from app.api.strategies import router as strategies_router
@@ -103,6 +104,7 @@ app.include_router(strategies_router)
 app.include_router(strategy_selection_router)
 app.include_router(risk_management_router)
 app.include_router(signals_router)
+app.include_router(scanner_router)
 app.include_router(signal_outcomes_router)
 app.include_router(signal_intelligence_router)
 app.include_router(market_structure_router)
