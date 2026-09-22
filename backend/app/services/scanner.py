@@ -664,7 +664,7 @@ async def run_due_schedules() -> dict[str, Any]:
     failed = 0
     for schedule in due:
         try:
-            await run_scan(settings.supabase_service_role_key, schedule["user_id"], schedule["preset_id"])
+            await run_scan(settings.supabase_service_role_key, schedule["user_id"], schedule["preset_id"], scheduled=True)
             now = datetime.now(timezone.utc)
             _request(
                 "PATCH",
