@@ -13,7 +13,7 @@ const API_BASE=(configured&&(!local||!/^https?:\/\/(localhost|127\.0\.0\.1)/i.te
 const csrf=()=>document.cookie.split(";").map(x=>x.trim()).find(x=>x.startsWith("mr_csrf="))?.slice(8)??sessionStorage.getItem("mr_csrf_token");
 async function csrfToken(){const r=await fetch(API_BASE+"/api/auth/csrf",{credentials:"include"});if(!r.ok)throw new Error("Authentication session expired.");const token=r.headers.get("X-CSRF-Token");if(!token)throw new Error("CSRF token unavailable.");sessionStorage.setItem("mr_csrf_token",token);return token;}
 async function billingRequest<T>(path:string,init:RequestInit={}):Promise<T>{const headers=new Headers(init.headers);headers.set("Content-Type","application/json");if(init.method&&init.method!=="GET"){let token=csrf();if(!token)token=await csrfToken();headers.set("X-CSRF-Token",token)}const r=await fetch(API_BASE+"/api"+path,{...init,credentials:"include",headers});if(!r.ok){let d="Billing request failed.";try{const b=await r.json();if(typeof b.detail==="string")d=b.detail}catch{}throw new Error(d)}return r.status===204?undefined as T:await r.json() as T}
-export const getBillingPlans=()=>billingRequest<{plans:BillingPlan[]}>("/billing/plans");
+export const getBillingPlans=()=>billingRequest<{plans:BillingPlan[];billing_test_mode:boolean}>("/billing/plans");
 export const getEntitlements=()=>billingRequest<EntitlementSnapshot>("/billing/entitlements");
 export const getSubscription=()=>billingRequest<{plan:BillingPlan;subscription:BillingSubscription|null;plan_id:string}>("/billing/subscription");
 export const getUsage=()=>billingRequest<UsageSummary>("/billing/usage");
@@ -21,6 +21,6 @@ export const getBillingHistory=()=>billingRequest<{events:BillingEvent[]}>("/bil
 export const startProTrial=(days=14)=>billingRequest<{subscription:BillingSubscription}>("/billing/trial",{method:"POST",body:JSON.stringify({days})});
 
 export const startCheckout=(plan_id:string)=>billingRequest<{checkout_url:string;checkout_session_id:string;provider:string;plan_id:string}>("/billing/checkout",{method:"POST",body:JSON.stringify({plan_id})});
-export const changePlan=(plan_id:string)=>billingRequest<{status:string;plan_id?:string;checkout_url?:string;checkout_session_id?:string}>("/billing/change",{method:"POST",body:JSON.stringify({plan_id})});
+export const changePlan=(plan_id:string)=>billingRequest<{status:string;plan_id?:string;checkout_url?:string;checkout_session_id?:string;subscription?:BillingSubscription}>("/billing/change",{method:"POST",body:JSON.stringify({plan_id})});
 export const cancelSubscription=(at_period_end=true)=>billingRequest<Record<string,unknown>>("/billing/cancel",{method:"POST",body:JSON.stringify({at_period_end})});
 export const resumeSubscription=()=>billingRequest<Record<string,unknown>>("/billing/resume",{method:"POST"});

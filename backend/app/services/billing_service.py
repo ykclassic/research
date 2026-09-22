@@ -38,7 +38,94 @@ def start_checkout(access_token: str, user_id: str, email: str, plan_id: str) ->
     return {"provider": provider.name, "checkout_session_id": session.id, "checkout_url": session.url, "plan_id": plan_id}
 
 
+def _test_change_subscription(access_token: str, user_id: str, plan_id: str) -> dict[str, Any]:
+    """Instant local billing simulator used only in non-production test environments.
+
+    It exercises the same subscription/entitlement persistence path while never
+    contacting Stripe. Real billing remains provider-backed through Stripe.
+    """
+    if plan_id not in {"free", "pro", "premium"}:
+        raise DataRequestError("Unknown test billing plan.")
+
+    current = _active_subscription(access_token, user_id)
+    now = _now()
+
+    if plan_id == "free":
+        if current:
+            rows = service_request(
+                "PATCH",
+                "billing_subscriptions",
+                params={"id": f"eq.{current['id']}", "user_id": f"eq.{user_id}"},
+                json={
+                    "plan_id": "free",
+                    "status": "canceled",
+                    "provider": "test",
+                    "provider_customer_id": None,
+                    "provider_subscription_id": None,
+                    "trial_started_at": None,
+                    "trial_ends_at": None,
+                    "cancel_at_period_end": False,
+                    "canceled_at": now,
+                    "updated_at": now,
+                },
+                prefer="return=representation",
+            ).json()
+            subscription = rows[0] if rows else None
+        else:
+            subscription = None
+    else:
+        values = {
+            "plan_id": plan_id,
+            "status": "active",
+            "provider": "test",
+            "provider_customer_id": f"test_customer_{user_id}",
+            "provider_subscription_id": f"test_subscription_{user_id}",
+            "trial_started_at": None,
+            "trial_ends_at": None,
+            "current_period_start": now,
+            "current_period_end": None,
+            "cancel_at_period_end": False,
+            "canceled_at": None,
+            "updated_at": now,
+        }
+        if current:
+            rows = service_request(
+                "PATCH",
+                "billing_subscriptions",
+                params={"id": f"eq.{current['id']}", "user_id": f"eq.{user_id}"},
+                json=values,
+                prefer="return=representation",
+            ).json()
+        else:
+            values["user_id"] = user_id
+            rows = service_request(
+                "POST",
+                "billing_subscriptions",
+                json=values,
+                prefer="return=representation",
+            ).json()
+        subscription = rows[0] if rows else None
+
+    service_request(
+        "POST",
+        "billing_events",
+        json={
+            "provider": "test",
+            "provider_event_id": f"test-{user_id}-{now}",
+            "user_id": user_id,
+            "event_type": "test.subscription.changed",
+            "payload": {"plan_id": plan_id, "subscription_id": subscription.get("id") if subscription else None},
+            "processed_at": now,
+        },
+        prefer="return=minimal",
+    )
+    return {"status": "test_updated", "plan_id": plan_id, "subscription": subscription}
+
+
 def change_subscription(access_token: str, user_id: str, email: str, plan_id: str) -> dict[str, Any]:
+    if settings.billing_test_mode and settings.app_env.lower() != "production":
+        return _test_change_subscription(access_token, user_id, plan_id)
+
     current = _active_subscription(access_token, user_id)
     if not current:
         raise DataRequestError("No active subscription exists.")
