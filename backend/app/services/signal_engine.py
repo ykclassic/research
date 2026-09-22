@@ -428,7 +428,7 @@ def generate_crypto_signal(
     structures = {}
     smc_scores: list[float] = []
 
-    for timeframe in selected:
+    for timeframe in required:
         dataset = datasets[timeframe]
         candles = list(dataset.completed_candles)
         if len(candles) < 30:
@@ -450,7 +450,8 @@ def generate_crypto_signal(
                 evidence=indicator_evidence + smc_evidence,
             )
         )
-        weighted_score += (TIMEFRAME_WEIGHTS[timeframe] / selected_weight_total) * combined
+        if timeframe in selected:
+            weighted_score += (TIMEFRAME_WEIGHTS[timeframe] / selected_weight_total) * combined
         evidence.extend(f"{timeframe.value}: {item}" for item in (indicator_evidence + smc_evidence))
 
     mtf = analyze_multi_timeframe(datasets, structures)
