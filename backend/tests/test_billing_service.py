@@ -1,6 +1,7 @@
 from unittest.mock import Mock
 
 from app.services import billing_service
+from app.services.billing_provider import StripeBillingProvider
 
 
 def test_change_subscription_from_internal_trial_starts_checkout(monkeypatch):
@@ -50,3 +51,22 @@ def test_change_subscription_updates_stripe_subscription(monkeypatch):
     provider.change_subscription.assert_called_once_with(
         "sub_stripe", price_id="price_premium"
     )
+
+
+def test_stripe_checkout_carries_identity_into_subscription_metadata(monkeypatch):
+    provider = StripeBillingProvider()
+    response = {"id": "cs_test", "url": "https://checkout.stripe.com/cs_test"}
+    request = Mock(return_value=response)
+    monkeypatch.setattr(provider, "_request", request)
+    monkeypatch.setattr(billing_service.settings, "stripe_price_premium", "price_premium")
+
+    result = provider.create_checkout(
+        user_id="user-123", email="user@example.com", plan_id="premium"
+    )
+
+    assert result.id == "cs_test"
+    payload = request.call_args.kwargs["data"]
+    assert payload["metadata[user_id]"] == "user-123"
+    assert payload["metadata[plan_id]"] == "premium"
+    assert payload["subscription_data[metadata][user_id]"] == "user-123"
+    assert payload["subscription_data[metadata][plan_id]"] == "premium"
