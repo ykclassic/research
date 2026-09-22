@@ -18,8 +18,9 @@ import AlertsPage from "./AlertsPage";
 import SettingsPage from "./SettingsPage";
 import TradingSessionPanel from "./TradingSessionPanel";
 import BillingPage from "./BillingPage";
+import ScannerPage from "./ScannerPage";
 
-export type AppPage = "market" | "watchlists" | "analysis" | "market-structure" | "mtf" | "signals" | "signal-outcome" | "signal-intelligence" | "portfolio" | "ai-research" | "news-research" | "research-reports" | "research-history" | "alerts" | "settings" | "billing";
+export type AppPage = "market" | "watchlists" | "analysis" | "market-structure" | "mtf" | "signals" | "signal-outcome" | "signal-intelligence" | "portfolio" | "ai-research" | "news-research" | "research-reports" | "research-history" | "alerts" | "settings" | "billing" | "scanner";
 
 type AuthMode = "login" | "register" | "forgot" | "reset";
 
@@ -40,6 +41,7 @@ const ROUTES: Record<AppPage, string> = {
   alerts: "/monitoring/alerts",
   settings: "/settings",
   billing: "/billing",
+  scanner: "/monitoring/scanner",
 };
 
 const PAGE_BY_ROUTE = new Map(Object.entries(ROUTES).map(([page, route]) => [route, page as AppPage]));
@@ -141,7 +143,7 @@ function AuthScreen({ onAuthenticated }: { onAuthenticated: (u: User) => void })
 
 function Header({ user, page, setPage, onLogout }: { user: User; page: AppPage; setPage: (p: AppPage) => void; onLogout: () => void }) {
   const signOut = async () => { try { await logout(); } finally { onLogout(); } };
-  const items: [AppPage,string][] = [["market","Market Data"],["watchlists","Watchlists"],["analysis","Technical Analysis"],["market-structure","Market Structure"],["mtf","MTF Analysis"],["signals","Signals"],["signal-intelligence","Signal Intelligence"],["portfolio","Portfolio"],["billing","Plans & Billing"]];
+  const items: [AppPage,string][] = [["market","Market Data"],["scanner","Scanner"],["watchlists","Watchlists"],["analysis","Technical Analysis"],["market-structure","Market Structure"],["mtf","MTF Analysis"],["signals","Signals"],["signal-intelligence","Signal Intelligence"],["portfolio","Portfolio"],["billing","Plans & Billing"]];
   return <header className="topbar"><div><div className="eyebrow">Adaptive Intelligence</div><h1>Market Research</h1></div><nav className="main-nav" aria-label="Research sections">{items.map(([id,label])=><button key={id} className={`nav-button ${page===id?"active":""}`} onClick={()=>setPage(id)}>{label}</button>)}</nav><div className="topbar-actions"><span className="user-email">{user.email}</span><button className="logout" onClick={()=>void signOut()}><LogOut size={16}/>Sign out</button></div></header>;
 }
 
@@ -244,6 +246,7 @@ function App(){
   if(page==="research-history")return <ResearchHistoryPage/>;
   if(page==="settings")return <SettingsPage user={user} onLogout={onLogout} setPage={navigate}/>;
   if(page==="billing")return <BillingPage user={user} onLogout={onLogout}/>;
+  if(page==="scanner")return <ScannerPage user={user} onLogout={onLogout} setPage={navigate}/>;
   return <AlertsPage/>;
 }
 
