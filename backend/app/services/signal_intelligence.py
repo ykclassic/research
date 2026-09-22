@@ -152,11 +152,14 @@ def explorer(access_token: str, user_id: str, filters: dict[str, str | None]) ->
         params["confidence"] = f"lte.{filters['max_confidence']}"
     if filters.get("min_rr"):
         params["risk_reward"] = f"gte.{filters['min_rr']}"
-    if filters.get("from_date"):
-        params["dispatched_at"] = f"gte.{filters['from_date']}T00:00:00+00:00"
-    if filters.get("to_date"):
-        params["dispatched_at"] = f"lte.{filters['to_date']}T23:59:59+00:00"
     rows = _latest_rows(access_token, user_id, params)
+    if filters.get("from_date") or filters.get("to_date"):
+        start = filters.get("from_date")
+        end = filters.get("to_date")
+        rows = [item for item in rows if (not start or item.dispatched_at.date().isoformat() >= start) and (not end or item.dispatched_at.date().isoformat() <= end)]
+    if filters.get("structure"):
+        needle = filters["structure"].lower()
+        rows = [item for item in rows if needle in (item.market_structure or "").lower()]
     return SignalExplorerResult(total=len(rows), sample_size_note=("Observed records only; filters do not imply predictive validity." if len(rows) >= MIN_SIMILARITY_SAMPLE else f"Only {len(rows)} observations match. No performance inference should be made until at least {MIN_SIMILARITY_SAMPLE} comparable observations exist."), signals=tuple(rows))
 
 
