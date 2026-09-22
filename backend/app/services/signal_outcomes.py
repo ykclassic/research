@@ -6,6 +6,7 @@ from typing import Any
 from app.models.market import Candle, Timeframe
 from app.models.signal import CryptoSignal
 from app.models.signal_outcome import SignalOutcomeAuditRecord, SignalOutcomeStatus
+from app.services.signal_intelligence import create_intelligence_snapshot, sync_outcome_snapshot
 from app.services.supabase_data import (
     DataConflictError,
     DataNotFoundError,
@@ -154,7 +155,9 @@ def create_signal_audit(
     rows = response.json()
     if not rows:
         raise DataRequestError("Signal outcome audit record was not created.")
-    return _record(rows[0])
+    record = _record(rows[0])
+    create_intelligence_snapshot(access_token, user_id, signal, dispatched_at=dispatched, outcome=record.outcome.value, revision=record.revision)
+    return record
 
 
 def _rows_for_user(

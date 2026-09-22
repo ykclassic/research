@@ -12,6 +12,9 @@ from app.models.signal import CryptoSignal, RiskRewardStatus, SignalComponent, S
 from app.services.market_structure import analyze_market_structure
 from app.services.mtf_analysis import analyze_multi_timeframe
 from app.services.technical_analysis import calculate_indicators
+from app.services.regime_detection import detect_regime
+from app.services.market_session import build_session_state
+from app.services.system_status import APPLICATION_VERSION
 
 TIMEFRAME_WEIGHTS = {
     Timeframe.DAY_1: 0.35,
@@ -468,6 +471,23 @@ def generate_crypto_signal(
     )
     structure_score = sum(smc_scores) / len(smc_scores) if smc_scores else 0.0
 
+    m15_dataset = datasets[Timeframe.MINUTE_15]
+    m15_candles = list(m15_dataset.completed_candles)
+    try:
+        regime_result = detect_regime(m15_dataset)
+    except ValueError:
+        regime_result = None
+    latest_events = list(structures[Timeframe.MINUTE_15])
+    latest_events.sort(key=lambda event: event.time)
+    recent_events = latest_events[-6:]
+    structure_summary = ", ".join(event.type for event in recent_events) or "NONE"
+    latest_sweep = next((event for event in reversed(latest_events) if event.type.startswith("LIQUIDITY_SWEEP_")), None)
+    liquidity_conditions = "SWEEP_" + ("LOW" if latest_sweep and latest_sweep.type.endswith("LOW") else "HIGH") if latest_sweep else "NO_CONFIRMED_SWEEP"
+    macd_hist = m15_indicators.get("macd_histogram")
+    momentum = max(-1.0, min(1.0, float(macd_hist) / max(abs(float(atr or 1.0)), 1e-12))) if isinstance(macd_hist, (int, float)) else None
+    volatility = (float(atr) / entry_price) if isinstance(atr, (int, float)) and entry_price > 0 else None
+    session_state = build_session_state(asset_class="crypto", now=datasets[Timeframe.MINUTE_15].completed_candles[-1].timestamp, market_open=True, dataset=m15_dataset, symbol=m15_dataset.symbol)
+
     evidence.append(f"Directional bias: {_preferred_direction(signal)}.")
     if levels.stop_loss is not None:
         evidence.append(f"ATR candidate stop: {levels.stop_loss:.8f} ({SIGNAL_STOP_ATR_MULTIPLIER:.2f}x ATR14).")
@@ -520,4 +540,32 @@ def generate_crypto_signal(
         minimum_confidence=float(preferences.get("minimum_confidence", 0.0)),
         minimum_risk_reward=minimum_rr,
         qualification_status="QUALIFIED" if qualified else "REJECTED",
+        mtf_bias=mtf.research.bias.value,
+        mtf_alignment=mtf.research.alignment_count,
+        regime=regime_result.regime.value if regime_result else "UNKNOWN",
+        regime_confidence=regime_result.confidence if regime_result else 0.0,
+        market_structure=structure_summary,
+        liquidity_conditions=liquidity_conditions,
+        momentum=momentum,
+        volatility=volatility,
+        session=session_state.label,
+        structural_conditions={
+            "recent_events": [event.type for event in recent_events],
+            "mtf_primary_setup": mtf.research.primary_setup,
+            "mtf_conclusion": mtf.research.conclusion,
+            "regime_rule": regime_result.rule_id if regime_result else "INSUFFICIENT_HISTORY",
+        },
+        replay_candles=tuple(
+            {
+                "timestamp": candle.timestamp,
+                "open": candle.open,
+                "high": candle.high,
+                "low": candle.low,
+                "close": candle.close,
+                "volume": float(candle.volume or 0.0),
+                "timeframe": candle.timeframe.value,
+                "source": candle.source,
+            }
+            for candle in m15_candles[-120:]
+        ),
     )
