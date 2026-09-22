@@ -5,7 +5,8 @@ alter table public.scanner_opportunities
   add column if not exists entry_price numeric,
   add column if not exists stop_loss numeric,
   add column if not exists target_price numeric,
-  add column if not exists last_price numeric;
+  add column if not exists last_price numeric,
+  add column if not exists structural_conditions jsonb not null default '{}'::jsonb;
 
 create index if not exists scanner_opportunities_target_state_idx
   on public.scanner_opportunities(user_id, symbol, observed_at desc)
