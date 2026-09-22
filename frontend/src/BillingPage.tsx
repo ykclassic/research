@@ -9,9 +9,25 @@ const freeFeatures=new Set(["core_research","watchlists","basic_portfolio","sign
 const money=(minor:number,currency:string)=>minor===0?"Free":currency+" "+(minor/100).toFixed(2)+"/month";
 
 export default function BillingPage({user,onLogout}:Props){
- const [plans,setPlans]=useState<BillingPlan[]>([]),[ent,setEnt]=useState<EntitlementSnapshot|null>(null),[sub,setSub]=useState<BillingSubscription|null>(null),[usage,setUsage]=useState<UsageSummary|null>(null),[history,setHistory]=useState<BillingEvent[]>([]),[billingTestMode,setBillingTestMode]=useState(false),[busy,setBusy]=useState(false),[error,setError]=useState<string|null>(null);
+ const [plans,setPlans]=useState<BillingPlan[]>([]),[ent,setEnt]=useState<EntitlementSnapshot|null>(null),[sub,setSub]=useState<BillingSubscription|null>(null),[usage,setUsage]=useState<UsageSummary|null>(null),[history,setHistory]=useState<BillingEvent[]>([]),[billingTestMode,setBillingTestMode]=useState(false),[busy,setBusy]=useState(false),[billingSyncing,setBillingSyncing]=useState(false),[error,setError]=useState<string|null>(null);
  const load=useCallback(async()=>{try{setError(null);const[p,e,s,u,h]=await Promise.all([getBillingPlans(),getEntitlements(),getSubscription(),getUsage(),getBillingHistory()]);setPlans(p.plans);setBillingTestMode(p.billing_test_mode);setEnt(e);setSub(s.subscription);setUsage(u);setHistory(h.events)}catch(e){if(e instanceof Error&&/authentication|required/i.test(e.message)){onLogout();return}setError(e instanceof Error?e.message:"Unable to load billing.")}},[onLogout]);
  useEffect(()=>{void load()},[load]);
+ useEffect(()=>{
+  const params=new URLSearchParams(window.location.search);
+  if(params.get("billing")!=="success")return;
+  setBillingSyncing(true);
+  let attempts=0;
+  let timer:number|undefined;
+  const sync=async()=>{
+   attempts+=1;
+   await load();
+   if(attempts<6){timer=window.setTimeout(sync,1500);return}
+   setBillingSyncing(false);
+   window.history.replaceState({},document.title,window.location.pathname);
+  };
+  void sync();
+  return()=>{if(timer!==undefined)window.clearTimeout(timer)};
+ },[load]);
  const checkout=async(planId:string)=>{setBusy(true);setError(null);try{const result=await startCheckout(planId);window.location.assign(result.checkout_url)}catch(e){setError(e instanceof Error?e.message:"Unable to start checkout.");setBusy(false)}};
  const change=async(planId:string)=>{setBusy(true);setError(null);try{const result=await changePlan(planId);if(result.checkout_url){window.location.assign(result.checkout_url);return}await load()}catch(e){setError(e instanceof Error?e.message:"Unable to change plan.")}finally{setBusy(false)}};
  const cancel=async()=>{setBusy(true);setError(null);try{await cancelSubscription(true);await load()}catch(e){setError(e instanceof Error?e.message:"Unable to cancel subscription.")}finally{setBusy(false)}};
@@ -19,6 +35,7 @@ export default function BillingPage({user,onLogout}:Props){
  const trial=async()=>{setBusy(true);setError(null);try{await startProTrial();await load()}catch(e){setError(e instanceof Error?e.message:"Unable to start trial.")}finally{setBusy(false)}};
  return <div className="app billing-app"><main>
   <section className="billing-hero"><div><div className="eyebrow">Commercial infrastructure · Phase 1</div><h2>Plans, entitlements and usage.</h2><p>Your plan is resolved on the backend and usage limits are enforced before metered work executes.</p></div><div className="billing-status"><CreditCard size={18}/><strong>{ent?.plan.name??"Free"}</strong><span>{sub?.status??"free"}</span></div></section>
+  {billingSyncing&&<div className="billing-test-banner"><strong>Payment received</strong><span>Stripe confirmed the checkout. Synchronizing your subscription and entitlements…</span></div>}
   {billingTestMode&&<div className="billing-test-banner"><strong>Billing test mode</strong><span>Plan switches are instant and do not create real charges. The production Stripe integration remains unchanged.</span></div>}{error&&<div className="billing-error">{error}</div>}
   <section className="billing-section"><div className="billing-section-head"><div><h3>Pricing</h3><span>Capabilities come from the centralized entitlement model.</span></div><button onClick={()=>void load()} disabled={busy}><RefreshCw size={15}/>Refresh</button></div>
    <div className="billing-plans">{plans.map(plan=><article className={"billing-plan "+(plan.id===ent?.plan_id?"current":"")} key={plan.id}><div className="billing-plan-top"><div><span className="billing-plan-kicker">{plan.id==="premium"?"Professional":plan.name}</span><h4>{plan.name}</h4></div>{plan.id===ent?.plan_id&&<span className="billing-current">Current</span>}</div><strong className="billing-price">{money(plan.monthly_price_minor,plan.currency)}</strong><p>{plan.description}</p>{plan.id==="pro"&&!sub&&!billingTestMode&&<button className="billing-primary" onClick={()=>void trial()} disabled={busy}><Sparkles size={15}/>{busy?"Starting…":"Start 14-day Pro trial"}</button>}{billingTestMode&&plan.id!==ent?.plan_id&&<button className="billing-primary" onClick={()=>void change(plan.id)} disabled={busy}>Switch to {plan.name}</button>}{!billingTestMode&&plan.id!=="free"&&plan.id!==ent?.plan_id&&sub&&<button className="billing-primary" onClick={()=>void change(plan.id)} disabled={busy}>Switch to {plan.name}</button>}{!billingTestMode&&plan.id!=="free"&&!sub&&<button className="billing-primary" onClick={()=>void checkout(plan.id)} disabled={busy}>Subscribe to {plan.name}</button>}<ul>{Object.entries(labels).map(([key,label])=><li key={key} className={(freeFeatures.has(key)||plan.id!=="free")?"included":""}><Check size={14}/>{label}</li>)}</ul></article>)}</div>
