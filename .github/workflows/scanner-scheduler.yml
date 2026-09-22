@@ -1,0 +1,24 @@
+name: Scanner scheduler
+
+on:
+  schedule:
+    - cron: "7,22,37,52 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - name: Trigger due scanner schedules
+        env:
+          SCANNER_URL: ${{ vars.RESEARCH_API_URL }}
+          SCANNER_SECRET: ${{ secrets.SCANNER_SCHEDULER_SECRET }}
+        run: |
+          set -euo pipefail
+          test -n "$SCANNER_URL"
+          test -n "$SCANNER_SECRET"
+          curl --fail --silent --show-error             --max-time 420             -X POST             -H "X-Scanner-Scheduler-Secret: $SCANNER_SECRET"             "$SCANNER_URL/api/scanner/scheduler/run"
