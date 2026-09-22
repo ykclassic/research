@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 from typing import Any
+from statistics import median
 
 from app.models.signal import CryptoSignal
 from app.models.signal_intelligence import (
@@ -146,13 +147,15 @@ def explorer(access_token: str, user_id: str, filters: dict[str, str | None]) ->
     for key, column in mapping.items():
         if filters.get(key):
             params[column] = f"eq.{filters[key]}"
-    if filters.get("min_confidence"):
-        params["confidence"] = f"gte.{filters['min_confidence']}"
-    if filters.get("max_confidence"):
-        params["confidence"] = f"lte.{filters['max_confidence']}"
     if filters.get("min_rr"):
         params["risk_reward"] = f"gte.{filters['min_rr']}"
     rows = _latest_rows(access_token, user_id, params)
+    if filters.get("min_confidence"):
+        minimum = float(filters["min_confidence"])
+        rows = [item for item in rows if item.confidence >= minimum]
+    if filters.get("max_confidence"):
+        maximum = float(filters["max_confidence"])
+        rows = [item for item in rows if item.confidence <= maximum]
     if filters.get("from_date") or filters.get("to_date"):
         start = filters.get("from_date")
         end = filters.get("to_date")
@@ -189,14 +192,50 @@ def similarity(access_token: str, user_id: str, signal_id: str) -> SignalExplore
     target = target_rows[0]
     params = {"symbol": f"eq.{target.symbol}", "timeframe": f"eq.{target.timeframe}", "regime": f"eq.{target.regime}"}
     candidates = [item for item in _latest_rows(access_token, user_id, params) if item.signal_id != target.signal_id]
+    def _same_text(left: str | None, right: str | None) -> bool:
+        return bool(left and right and left.strip().lower() == right.strip().lower())
+
     def distance(item: SignalIntelligenceSnapshot) -> float:
         confidence = abs(item.confidence - target.confidence) / 0.05
         rr = abs((item.risk_reward or 0) - (target.risk_reward or 0)) / 0.5
         volatility = abs((item.volatility or 0) - (target.volatility or 0)) / max(abs(target.volatility or 1), 1e-9)
-        return confidence + rr + volatility
+        momentum = abs((item.momentum or 0) - (target.momentum or 0)) / max(abs(target.momentum or 1), 1e-9)
+        mtf = abs((item.mtf_alignment or 0) - (target.mtf_alignment or 0))
+        structure_penalty = 0.0 if _same_text(item.market_structure, target.market_structure) else 1.5
+        liquidity_penalty = 0.0 if _same_text(item.liquidity_conditions, target.liquidity_conditions) else 1.0
+        structural_penalty = 0.0 if item.structural_conditions == target.structural_conditions else 1.0
+        return confidence + rr + volatility + 0.5 * momentum + 0.75 * mtf + structure_penalty + liquidity_penalty + structural_penalty
     ranked = sorted(candidates, key=distance)[:100]
     note = ("Similarity set has enough observations for descriptive aggregation." if len(ranked) >= MIN_SIMILARITY_SAMPLE else f"Only {len(ranked)} similar observations found; descriptive statistics are withheld below the {MIN_SIMILARITY_SAMPLE}-observation threshold.")
     return SignalExplorerResult(total=len(ranked), sample_size_note=note, signals=tuple(ranked))
+
+
+def engine_version_analytics(access_token: str, user_id: str) -> dict[str, Any]:
+    """Compare resolved outcomes by engine version without ranking versions."""
+    require_feature(access_token, user_id, "signal_intelligence_analytics")
+    consume_usage(access_token, user_id, "historical_queries")
+    rows = _latest_rows(access_token, user_id, {})
+    resolved = [item for item in rows if item.outcome in {"TARGET_HIT", "STOP_LOSS_HIT"}]
+    grouped: dict[str, list[SignalIntelligenceSnapshot]] = {}
+    for item in resolved:
+        grouped.setdefault(item.signal_engine_version, []).append(item)
+    versions = []
+    for version in sorted(grouped):
+        sample = grouped[version]
+        wins = sum(item.outcome == "TARGET_HIT" for item in sample)
+        rs = [item.r_result for item in sample if item.r_result is not None]
+        latencies = [item.outcome_latency_seconds for item in sample if item.outcome_latency_seconds is not None]
+        versions.append({
+            "engine_version": version,
+            "sample_size": len(sample),
+            "target_hit_rate": wins / len(sample),
+            "mean_r": sum(rs) / len(rs) if rs else None,
+            "median_r": median(rs) if rs else None,
+            "mean_latency_seconds": sum(latencies) / len(latencies) if latencies else None,
+            "statistically_meaningful": len(sample) >= MIN_CALIBRATION_SAMPLE,
+            "note": "Descriptive comparison only; threshold does not establish statistical significance." if len(sample) >= MIN_CALIBRATION_SAMPLE else f"Only {len(sample)}/{MIN_CALIBRATION_SAMPLE} resolved outcomes; comparison is not statistically meaningful.",
+        })
+    return {"minimum_sample_size": MIN_CALIBRATION_SAMPLE, "versions": versions}
 
 
 def replay(access_token: str, user_id: str, signal_id: str) -> SignalReplay:
