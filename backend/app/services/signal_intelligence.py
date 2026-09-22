@@ -120,14 +120,28 @@ def create_intelligence_snapshot(access_token: str, user_id: str, signal: Crypto
 
 
 def _latest_rows(access_token: str, user_id: str, params: dict[str, str]) -> list[SignalIntelligenceSnapshot]:
-    base = {"select": SELECT, "user_id": f"eq.{user_id}", "order": "dispatched_at.desc", "limit": "250"}
-    base.update(params)
-    rows = _request("GET", "signal_intelligence", access_token, params=base).json()
+    # Paginate the complete user's dataset before deduplicating revisions.
+    # Historical analytics must not silently become a "latest 250 signals" report.
+    page_size = 1000
+    offset = 0
     latest: dict[str, SignalIntelligenceSnapshot] = {}
-    for row in rows:
-        item = _row(row)
-        if item.signal_id not in latest or item.revision > latest[item.signal_id].revision:
-            latest[item.signal_id] = item
+    while True:
+        page = dict(params)
+        page.update({
+            "select": SELECT,
+            "user_id": f"eq.{user_id}",
+            "order": "dispatched_at.desc",
+            "limit": str(page_size),
+            "offset": str(offset),
+        })
+        rows = _request("GET", "signal_intelligence", access_token, params=page).json()
+        for row in rows:
+            item = _row(row)
+            if item.signal_id not in latest or item.revision > latest[item.signal_id].revision:
+                latest[item.signal_id] = item
+        if len(rows) < page_size:
+            break
+        offset += page_size
     return list(latest.values())
 
 
