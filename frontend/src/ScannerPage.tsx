@@ -4,7 +4,7 @@ import type { AppPage } from "./App";
 import { ApiError, createScannerPreset, createScannerSchedule, deleteScannerPreset, deleteScannerSchedule, getScannerAlerts, getScannerOpportunities, getScannerPresets, getScannerSchedules, markScannerAlertRead, runScanner, ScannerAlert, ScannerOpportunity, ScannerPreset, ScannerSchedule } from "./api";
 import { getMarketUniverse, MarketUniverse } from "./settingsApi";
 
-const ALERT_EVENTS = ["NEW_QUALIFIED_SIGNAL","SIGNAL_UPGRADE","SIGNAL_DOWNGRADE","REGIME_CHANGE","BOS_CHOCH","LIQUIDITY_SWEEP","SETUP_FORMATION","VOLATILITY_REGIME_CHANGE","RESEARCH_DIVERGENCE","WATCHPOINT"];
+const ALERT_EVENTS = ["NEW_QUALIFIED_SIGNAL","SIGNAL_UPGRADE","SIGNAL_DOWNGRADE","REGIME_CHANGE","BOS_CHOCH","LIQUIDITY_SWEEP","SETUP_FORMATION","TARGET_REACHED","INVALIDATION","VOLATILITY_REGIME_CHANGE","RESEARCH_DIVERGENCE","WATCHPOINT"];
 
 function pct(value:number|null|undefined):string{return value==null?"—":`${Math.round(value*100)}%`;}
 function rr(value:number|null|undefined):string{return value==null?"—":value.toFixed(2);}
@@ -22,6 +22,11 @@ export default function ScannerPage({user,onLogout,setPage}:{user:{email:string}
   const [minRR,setMinRR]=useState("1.5");
   const [minAlignment,setMinAlignment]=useState("3");
   const [interval,setIntervalValue]=useState("60");
+  const [timeframes,setTimeframes]=useState(["15m","1h","4h","1D"]);
+  const [customField,setCustomField]=useState("confidence");
+  const [customOperator,setCustomOperator]=useState("gte");
+  const [customValue,setCustomValue]=useState("0.9");
+  const [customConditions,setCustomConditions]=useState<Array<{field:string;operator:string;value:string}>>([]);
   const [busy,setBusy]=useState(false);
   const [error,setError]=useState("");
 
@@ -40,9 +45,9 @@ export default function ScannerPage({user,onLogout,setPage}:{user:{email:string}
       const symbols=universe.enabled_symbols.slice(0,20);
       const created=await createScannerPreset({
         name:name.trim(),description:"Deterministic multi-factor opportunity scanner.",
-        asset_universe:symbols,timeframes:["15m","1h","4h","1D"],
-        conditions:{min_confidence:Number(minConfidence),min_risk_reward:Number(minRR),regimes:[],directions:["BUY","STRONG_BUY","SELL","STRONG_SELL"],structures:[],min_mtf_alignment:Number(minAlignment),require_qualified:true},
-        alert_events:["NEW_QUALIFIED_SIGNAL","SIGNAL_UPGRADE","REGIME_CHANGE","BOS_CHOCH","LIQUIDITY_SWEEP","RESEARCH_DIVERGENCE"]
+        asset_universe:symbols,timeframes,
+        conditions:{min_confidence:Number(minConfidence),min_risk_reward:Number(minRR),regimes:[],directions:["BUY","STRONG_BUY","SELL","STRONG_SELL"],structures:[],min_mtf_alignment:Number(minAlignment),require_qualified:true,custom_match:"ALL",custom_conditions:customConditions.map(item=>({field:item.field,operator:item.operator,value:Number.isNaN(Number(item.value))?item.value:Number(item.value)}))},
+        alert_events:["NEW_QUALIFIED_SIGNAL","SIGNAL_UPGRADE","REGIME_CHANGE","BOS_CHOCH","LIQUIDITY_SWEEP","SETUP_FORMATION","TARGET_REACHED","INVALIDATION","RESEARCH_DIVERGENCE"]
       });
       setActive(created.id);await load();
     }catch(e){setError(e instanceof Error?e.message:"Unable to create scanner.");}finally{setBusy(false);}
@@ -65,6 +70,8 @@ export default function ScannerPage({user,onLogout,setPage}:{user:{email:string}
           <label>Minimum confidence<input type="number" min="0" max="1" step="0.01" value={minConfidence} onChange={e=>setMinConfidence(e.target.value)}/></label>
           <label>Minimum RR<input type="number" min="0" step="0.1" value={minRR} onChange={e=>setMinRR(e.target.value)}/></label>
           <label>Minimum MTF alignment<input type="number" min="0" max="4" value={minAlignment} onChange={e=>setMinAlignment(e.target.value)}/></label>
+          <fieldset><legend>Scan timeframes</legend><div className="settings-toggle-grid">{["15m","1h","4h","1D"].map(tf=><label key={tf}><input type="checkbox" checked={timeframes.includes(tf)} onChange={e=>setTimeframes(v=>e.target.checked?[...v,tf]:v.filter(x=>x!==tf))}/>{tf}</label>)}</div></fieldset>
+          <fieldset><legend>Custom conditions</legend><div className="inline-form"><select value={customField} onChange={e=>setCustomField(e.target.value)}><option value="confidence">Confidence</option><option value="risk_reward">RR</option><option value="mtf_alignment">MTF alignment</option><option value="momentum">Momentum</option><option value="volatility">Volatility</option><option value="volume">Volume</option><option value="trend">Trend</option><option value="direction">Direction</option><option value="regime">Regime</option><option value="structure">Structure</option><option value="liquidity">Liquidity</option></select><select value={customOperator} onChange={e=>setCustomOperator(e.target.value)}><option value="gte">≥</option><option value="lte">≤</option><option value="eq">=</option><option value="contains">contains</option></select><input value={customValue} onChange={e=>setCustomValue(e.target.value)} placeholder="Value"/><button type="button" onClick={()=>{if(customValue.trim())setCustomConditions(v=>[...v,{field:customField,operator:customOperator,value:customValue}]);}}>Add</button></div>{customConditions.map((x,i)=><small key={i}>{x.field} {x.operator} {x.value}</small>)}</fieldset>
           <button className="primary-button" onClick={()=>void create()} disabled={busy||!universe?.enabled_symbols.length}><Plus size={15}/>Create scanner</button>
           <div className="rules-list">{presets.map(p=><div className={`rule-row ${active===p.id?"selected":""}`} key={p.id}><button className="watchlist-select" onClick={()=>setActive(p.id)}><strong>{p.name}</strong><small>{p.asset_universe.length} assets · ≥ {pct(p.conditions.min_confidence)} · RR {rr(p.conditions.min_risk_reward)}</small></button><button className="icon-button danger" onClick={()=>void remove(p.id)} aria-label={`Delete ${p.name}`}><Trash2 size={14}/></button></div>)}</div>
           {active&&<div className="inline-form"><input type="number" min="15" max="10080" value={interval} onChange={e=>setIntervalValue(e.target.value)}/><button onClick={()=>void schedule()}><Plus size={14}/>Schedule minutes</button></div>}
