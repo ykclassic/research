@@ -416,7 +416,7 @@ def generate_crypto_signal(
     selected = tuple(selected_timeframes or required)
     invalid_selected = [timeframe.value for timeframe in selected if timeframe not in TIMEFRAME_WEIGHTS]
     if invalid_selected:
-        raise ValueError(f"Unsupported signal timeframe(s): {", ".join(invalid_selected)}")
+        raise ValueError("Unsupported signal timeframe(s): " + ", ".join(invalid_selected))
     missing = [timeframe.value for timeframe in required if timeframe not in datasets]
     if missing:
         raise ValueError(f"Missing required signal timeframe(s): {', '.join(missing)}")
