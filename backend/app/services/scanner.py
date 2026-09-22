@@ -5,6 +5,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from app.models.market import Timeframe
+from app.models.scanner import ScannerConditionRule
 from app.config import settings
 from app.models.scanner import (
     ScannerConditions,
@@ -27,6 +28,7 @@ from app.services.settings_integration import market_data_policy
 from app.services.quote_service import QuoteService
 from app.symbols import normalize_symbol
 from app.providers.kraken_public import KrakenPublicProvider
+from app.services.scanner_delivery import deliver_scanner_alert
 
 REQUIRED_TIMEFRAMES = (
     Timeframe.DAY_1,
@@ -94,6 +96,12 @@ def list_presets(access_token: str, user_id: str) -> list[ScannerPreset]:
 def create_preset(access_token: str, user_id: str, payload: ScannerPresetCreate) -> ScannerPreset:
     require_feature(access_token, user_id, "scanner")
     symbols = [normalize_symbol(item).internal for item in payload.asset_universe]
+    try:
+        selected_timeframes = tuple(Timeframe(item) for item in payload.timeframes)
+    except ValueError as exc:
+        raise ValueError("Unsupported scanner timeframe.") from exc
+    if Timeframe.MINUTE_15 not in selected_timeframes:
+        raise ValueError("Scanner timeframes must include 15m for signal entry and outcome tracking.")
     if len(symbols) > MAX_SCAN_ASSETS:
         raise ValueError(f"A scanner can contain at most {MAX_SCAN_ASSETS} assets.")
     invalid_events = set(payload.alert_events) - ALERT_EVENTS
@@ -123,6 +131,13 @@ def create_preset(access_token: str, user_id: str, payload: ScannerPresetCreate)
 def update_preset(access_token: str, user_id: str, preset_id: str, payload: ScannerPresetCreate | ScannerSchedulePatch) -> ScannerPreset:
     current = get_preset(access_token, user_id, preset_id)
     data = payload.model_dump(exclude_none=True)
+    if "timeframes" in data:
+        try:
+            selected_timeframes = tuple(Timeframe(item) for item in data["timeframes"])
+        except ValueError as exc:
+            raise ValueError("Unsupported scanner timeframe.") from exc
+        if Timeframe.MINUTE_15 not in selected_timeframes:
+            raise ValueError("Scanner timeframes must include 15m for signal entry and outcome tracking.")
     if "asset_universe" in data:
         data["asset_universe"] = list(dict.fromkeys(normalize_symbol(item).internal for item in data["asset_universe"]))
         if len(data["asset_universe"]) > MAX_SCAN_ASSETS:
@@ -167,7 +182,34 @@ def delete_preset(access_token: str, user_id: str, preset_id: str) -> None:
     )
 
 
-def _matches(signal: Any, volume: float | None, conditions: ScannerConditions) -> bool:
+def _custom_value(signal: Any, volume: float | None, trend: str | None, field: str) -> Any:
+    values = {
+        "confidence": signal.confidence, "risk_reward": signal.risk_reward,
+        "mtf_alignment": signal.mtf_alignment, "momentum": signal.momentum,
+        "volatility": signal.volatility, "volume": volume, "direction": signal.signal.value,
+        "regime": signal.regime, "structure": signal.market_structure,
+        "liquidity": signal.liquidity_conditions, "signal_status": signal.qualification_status.value,
+        "trend": trend,
+    }
+    return values.get(field)
+
+
+def _rule_matches(value: Any, rule: ScannerConditionRule) -> bool:
+    if value is None:
+        return False
+    target = rule.value
+    if rule.operator == "eq": return value == target
+    if rule.operator == "neq": return value != target
+    if rule.operator == "gt": return float(value) > float(target)
+    if rule.operator == "gte": return float(value) >= float(target)
+    if rule.operator == "lt": return float(value) < float(target)
+    if rule.operator == "lte": return float(value) <= float(target)
+    if rule.operator == "contains": return str(target).lower() in str(value).lower()
+    if rule.operator == "in": return value in (target if isinstance(target, list) else [target])
+    return False
+
+
+def _matches(signal: Any, volume: float | None, conditions: ScannerConditions, trend: str | None = None) -> bool:
     if conditions.require_qualified and signal.qualification_status.value != "QUALIFIED":
         return False
     if conditions.min_confidence is not None and signal.confidence < conditions.min_confidence:
@@ -198,6 +240,10 @@ def _matches(signal: Any, volume: float | None, conditions: ScannerConditions) -
         volume is None or volume < conditions.min_volume
     ):
         return False
+    if conditions.custom_conditions:
+        results = [_rule_matches(_custom_value(signal, volume, trend, rule.field), rule) for rule in conditions.custom_conditions]
+        if (conditions.custom_match == "ALL" and not all(results)) or (conditions.custom_match == "ANY" and not any(results)):
+            return False
     return True
 
 
@@ -244,15 +290,24 @@ async def _scan_symbol(
     user_id: str,
     symbol: str,
     conditions: ScannerConditions,
+    timeframes: tuple[Timeframe, ...],
     policy: Any,
 ) -> ScannerOpportunity | None:
     datasets = await asyncio.wait_for(
         scheduler.get_required_datasets(symbol, REQUIRED_TIMEFRAMES, 250, policy),
         timeout=SCAN_TIMEOUT_SECONDS,
     )
-    signal = generate_crypto_signal(datasets, dict(preferences_service.get_or_create(access_token, user_id).signal_preferences))
+    mapping = normalize_symbol(symbol)
+    signal = generate_crypto_signal(
+        datasets,
+        dict(preferences_service.get_or_create(access_token, user_id).signal_preferences),
+        selected_timeframes=timeframes,
+        asset_class=mapping.asset_class,
+    )
     volume = datasets[Timeframe.HOUR_1].completed_candles[-1].volume
-    if not _matches(signal, volume, conditions):
+    from app.services.technical_analysis import calculate_indicators
+    trend = calculate_indicators(list(datasets[Timeframe.HOUR_1].completed_candles)).get("trend")
+    if not _matches(signal, volume, conditions, trend):
         return None
     history = _historical_evidence(
         access_token,
@@ -270,6 +325,12 @@ async def _scan_symbol(
         setup=setup,
         regime=signal.regime,
         direction=_direction(signal),
+        trend=trend,
+        entry_price=signal.entry_price,
+        stop_loss=signal.stop_loss,
+        target_price=signal.take_profit,
+        last_price=signal.price,
+        structural_conditions=signal.structural_conditions,
         confidence=signal.confidence,
         risk_reward=signal.risk_reward,
         structure=signal.market_structure,
@@ -321,8 +382,11 @@ def _emit_intelligent_events(
             events.append(("SIGNAL_DOWNGRADE", "Signal downgraded", f"{opportunity.symbol} confidence decreased from {previous_confidence:.0%} to {opportunity.confidence:.0%}."))
         if previous.get("regime") != opportunity.regime and "REGIME_CHANGE" in preset.alert_events:
             events.append(("REGIME_CHANGE", "Regime changed", f"{opportunity.symbol} changed from {previous.get('regime') or 'UNKNOWN'} to {opportunity.regime or 'UNKNOWN'}."))
-        if previous.get("structure") != opportunity.structure and "BOS_CHOCH" in preset.alert_events and opportunity.structure:
-            events.append(("BOS_CHOCH", "Structure event changed", f"{opportunity.symbol} now reports {opportunity.structure}."))
+        previous_events = (previous.get("structural_conditions") or {}).get("recent_events") or []
+        current_events = opportunity.structural_conditions.get("recent_events") or []
+        new_breaks = [event for event in current_events if event not in previous_events and (str(event).startswith("BOS_") or str(event).startswith("CHOCH_"))]
+        if new_breaks and "BOS_CHOCH" in preset.alert_events:
+            events.append(("BOS_CHOCH", "BOS/CHOCH detected", f"{opportunity.symbol} confirmed {new_breaks[-1]}."))
         if previous.get("setup") != opportunity.setup and "SETUP_FORMATION" in preset.alert_events:
             events.append(("SETUP_FORMATION", "Setup formation", f"{opportunity.symbol} formed {opportunity.setup}."))
         previous_volatility = previous.get("volatility")
@@ -333,6 +397,17 @@ def _emit_intelligent_events(
             events.append(("VOLATILITY_REGIME_CHANGE", "Volatility regime changed", f"{opportunity.symbol} volatility moved from {float(previous_volatility):.4g} to {opportunity.volatility:.4g}."))
     if opportunity.liquidity and "SWEEP" in opportunity.liquidity.upper() and "LIQUIDITY_SWEEP" in preset.alert_events:
         events.append(("LIQUIDITY_SWEEP", "Liquidity sweep detected", f"{opportunity.symbol} reports {opportunity.liquidity}."))
+    if previous and previous.get("target_price") is not None and opportunity.last_price is not None:
+        target = float(previous["target_price"])
+        stop = float(previous.get("stop_loss") or 0)
+        current_price = float(opportunity.last_price)
+        bullish = previous.get("direction") in {"BUY", "STRONG_BUY"}
+        target_crossed = current_price >= target if bullish else current_price <= target
+        stop_crossed = stop > 0 and (current_price <= stop if bullish else current_price >= stop)
+        if target_crossed and "TARGET_REACHED" in preset.alert_events:
+            events.append(("TARGET_REACHED", "Target reached", f"{opportunity.symbol} crossed the prior target at {target:.8g}."))
+        if stop_crossed and "INVALIDATION" in preset.alert_events:
+            events.append(("INVALIDATION", "Signal invalidated", f"{opportunity.symbol} crossed the prior invalidation level at {stop:.8g}."))
     evidence = opportunity.historical_evidence
     if (
         evidence.get("sample_sufficient")
@@ -341,8 +416,8 @@ def _emit_intelligent_events(
         and "RESEARCH_DIVERGENCE" in preset.alert_events
     ):
         events.append(("RESEARCH_DIVERGENCE", "Research divergence", f"{opportunity.symbol} confidence and historical target-hit rate differ materially."))
-    if "WATCHPOINT" in preset.alert_events:
-        events.append(("WATCHPOINT", "Scanner watchpoint", f"{opportunity.symbol} still satisfies the saved scanner conditions."))
+    if "WATCHPOINT" in preset.alert_events and (previous is None or previous.get("setup") != opportunity.setup or previous.get("signal_status") != opportunity.signal_status):
+        events.append(("WATCHPOINT", "Scanner watchpoint", f"{opportunity.symbol} entered or materially changed within the saved scanner conditions."))
     now = datetime.now(timezone.utc)
     for event_type, title, message in events:
         fingerprint = f"{opportunity.symbol}:{opportunity.observed_at.isoformat()}:{event_type}"
@@ -362,6 +437,28 @@ def _emit_intelligent_events(
                 "triggered_at": now.isoformat(),
                 "fingerprint": fingerprint,
             },
+            prefer="resolution=ignore-duplicates,return=representation",
+        ).json()
+        if not inserted:
+            continue
+        alert_id = inserted[0]["id"]
+        try:
+            delivery_status = deliver_scanner_alert(access_token, user_id, event_type, title, message)
+            delivery_error = None
+        except Exception as exc:
+            delivery_status, delivery_error = "FAILED", str(exc)[:500]
+        _request(
+            "POST",
+            "scanner_alert_deliveries",
+            access_token,
+            json={
+                "user_id": user_id,
+                "alert_id": alert_id,
+                "channel": "EMAIL",
+                "status": delivery_status,
+                "error": delivery_error,
+            },
+            prefer="resolution=ignore-duplicates,return=minimal",
         )
 
 
@@ -423,7 +520,8 @@ async def run_scan(
     async def one(symbol: str) -> ScannerOpportunity | None:
         async with semaphore:
             try:
-                return await _scan_symbol(access_token, user_id, symbol, preset.conditions, policy)
+                timeframes = tuple(Timeframe(item) for item in preset.timeframes)
+                return await _scan_symbol(access_token, user_id, symbol, preset.conditions, timeframes, policy)
             except (asyncio.TimeoutError, RuntimeError, ValueError):
                 return None
 
@@ -566,7 +664,7 @@ async def run_due_schedules() -> dict[str, Any]:
     failed = 0
     for schedule in due:
         try:
-            await run_scan(settings.supabase_service_role_key, schedule["user_id"], schedule["preset_id"])
+            await run_scan(settings.supabase_service_role_key, schedule["user_id"], schedule["preset_id"], scheduled=True)
             now = datetime.now(timezone.utc)
             _request(
                 "PATCH",

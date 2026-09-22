@@ -85,3 +85,36 @@ def test_due_schedule_uses_service_role(monkeypatch):
     )
     rows = scanner.get_due_schedules()
     assert rows[0]["id"] == "schedule"
+
+
+def test_scanner_custom_conditions_support_all_and_any():
+    class Signal:
+        qualification_status = type("Q", (), {"value": "QUALIFIED"})()
+        confidence = 0.93
+        risk_reward = 2.4
+        regime = "TRENDING"
+        signal = type("S", (), {"value": "BUY"})()
+        market_structure = "BOS_BULLISH"
+        mtf_alignment = 4
+        momentum = 0.7
+        volatility = 0.01
+        liquidity_conditions = "SWEEP_LOW"
+
+    all_conditions = ScannerConditions(
+        custom_match="ALL",
+        custom_conditions=[
+            {"field": "confidence", "operator": "gte", "value": 0.9},
+            {"field": "risk_reward", "operator": "gte", "value": 2},
+            {"field": "liquidity", "operator": "contains", "value": "sweep"},
+        ],
+    )
+    assert scanner._matches(Signal(), 100, all_conditions, "BULLISH") is True
+
+    any_conditions = ScannerConditions(
+        custom_match="ANY",
+        custom_conditions=[
+            {"field": "confidence", "operator": "gte", "value": 0.99},
+            {"field": "trend", "operator": "eq", "value": "BULLISH"},
+        ],
+    )
+    assert scanner._matches(Signal(), 100, any_conditions, "BULLISH") is True

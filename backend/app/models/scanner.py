@@ -1,9 +1,17 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
+
+
+class ScannerConditionRule(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    field: Literal["confidence", "risk_reward", "mtf_alignment", "momentum", "volatility", "volume", "direction", "regime", "structure", "liquidity", "signal_status", "trend"]
+    operator: Literal["eq", "neq", "gt", "gte", "lt", "lte", "contains", "in"]
+    value: str | float | int | bool | list[str]
 
 
 class ScannerConditions(BaseModel):
@@ -19,6 +27,8 @@ class ScannerConditions(BaseModel):
     max_volatility: float | None = Field(default=None, ge=0)
     min_volume: float | None = Field(default=None, ge=0)
     require_qualified: bool = True
+    custom_match: Literal["ALL", "ANY"] = "ALL"
+    custom_conditions: list[ScannerConditionRule] = Field(default_factory=list)
 
 
 class ScannerPresetCreate(BaseModel):
@@ -70,6 +80,12 @@ class ScannerOpportunity(BaseModel):
     momentum: float | None
     volatility: float | None
     volume: float | None
+    trend: str | None
+    entry_price: float | None
+    stop_loss: float | None
+    target_price: float | None
+    last_price: float | None
+    structural_conditions: dict[str, Any]
     signal_status: str
     historical_evidence: dict[str, Any]
     signal_id: str
