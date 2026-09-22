@@ -330,6 +330,7 @@ async def _scan_symbol(
         stop_loss=signal.stop_loss,
         target_price=signal.take_profit,
         last_price=signal.price,
+        structural_conditions=signal.structural_conditions,
         confidence=signal.confidence,
         risk_reward=signal.risk_reward,
         structure=signal.market_structure,
@@ -381,8 +382,11 @@ def _emit_intelligent_events(
             events.append(("SIGNAL_DOWNGRADE", "Signal downgraded", f"{opportunity.symbol} confidence decreased from {previous_confidence:.0%} to {opportunity.confidence:.0%}."))
         if previous.get("regime") != opportunity.regime and "REGIME_CHANGE" in preset.alert_events:
             events.append(("REGIME_CHANGE", "Regime changed", f"{opportunity.symbol} changed from {previous.get('regime') or 'UNKNOWN'} to {opportunity.regime or 'UNKNOWN'}."))
-        if previous.get("structure") != opportunity.structure and "BOS_CHOCH" in preset.alert_events and opportunity.structure:
-            events.append(("BOS_CHOCH", "Structure event changed", f"{opportunity.symbol} now reports {opportunity.structure}."))
+        previous_events = (previous.get("structural_conditions") or {}).get("recent_events") or []
+        current_events = opportunity.structural_conditions.get("recent_events") or []
+        new_breaks = [event for event in current_events if event not in previous_events and (str(event).startswith("BOS_") or str(event).startswith("CHOCH_"))]
+        if new_breaks and "BOS_CHOCH" in preset.alert_events:
+            events.append(("BOS_CHOCH", "BOS/CHOCH detected", f"{opportunity.symbol} confirmed {new_breaks[-1]}."))
         if previous.get("setup") != opportunity.setup and "SETUP_FORMATION" in preset.alert_events:
             events.append(("SETUP_FORMATION", "Setup formation", f"{opportunity.symbol} formed {opportunity.setup}."))
         previous_volatility = previous.get("volatility")
