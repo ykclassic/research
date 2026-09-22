@@ -9,7 +9,7 @@ from app.api.auth import UserResponse, _require_csrf, get_current_user
 from app.services.entitlement import EntitlementError, get_entitlement_snapshot, get_usage, start_pro_trial
 from app.services.billing_provider import BillingProviderError, get_billing_provider
 from app.services.billing_service import cancel_subscription, change_subscription, process_webhook, resume_subscription, start_checkout
-from app.services.supabase_data import _request
+from app.services.supabase_data import DataConflictError, DataRequestError, DataUnavailableError, _request
 
 router = APIRouter(prefix="/api/billing", tags=["billing"])
 
@@ -133,7 +133,7 @@ async def change(
     access_token: Annotated[str | None, Cookie(alias="mr_access_token")] = None,
 ) -> dict[str, Any]:
     try:
-        return change_subscription(_token(access_token), user.id, request.plan_id)
+        return change_subscription(_token(access_token), user.id, str(user.email), request.plan_id)
     except Exception as exc:
         raise _map_error(exc) from exc
 
