@@ -70,3 +70,42 @@ def test_stripe_checkout_carries_identity_into_subscription_metadata(monkeypatch
     assert payload["metadata[plan_id]"] == "premium"
     assert payload["subscription_data[metadata][user_id]"] == "user-123"
     assert payload["subscription_data[metadata][plan_id]"] == "premium"
+
+
+def test_checkout_session_completed_syncs_authoritative_subscription(monkeypatch):
+    subscription = {
+        "id": "sub_premium",
+        "customer": "cus_test",
+        "status": "active",
+        "metadata": {"user_id": "user-123", "plan_id": "premium"},
+        "current_period_start": 1770000000,
+        "current_period_end": 1772678400,
+        "cancel_at_period_end": False,
+    }
+    provider = Mock()
+    provider.get_subscription.return_value = subscription
+    monkeypatch.setattr(billing_service, "get_billing_provider", lambda: provider)
+    monkeypatch.setattr(billing_service, "_service_live_subscription", lambda *_: {"id": "sub-row"})
+    patch = Mock()
+    record = Mock()
+    monkeypatch.setattr(billing_service, "service_request", patch)
+    monkeypatch.setattr(billing_service, "_record_event", record)
+
+    result = billing_service.process_webhook({
+        "id": "evt_checkout",
+        "type": "checkout.session.completed",
+        "data": {"object": {
+            "metadata": {"user_id": "user-123", "plan_id": "premium"},
+            "subscription": "sub_premium",
+            "customer": "cus_test",
+        }},
+    })
+
+    assert result["status"] == "processed"
+    provider.get_subscription.assert_called_once_with("sub_premium")
+    assert any(
+        call.kwargs.get("json", {}).get("plan_id") == "premium"
+        and call.kwargs.get("json", {}).get("provider_subscription_id") == "sub_premium"
+        for call in patch.call_args_list
+    )
+    record.assert_called_once()
