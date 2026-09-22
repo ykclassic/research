@@ -5,6 +5,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from app.models.market import Timeframe
+from app.models.scanner import ScannerConditionRule
 from app.config import settings
 from app.models.scanner import (
     ScannerConditions,
@@ -27,6 +28,7 @@ from app.services.settings_integration import market_data_policy
 from app.services.quote_service import QuoteService
 from app.symbols import normalize_symbol
 from app.providers.kraken_public import KrakenPublicProvider
+from app.services.scanner_delivery import deliver_scanner_alert
 
 REQUIRED_TIMEFRAMES = (
     Timeframe.DAY_1,
@@ -167,7 +169,34 @@ def delete_preset(access_token: str, user_id: str, preset_id: str) -> None:
     )
 
 
-def _matches(signal: Any, volume: float | None, conditions: ScannerConditions) -> bool:
+def _custom_value(signal: Any, volume: float | None, trend: str | None, field: str) -> Any:
+    values = {
+        "confidence": signal.confidence, "risk_reward": signal.risk_reward,
+        "mtf_alignment": signal.mtf_alignment, "momentum": signal.momentum,
+        "volatility": signal.volatility, "volume": volume, "direction": signal.signal.value,
+        "regime": signal.regime, "structure": signal.market_structure,
+        "liquidity": signal.liquidity_conditions, "signal_status": signal.qualification_status.value,
+        "trend": trend,
+    }
+    return values.get(field)
+
+
+def _rule_matches(value: Any, rule: ScannerConditionRule) -> bool:
+    if value is None:
+        return False
+    target = rule.value
+    if rule.operator == "eq": return value == target
+    if rule.operator == "neq": return value != target
+    if rule.operator == "gt": return float(value) > float(target)
+    if rule.operator == "gte": return float(value) >= float(target)
+    if rule.operator == "lt": return float(value) < float(target)
+    if rule.operator == "lte": return float(value) <= float(target)
+    if rule.operator == "contains": return str(target).lower() in str(value).lower()
+    if rule.operator == "in": return value in (target if isinstance(target, list) else [target])
+    return False
+
+
+def _matches(signal: Any, volume: float | None, trend: str | None, conditions: ScannerConditions) -> bool:
     if conditions.require_qualified and signal.qualification_status.value != "QUALIFIED":
         return False
     if conditions.min_confidence is not None and signal.confidence < conditions.min_confidence:
@@ -198,6 +227,10 @@ def _matches(signal: Any, volume: float | None, conditions: ScannerConditions) -
         volume is None or volume < conditions.min_volume
     ):
         return False
+    if conditions.custom_conditions:
+        results = [_rule_matches(_custom_value(signal, volume, trend, rule.field), rule) for rule in conditions.custom_conditions]
+        if (conditions.custom_match == "ALL" and not all(results)) or (conditions.custom_match == "ANY" and not any(results)):
+            return False
     return True
 
 
@@ -244,15 +277,24 @@ async def _scan_symbol(
     user_id: str,
     symbol: str,
     conditions: ScannerConditions,
+    timeframes: tuple[Timeframe, ...],
     policy: Any,
 ) -> ScannerOpportunity | None:
     datasets = await asyncio.wait_for(
         scheduler.get_required_datasets(symbol, REQUIRED_TIMEFRAMES, 250, policy),
         timeout=SCAN_TIMEOUT_SECONDS,
     )
-    signal = generate_crypto_signal(datasets, dict(preferences_service.get_or_create(access_token, user_id).signal_preferences))
+    mapping = normalize_symbol(symbol)
+    signal = generate_crypto_signal(
+        datasets,
+        dict(preferences_service.get_or_create(access_token, user_id).signal_preferences),
+        selected_timeframes=timeframes,
+        asset_class=mapping.asset_class,
+    )
     volume = datasets[Timeframe.HOUR_1].completed_candles[-1].volume
-    if not _matches(signal, volume, conditions):
+    from app.services.technical_analysis import calculate_indicators
+    trend = calculate_indicators(list(datasets[Timeframe.HOUR_1].completed_candles)).get("trend")
+    if not _matches(signal, volume, trend, conditions):
         return None
     history = _historical_evidence(
         access_token,
@@ -270,6 +312,11 @@ async def _scan_symbol(
         setup=setup,
         regime=signal.regime,
         direction=_direction(signal),
+        trend=trend,
+        entry_price=signal.entry_price,
+        stop_loss=signal.stop_loss,
+        target_price=signal.take_profit,
+        last_price=signal.price,
         confidence=signal.confidence,
         risk_reward=signal.risk_reward,
         structure=signal.market_structure,
