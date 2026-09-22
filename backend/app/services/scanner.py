@@ -96,6 +96,12 @@ def list_presets(access_token: str, user_id: str) -> list[ScannerPreset]:
 def create_preset(access_token: str, user_id: str, payload: ScannerPresetCreate) -> ScannerPreset:
     require_feature(access_token, user_id, "scanner")
     symbols = [normalize_symbol(item).internal for item in payload.asset_universe]
+    try:
+        selected_timeframes = tuple(Timeframe(item) for item in payload.timeframes)
+    except ValueError as exc:
+        raise ValueError("Unsupported scanner timeframe.") from exc
+    if Timeframe.MINUTE_15 not in selected_timeframes:
+        raise ValueError("Scanner timeframes must include 15m for signal entry and outcome tracking.")
     if len(symbols) > MAX_SCAN_ASSETS:
         raise ValueError(f"A scanner can contain at most {MAX_SCAN_ASSETS} assets.")
     invalid_events = set(payload.alert_events) - ALERT_EVENTS
@@ -125,6 +131,13 @@ def create_preset(access_token: str, user_id: str, payload: ScannerPresetCreate)
 def update_preset(access_token: str, user_id: str, preset_id: str, payload: ScannerPresetCreate | ScannerSchedulePatch) -> ScannerPreset:
     current = get_preset(access_token, user_id, preset_id)
     data = payload.model_dump(exclude_none=True)
+    if "timeframes" in data:
+        try:
+            selected_timeframes = tuple(Timeframe(item) for item in data["timeframes"])
+        except ValueError as exc:
+            raise ValueError("Unsupported scanner timeframe.") from exc
+        if Timeframe.MINUTE_15 not in selected_timeframes:
+            raise ValueError("Scanner timeframes must include 15m for signal entry and outcome tracking.")
     if "asset_universe" in data:
         data["asset_universe"] = list(dict.fromkeys(normalize_symbol(item).internal for item in data["asset_universe"]))
         if len(data["asset_universe"]) > MAX_SCAN_ASSETS:
