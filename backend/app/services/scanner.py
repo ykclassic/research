@@ -5,6 +5,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from app.models.market import Timeframe
+from app.config import settings
 from app.models.scanner import (
     ScannerConditions,
     ScannerOpportunity,
@@ -21,7 +22,6 @@ from app.services.market_structure import analyze_market_structure
 from app.services.regime_detection import detect_regime
 from app.services.signal_candle_scheduler import SignalCandleScheduler
 from app.services.signal_engine import generate_crypto_signal
-from app.services.signal_intelligence import _row
 from app.services.supabase_data import DataNotFoundError, _request
 from app.services.settings_integration import market_data_policy
 from app.services.quote_service import QuoteService
@@ -289,9 +289,34 @@ async def run_scan(
     access_token: str,
     user_id: str,
     preset_id: str,
+    *,
+    scheduled: bool = False,
 ) -> ScannerRun:
-    require_feature(access_token, user_id, "scanner")
-    consume_usage(access_token, user_id, "scans")
+    if scheduled:
+        feature_rows = _request(
+            "GET",
+            "billing_plan_features",
+            access_token,
+            params={"select": "plan_id,enabled", "feature_id": "eq.scanner", "enabled": "eq.true"},
+        ).json()
+        subscriptions = _request(
+            "GET",
+            "billing_subscriptions",
+            access_token,
+            params={
+                "select": "plan_id,status,trial_ends_at",
+                "user_id": f"eq.{user_id}",
+                "order": "updated_at.desc",
+                "limit": "1",
+            },
+        ).json()
+        plan_id = subscriptions[0]["plan_id"] if subscriptions and subscriptions[0].get("status") in {"trialing", "active", "past_due", "unpaid", "paused"} else "free"
+        entitled = any(row["plan_id"] == plan_id for row in feature_rows)
+        if not entitled:
+            raise PermissionError("Scanner is not entitled for this account.")
+    else:
+        require_feature(access_token, user_id, "scanner")
+        consume_usage(access_token, user_id, "scans")
     preset = get_preset(access_token, user_id, preset_id)
     started = datetime.now(timezone.utc)
     run_rows = _request(
