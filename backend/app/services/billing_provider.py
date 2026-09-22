@@ -68,6 +68,8 @@ class StripeBillingProvider:
                 "client_reference_id": user_id,
                 "metadata[user_id]": user_id,
                 "metadata[plan_id]": plan_id,
+                "subscription_data[metadata][user_id]": user_id,
+                "subscription_data[metadata][plan_id]": plan_id,
             },
         )
         return CheckoutSession(id=str(payload["id"]), url=str(payload["url"]))
