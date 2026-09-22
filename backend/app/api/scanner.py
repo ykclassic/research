@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import secrets
+from datetime import datetime, timezone
 from typing import Annotated
 
 from fastapi import APIRouter, Cookie, Depends, Header, HTTPException, status
@@ -27,7 +28,7 @@ from app.services.scanner import (
     update_preset,
     update_schedule,
 )
-from app.services.supabase_data import DataServiceError
+from app.services.supabase_data import DataNotFoundError, DataServiceError, _request
 
 router = APIRouter(prefix="/api/scanner", tags=["scanner"])
 
@@ -95,6 +96,26 @@ async def scan_preset(preset_id: str, user: Annotated[UserResponse, Depends(get_
 async def get_opportunities(user: Annotated[UserResponse, Depends(get_current_user)], access_token: Annotated[str | None, Cookie(alias="mr_access_token")] = None):
     try:
         return {"items": latest_opportunities(_token(access_token), user.id)}
+    except Exception as exc:
+        raise _map_error(exc) from exc
+
+
+@router.get("/alerts")
+async def get_scanner_alerts(user: Annotated[UserResponse, Depends(get_current_user)], access_token: Annotated[str | None, Cookie(alias="mr_access_token")] = None):
+    try:
+        rows = _request("GET", "scanner_alert_events", _token(access_token), params={"select": "*", "user_id": f"eq.{user.id}", "order": "triggered_at.desc", "limit": "100"}).json()
+        return {"items": rows}
+    except Exception as exc:
+        raise _map_error(exc) from exc
+
+
+@router.post("/alerts/{alert_id}/read", dependencies=[Depends(_require_csrf)])
+async def read_scanner_alert(alert_id: str, user: Annotated[UserResponse, Depends(get_current_user)], access_token: Annotated[str | None, Cookie(alias="mr_access_token")] = None):
+    try:
+        rows = _request("PATCH", "scanner_alert_events", _token(access_token), params={"id": f"eq.{alert_id}", "user_id": f"eq.{user.id}"}, json={"read_at": datetime.now(timezone.utc).isoformat()}, prefer="return=representation").json()
+        if not rows:
+            raise DataNotFoundError("Scanner alert was not found.")
+        return {"item": rows[0]}
     except Exception as exc:
         raise _map_error(exc) from exc
 
