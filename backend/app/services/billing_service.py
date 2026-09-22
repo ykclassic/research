@@ -322,6 +322,12 @@ def process_webhook(payload: dict[str, Any]) -> dict[str, Any]:
                     },
                     prefer="return=minimal",
                 )
+            provider = get_billing_provider()
+            stripe_subscription = provider.get_subscription(subscription_id)
+            metadata = stripe_subscription.setdefault("metadata", {})
+            metadata.setdefault("user_id", user_id)
+            metadata.setdefault("plan_id", metadata.get("plan_id") or (obj.get("metadata") or {}).get("plan_id"))
+            _sync_subscription(stripe_subscription)
     elif event_type.startswith("customer.subscription."):
         user_id = _subscription_user_id(obj)
         _sync_subscription(obj)

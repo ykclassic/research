@@ -24,6 +24,7 @@ class CheckoutSession:
 class BillingProvider(Protocol):
     name: str
     def create_checkout(self, *, user_id: str, email: str, plan_id: str) -> CheckoutSession: ...
+    def get_subscription(self, provider_subscription_id: str) -> dict[str, Any]: ...
     def change_subscription(self, provider_subscription_id: str, *, price_id: str) -> dict[str, Any]: ...
     def cancel_subscription(self, provider_subscription_id: str, *, at_period_end: bool) -> dict[str, Any]: ...
     def resume_subscription(self, provider_subscription_id: str) -> dict[str, Any]: ...
@@ -73,6 +74,9 @@ class StripeBillingProvider:
             },
         )
         return CheckoutSession(id=str(payload["id"]), url=str(payload["url"]))
+
+    def get_subscription(self, provider_subscription_id: str) -> dict[str, Any]:
+        return self._request("GET", f"subscriptions/{provider_subscription_id}")
 
     def change_subscription(self, provider_subscription_id: str, *, price_id: str) -> dict[str, Any]:
         subscription = self._request("GET", f"subscriptions/{provider_subscription_id}")
