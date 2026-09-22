@@ -209,7 +209,7 @@ def _rule_matches(value: Any, rule: ScannerConditionRule) -> bool:
     return False
 
 
-def _matches(signal: Any, volume: float | None, trend: str | None, conditions: ScannerConditions) -> bool:
+def _matches(signal: Any, volume: float | None, conditions: ScannerConditions, trend: str | None = None) -> bool:
     if conditions.require_qualified and signal.qualification_status.value != "QUALIFIED":
         return False
     if conditions.min_confidence is not None and signal.confidence < conditions.min_confidence:
@@ -307,7 +307,7 @@ async def _scan_symbol(
     volume = datasets[Timeframe.HOUR_1].completed_candles[-1].volume
     from app.services.technical_analysis import calculate_indicators
     trend = calculate_indicators(list(datasets[Timeframe.HOUR_1].completed_candles)).get("trend")
-    if not _matches(signal, volume, trend, conditions):
+    if not _matches(signal, volume, conditions, trend):
         return None
     history = _historical_evidence(
         access_token,
