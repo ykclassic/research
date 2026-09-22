@@ -82,7 +82,7 @@ export default function SignalOutcomePage({ user, onLogout, setPage }: { user: U
       <div><div className="eyebrow">Adaptive Intelligence</div><h1>Market Research</h1></div>
       <nav className="main-nav" aria-label="Signal sections">
         <button className="nav-button" onClick={() => setPage("signals")}><ArrowLeft size={15}/> Signals</button>
-        <button className="nav-button active" onClick={() => setPage("signal-outcome")}>Signal Outcome</button>
+        <button className="nav-button active" onClick={() => setPage("signal-outcome")}>Signal Outcome</button><button className="nav-button" onClick={() => setPage("signal-intelligence")}>Signal Intelligence</button>
       </nav>
       <div className="topbar-actions"><span className="user-email">{user.email}</span><button className="logout" onClick={() => void (async () => { try { await logout(); } finally { onLogout(); } })()}>Sign out</button></div>
     </header>
