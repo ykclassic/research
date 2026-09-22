@@ -244,7 +244,7 @@ export interface ScannerPreset {
 export interface ScannerOpportunity {
   id?: string; symbol: string; setup: string; regime: string | null; direction: string;
   confidence: number; risk_reward: number | null; structure: string | null;
-  liquidity: string | null; mtf_alignment: number | null; momentum: number | null;
+  liquidity: string | null; structural_conditions: Record<string, unknown>; mtf_alignment: number | null; momentum: number | null;
   volatility: number | null; volume: number | null; trend: string | null; entry_price: number | null; stop_loss: number | null; target_price: number | null; last_price: number | null; signal_status: string;
   historical_evidence: Record<string, unknown>; signal_id: string; observed_at: string;
 }
