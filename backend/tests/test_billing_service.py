@@ -86,7 +86,7 @@ def test_checkout_session_completed_syncs_authoritative_subscription(monkeypatch
     provider.get_subscription.return_value = subscription
     monkeypatch.setattr(billing_service, "get_billing_provider", lambda: provider)
     monkeypatch.setattr(billing_service, "_service_live_subscription", lambda *_: {"id": "sub-row"})
-    patch = Mock()
+    patch = Mock(return_value=Mock(json=lambda: [{"id": "sub-row"}]))
     record = Mock()
     monkeypatch.setattr(billing_service, "service_request", patch)
     monkeypatch.setattr(billing_service, "_record_event", record)
