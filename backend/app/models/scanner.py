@@ -85,6 +85,7 @@ class ScannerOpportunity(BaseModel):
     stop_loss: float | None
     target_price: float | None
     last_price: float | None
+    structural_conditions: dict[str, Any]
     signal_status: str
     historical_evidence: dict[str, Any]
     signal_id: str
