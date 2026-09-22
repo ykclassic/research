@@ -473,7 +473,10 @@ def generate_crypto_signal(
 
     m15_dataset = datasets[Timeframe.MINUTE_15]
     m15_candles = list(m15_dataset.completed_candles)
-    regime_result = detect_regime(m15_dataset)
+    try:
+        regime_result = detect_regime(m15_dataset)
+    except ValueError:
+        regime_result = None
     latest_events = list(structures[Timeframe.MINUTE_15])
     latest_events.sort(key=lambda event: event.time)
     recent_events = latest_events[-6:]
@@ -539,8 +542,8 @@ def generate_crypto_signal(
         qualification_status="QUALIFIED" if qualified else "REJECTED",
         mtf_bias=mtf.research.bias.value,
         mtf_alignment=mtf.research.alignment_count,
-        regime=regime_result.regime.value,
-        regime_confidence=regime_result.confidence,
+        regime=regime_result.regime.value if regime_result else "UNKNOWN",
+        regime_confidence=regime_result.confidence if regime_result else 0.0,
         market_structure=structure_summary,
         liquidity_conditions=liquidity_conditions,
         momentum=momentum,
@@ -550,7 +553,7 @@ def generate_crypto_signal(
             "recent_events": [event.type for event in recent_events],
             "mtf_primary_setup": mtf.research.primary_setup,
             "mtf_conclusion": mtf.research.conclusion,
-            "regime_rule": regime_result.rule_id,
+            "regime_rule": regime_result.rule_id if regime_result else "INSUFFICIENT_HISTORY",
         },
         replay_candles=tuple(
             {
