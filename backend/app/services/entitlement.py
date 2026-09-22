@@ -106,11 +106,22 @@ def get_usage(access_token: str, user_id: str) -> dict[str, Any]:
         "GET", "usage_counters", access_token,
         params={"select":"metric,period_start,used,updated_at", "user_id": f"eq.{user_id}", "period_start": f"eq.{datetime.now(timezone.utc).date().replace(day=1).isoformat()}"},
     ).json()
+    period_start = datetime.now(timezone.utc).date().replace(day=1).isoformat()
+    notification_rows = _request(
+        "GET", "billing_usage_notifications", access_token,
+        params={
+            "select": "metric,threshold_percent,used,limit_value,created_at",
+            "user_id": f"eq.{user_id}",
+            "period_start": f"eq.{period_start}",
+            "order": "created_at.desc",
+            "limit": "100",
+        },
+    ).json()
     used = {row["metric"]: row for row in rows}
     return {
-        "period_start": datetime.now(timezone.utc).date().replace(day=1).isoformat(),
+        "period_start": period_start,
         "plan_id": snapshot["plan_id"],
-        "notifications": notifications,
+        "notifications": notification_rows,
         "metrics": {
             metric: {
                 "used": int(used.get(metric, {}).get("used", 0)),
