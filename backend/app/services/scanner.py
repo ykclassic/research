@@ -420,11 +420,29 @@ def _emit_intelligent_events(
                 "triggered_at": now.isoformat(),
                 "fingerprint": fingerprint,
             },
-        )
+            prefer="resolution=ignore-duplicates,return=representation",
+        ).json()
+        if not inserted:
+            continue
+        alert_id = inserted[0]["id"]
         try:
             deliver_scanner_alert(access_token, user_id, event_type, title, message)
-        except Exception:
-            pass
+            delivery_status, delivery_error = "SENT", None
+        except Exception as exc:
+            delivery_status, delivery_error = "FAILED", str(exc)[:500]
+        _request(
+            "POST",
+            "scanner_alert_deliveries",
+            access_token,
+            json={
+                "user_id": user_id,
+                "alert_id": alert_id,
+                "channel": "EMAIL",
+                "status": delivery_status,
+                "error": delivery_error,
+            },
+            prefer="resolution=ignore-duplicates,return=minimal",
+        )
 
 
 async def run_scan(
