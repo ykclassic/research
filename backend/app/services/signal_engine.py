@@ -562,7 +562,7 @@ def generate_crypto_signal(
                 "high": candle.high,
                 "low": candle.low,
                 "close": candle.close,
-                "volume": candle.volume,
+                "volume": float(candle.volume or 0.0),
                 "timeframe": candle.timeframe.value,
                 "source": candle.source,
             }
