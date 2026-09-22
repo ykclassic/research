@@ -439,8 +439,8 @@ def _emit_intelligent_events(
             continue
         alert_id = inserted[0]["id"]
         try:
-            deliver_scanner_alert(access_token, user_id, event_type, title, message)
-            delivery_status, delivery_error = "SENT", None
+            delivery_status = deliver_scanner_alert(access_token, user_id, event_type, title, message)
+            delivery_error = None
         except Exception as exc:
             delivery_status, delivery_error = "FAILED", str(exc)[:500]
         _request(
