@@ -120,3 +120,40 @@ drop policy if exists scanner_schedules_delete_own on public.scanner_schedules;
 create policy scanner_schedules_delete_own on public.scanner_schedules for delete to authenticated using ((select auth.uid()) = user_id);
 
 grant select, insert, update, delete on public.scanner_presets, public.scanner_runs, public.scanner_opportunities, public.scanner_schedules to service_role;
+
+
+create table if not exists public.scanner_alert_events (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references auth.users(id) on delete cascade,
+  preset_id uuid not null references public.scanner_presets(id) on delete cascade,
+  opportunity_id uuid references public.scanner_opportunities(id) on delete set null,
+  event_type text not null,
+  symbol text not null,
+  title text not null,
+  message text not null,
+  payload jsonb not null default '{}'::jsonb,
+  triggered_at timestamptz not null default timezone('utc', now()),
+  read_at timestamptz,
+  fingerprint text not null,
+  unique(user_id, preset_id, fingerprint)
+);
+
+create index if not exists scanner_alert_events_user_idx
+  on public.scanner_alert_events(user_id, triggered_at desc);
+create index if not exists scanner_alert_events_unread_idx
+  on public.scanner_alert_events(user_id, read_at, triggered_at desc);
+
+alter table public.scanner_alert_events enable row level security;
+grant select, update on public.scanner_alert_events to authenticated;
+grant select, insert, update on public.scanner_alert_events to service_role;
+
+drop policy if exists scanner_alert_events_select_own on public.scanner_alert_events;
+create policy scanner_alert_events_select_own
+  on public.scanner_alert_events for select to authenticated
+  using ((select auth.uid()) = user_id);
+
+drop policy if exists scanner_alert_events_update_own on public.scanner_alert_events;
+create policy scanner_alert_events_update_own
+  on public.scanner_alert_events for update to authenticated
+  using ((select auth.uid()) = user_id)
+  with check ((select auth.uid()) = user_id);
