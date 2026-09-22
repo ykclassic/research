@@ -401,6 +401,9 @@ def _qualify(
 def generate_crypto_signal(
     datasets: dict[Timeframe, OHLCVDataset],
     signal_preferences: dict[str, Any] | None = None,
+    *,
+    selected_timeframes: tuple[Timeframe, ...] | None = None,
+    asset_class: str = "crypto",
 ) -> CryptoSignal:
     preferences = signal_preferences or {
         "minimum_confidence": 0.0,
@@ -410,17 +413,22 @@ def generate_crypto_signal(
         "require_market_structure_confirmation": False,
     }
     required = tuple(TIMEFRAME_WEIGHTS)
+    selected = tuple(selected_timeframes or required)
+    invalid_selected = [timeframe.value for timeframe in selected if timeframe not in TIMEFRAME_WEIGHTS]
+    if invalid_selected:
+        raise ValueError(f"Unsupported signal timeframe(s): {", ".join(invalid_selected)}")
     missing = [timeframe.value for timeframe in required if timeframe not in datasets]
     if missing:
         raise ValueError(f"Missing required signal timeframe(s): {', '.join(missing)}")
 
     components: list[SignalComponent] = []
     weighted_score = 0.0
+    selected_weight_total = sum(TIMEFRAME_WEIGHTS[timeframe] for timeframe in selected)
     evidence: list[str] = []
     structures = {}
     smc_scores: list[float] = []
 
-    for timeframe in required:
+    for timeframe in selected:
         dataset = datasets[timeframe]
         candles = list(dataset.completed_candles)
         if len(candles) < 30:
@@ -442,7 +450,7 @@ def generate_crypto_signal(
                 evidence=indicator_evidence + smc_evidence,
             )
         )
-        weighted_score += TIMEFRAME_WEIGHTS[timeframe] * combined
+        weighted_score += (TIMEFRAME_WEIGHTS[timeframe] / selected_weight_total) * combined
         evidence.extend(f"{timeframe.value}: {item}" for item in (indicator_evidence + smc_evidence))
 
     mtf = analyze_multi_timeframe(datasets, structures)
@@ -486,7 +494,7 @@ def generate_crypto_signal(
     macd_hist = m15_indicators.get("macd_histogram")
     momentum = max(-1.0, min(1.0, float(macd_hist) / max(abs(float(atr or 1.0)), 1e-12))) if isinstance(macd_hist, (int, float)) else None
     volatility = (float(atr) / entry_price) if isinstance(atr, (int, float)) and entry_price > 0 else None
-    session_state = build_session_state(asset_class="crypto", now=datasets[Timeframe.MINUTE_15].completed_candles[-1].timestamp, market_open=True, dataset=m15_dataset, symbol=m15_dataset.symbol)
+    session_state = build_session_state(asset_class=asset_class, now=datasets[Timeframe.MINUTE_15].completed_candles[-1].timestamp, market_open=True, dataset=m15_dataset, symbol=m15_dataset.symbol)
 
     evidence.append(f"Directional bias: {_preferred_direction(signal)}.")
     if levels.stop_loss is not None:
