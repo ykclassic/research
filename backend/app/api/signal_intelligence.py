@@ -45,6 +45,7 @@ async def historical_explorer(
     session: str | None = None,
     outcome: str | None = None,
     engine_version: str | None = None,
+    structure: str | None = None,
     from_date: str | None = None,
     to_date: str | None = None,
 ):
