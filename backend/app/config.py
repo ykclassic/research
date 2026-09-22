@@ -71,6 +71,8 @@ class Settings(BaseSettings):
     def validate_production_security(self) -> "Settings":
         if self.app_env.lower() != "production":
             return self
+        if self.billing_test_mode:
+            raise ValueError("BILLING_TEST_MODE cannot be enabled in production.")
         if self.csrf_secret == "development-only-change-me" or len(self.csrf_secret) < 32:
             raise ValueError("Production requires a non-default CSRF_SECRET of at least 32 characters.")
         origins = [origin.strip() for origin in self.cors_origins.split(",") if origin.strip()]
