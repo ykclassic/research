@@ -21,7 +21,7 @@ The event table has a `(rule_id, fingerprint)` uniqueness constraint to prevent 
 
 The current web channel uses an authenticated browser check every 60 seconds while the Alerts workspace is open, plus a manual **Check now** action. Triggered events are persisted so the notification history survives page refreshes. Browser notifications use the standard Web Notifications API when the user grants permission.
 
-This intentionally does not claim always-on background monitoring: a production always-on worker/push service can be added later without changing the rule or event model. Email and Discord are represented as extensible channel values but are not sent until their delivery adapters are implemented.
+This intentionally does not claim always-on background monitoring: a production always-on worker/push service can be added later without changing the rule or event model. Scanner alerts now support server-side email delivery when SMTP is configured and the user enables email alerts. Delivery attempts are persisted for auditability; when SMTP is unavailable or email is disabled, the in-app event remains the source of truth. Discord, Telegram, push and webhook delivery remain extension points for the next delivery phase.
 
 ## API
 
