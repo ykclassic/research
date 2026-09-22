@@ -232,6 +232,7 @@ export interface ScannerConditions {
   min_volume?: number;
   require_qualified: boolean;
 }
+export type ScannerPresetCreate = Omit<ScannerPreset, "id" | "user_id" | "created_at" | "updated_at" | "enabled"> & { enabled?: boolean };
 export interface ScannerPreset {
   id: string; user_id: string; name: string; description: string;
   asset_universe: string[]; timeframes: string[]; conditions: ScannerConditions;
@@ -260,7 +261,7 @@ export interface ScannerAlert {
   triggered_at: string; read_at: string | null;
 }
 export async function getScannerPresets(): Promise<ScannerPreset[]> { return (await request<{items: ScannerPreset[]}>("/api/scanner/presets")).items; }
-export async function createScannerPreset(payload: Omit<ScannerPreset, "id"|"user_id"|"created_at"|"updated_at">): Promise<ScannerPreset> { return (await authenticatedMutation<{item: ScannerPreset}>("/api/scanner/presets",{method:"POST",body:JSON.stringify(payload)})).item; }
+export async function createScannerPreset(payload: ScannerPresetCreate): Promise<ScannerPreset> { return (await authenticatedMutation<{item: ScannerPreset}>("/api/scanner/presets",{method:"POST",body:JSON.stringify(payload)})).item; }
 export async function updateScannerPreset(id:string,payload:Partial<ScannerPreset>):Promise<ScannerPreset>{return (await authenticatedMutation<{item:ScannerPreset}>(`/api/scanner/presets/${encodeURIComponent(id)}`,{method:"PATCH",body:JSON.stringify(payload)})).item;}
 export async function deleteScannerPreset(id:string):Promise<void>{await authenticatedMutation<void>(`/api/scanner/presets/${encodeURIComponent(id)}`,{method:"DELETE"});}
 export async function runScanner(id:string):Promise<ScannerRun>{return authenticatedMutation<ScannerRun>(`/api/scanner/presets/${encodeURIComponent(id)}/scan`,{method:"POST"});}
