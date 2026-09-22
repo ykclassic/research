@@ -220,6 +220,7 @@ export async function getSignalOutcomes(limit = 50): Promise<SignalOutcomeRecord
 export async function getSignalOutcome(signalId: string, refresh = true): Promise<SignalOutcomeRecord> { const params = new URLSearchParams({ refresh: String(refresh) }); return request<SignalOutcomeRecord>(`/api/signal-outcomes/${encodeURIComponent(signalId)}?${params}`); }
 
 
+export interface ScannerConditionRule { field: "confidence"|"risk_reward"|"mtf_alignment"|"momentum"|"volatility"|"volume"|"direction"|"regime"|"structure"|"liquidity"|"signal_status"|"trend"; operator: "eq"|"neq"|"gt"|"gte"|"lt"|"lte"|"contains"|"in"; value: string|number|boolean|string[]; }
 export interface ScannerConditions {
   min_confidence?: number;
   min_risk_reward?: number;
@@ -231,6 +232,8 @@ export interface ScannerConditions {
   max_volatility?: number;
   min_volume?: number;
   require_qualified: boolean;
+  custom_match: "ALL"|"ANY";
+  custom_conditions: ScannerConditionRule[];
 }
 export type ScannerPresetCreate = Omit<ScannerPreset, "id" | "user_id" | "created_at" | "updated_at" | "enabled"> & { enabled?: boolean };
 export interface ScannerPreset {
