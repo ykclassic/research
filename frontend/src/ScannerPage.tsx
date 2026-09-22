@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { AlertTriangle, Bell, Check, Play, Plus, RefreshCw, Search, Trash2 } from "lucide-react";
 import type { AppPage } from "./App";
-import { ApiError, createScannerPreset, createScannerSchedule, deleteScannerPreset, deleteScannerSchedule, getScannerAlerts, getScannerOpportunities, getScannerPresets, getScannerSchedules, markScannerAlertRead, runScanner, ScannerAlert, ScannerOpportunity, ScannerPreset, ScannerSchedule } from "./api";
+import { ApiError, createScannerPreset, createScannerSchedule, deleteScannerPreset, deleteScannerSchedule, getScannerAlerts, getScannerOpportunities, getScannerPresets, getScannerSchedules, markScannerAlertRead, runScanner, ScannerAlert, ScannerOpportunity, ScannerPreset, ScannerSchedule, ScannerConditionRule } from "./api";
 import { getMarketUniverse, MarketUniverse } from "./settingsApi";
 
 const ALERT_EVENTS = ["NEW_QUALIFIED_SIGNAL","SIGNAL_UPGRADE","SIGNAL_DOWNGRADE","REGIME_CHANGE","BOS_CHOCH","LIQUIDITY_SWEEP","SETUP_FORMATION","TARGET_REACHED","INVALIDATION","VOLATILITY_REGIME_CHANGE","RESEARCH_DIVERGENCE","WATCHPOINT"];
@@ -46,7 +46,7 @@ export default function ScannerPage({user,onLogout,setPage}:{user:{email:string}
       const created=await createScannerPreset({
         name:name.trim(),description:"Deterministic multi-factor opportunity scanner.",
         asset_universe:symbols,timeframes,
-        conditions:{min_confidence:Number(minConfidence),min_risk_reward:Number(minRR),regimes:[],directions:["BUY","STRONG_BUY","SELL","STRONG_SELL"],structures:[],min_mtf_alignment:Number(minAlignment),require_qualified:true,custom_match:"ALL",custom_conditions:customConditions.map(item=>({field:item.field,operator:item.operator,value:Number.isNaN(Number(item.value))?item.value:Number(item.value)}))},
+        conditions:{min_confidence:Number(minConfidence),min_risk_reward:Number(minRR),regimes:[],directions:["BUY","STRONG_BUY","SELL","STRONG_SELL"],structures:[],min_mtf_alignment:Number(minAlignment),require_qualified:true,custom_match:"ALL",custom_conditions:customConditions.map(item=>({field:item.field,operator:item.operator,value:Number.isNaN(Number(item.value))?item.value:Number(item.value)})) as ScannerConditionRule[]},
         alert_events:["NEW_QUALIFIED_SIGNAL","SIGNAL_UPGRADE","REGIME_CHANGE","BOS_CHOCH","LIQUIDITY_SWEEP","SETUP_FORMATION","TARGET_REACHED","INVALIDATION","RESEARCH_DIVERGENCE"]
       });
       setActive(created.id);await load();
