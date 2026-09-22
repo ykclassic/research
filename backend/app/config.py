@@ -49,6 +49,13 @@ class Settings(BaseSettings):
     stripe_cancel_url: str = "http://localhost:5173/?billing=cancelled"
     supabase_service_role_key: str = ""
     scanner_scheduler_secret: str = ""
+    smtp_host: str = ""
+    smtp_port: int = 587
+    smtp_username: str = ""
+    smtp_password: str = ""
+    smtp_from_email: str = ""
+    smtp_starttls: bool = True
+    smtp_timeout_seconds: float = 10.0
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", case_sensitive=False, extra="ignore")
 
