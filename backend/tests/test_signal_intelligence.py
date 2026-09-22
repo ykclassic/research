@@ -135,3 +135,26 @@ def test_engine_version_analytics_does_not_rank_versions(monkeypatch: pytest.Mon
     assert result["versions"][0]["sample_size"] == 2
     assert result["versions"][1]["sample_size"] == 1
     assert all("statistically_meaningful" in item for item in result["versions"])
+
+
+def test_latest_rows_paginates_beyond_first_thousand(monkeypatch: pytest.MonkeyPatch):
+    first = [snapshot(signal_id=f"s{i}") for i in range(1000)]
+    second = [snapshot(signal_id="s1000")]
+    calls = []
+
+    class Response:
+        def __init__(self, rows):
+            self._rows = rows
+
+        def json(self):
+            return self._rows
+
+    def fake_request(method, resource, token, params=None, **kwargs):
+        calls.append(params["offset"])
+        return Response(first if params["offset"] == "0" else second)
+
+    monkeypatch.setattr(service, "_request", fake_request)
+    rows = service._latest_rows("token", "user", {})
+
+    assert len(rows) == 1001
+    assert calls == ["0", "1000"]
