@@ -380,6 +380,17 @@ def _emit_intelligent_events(
             events.append(("VOLATILITY_REGIME_CHANGE", "Volatility regime changed", f"{opportunity.symbol} volatility moved from {float(previous_volatility):.4g} to {opportunity.volatility:.4g}."))
     if opportunity.liquidity and "SWEEP" in opportunity.liquidity.upper() and "LIQUIDITY_SWEEP" in preset.alert_events:
         events.append(("LIQUIDITY_SWEEP", "Liquidity sweep detected", f"{opportunity.symbol} reports {opportunity.liquidity}."))
+    if previous and previous.get("target_price") is not None and opportunity.last_price is not None:
+        target = float(previous["target_price"])
+        stop = float(previous.get("stop_loss") or 0)
+        current_price = float(opportunity.last_price)
+        bullish = previous.get("direction") in {"BUY", "STRONG_BUY"}
+        target_crossed = current_price >= target if bullish else current_price <= target
+        stop_crossed = stop > 0 and (current_price <= stop if bullish else current_price >= stop)
+        if target_crossed and "TARGET_REACHED" in preset.alert_events:
+            events.append(("TARGET_REACHED", "Target reached", f"{opportunity.symbol} crossed the prior target at {target:.8g}."))
+        if stop_crossed and "INVALIDATION" in preset.alert_events:
+            events.append(("INVALIDATION", "Signal invalidated", f"{opportunity.symbol} crossed the prior invalidation level at {stop:.8g}."))
     evidence = opportunity.historical_evidence
     if (
         evidence.get("sample_sufficient")
@@ -388,8 +399,8 @@ def _emit_intelligent_events(
         and "RESEARCH_DIVERGENCE" in preset.alert_events
     ):
         events.append(("RESEARCH_DIVERGENCE", "Research divergence", f"{opportunity.symbol} confidence and historical target-hit rate differ materially."))
-    if "WATCHPOINT" in preset.alert_events:
-        events.append(("WATCHPOINT", "Scanner watchpoint", f"{opportunity.symbol} still satisfies the saved scanner conditions."))
+    if "WATCHPOINT" in preset.alert_events and (previous is None or previous.get("setup") != opportunity.setup or previous.get("signal_status") != opportunity.signal_status):
+        events.append(("WATCHPOINT", "Scanner watchpoint", f"{opportunity.symbol} entered or materially changed within the saved scanner conditions."))
     now = datetime.now(timezone.utc)
     for event_type, title, message in events:
         fingerprint = f"{opportunity.symbol}:{opportunity.observed_at.isoformat()}:{event_type}"
@@ -410,6 +421,10 @@ def _emit_intelligent_events(
                 "fingerprint": fingerprint,
             },
         )
+        try:
+            deliver_scanner_alert(access_token, user_id, event_type, title, message)
+        except Exception:
+            pass
 
 
 async def run_scan(
@@ -470,7 +485,8 @@ async def run_scan(
     async def one(symbol: str) -> ScannerOpportunity | None:
         async with semaphore:
             try:
-                return await _scan_symbol(access_token, user_id, symbol, preset.conditions, policy)
+                timeframes = tuple(Timeframe(item) for item in preset.timeframes)
+                return await _scan_symbol(access_token, user_id, symbol, preset.conditions, timeframes, policy)
             except (asyncio.TimeoutError, RuntimeError, ValueError):
                 return None
 
