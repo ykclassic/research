@@ -84,3 +84,9 @@ class SignalReplay(BaseModel):
     chronological_states: tuple[dict[str, object], ...]
     outcome: str
     methodology_note: str
+
+
+class EngineVersionAnalytics(BaseModel):
+    model_config = ConfigDict(frozen=True)
+    minimum_sample_size: int
+    versions: tuple[dict[str, object], ...]
