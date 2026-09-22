@@ -6,6 +6,7 @@ from fastapi import APIRouter, Cookie, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from app.api.auth import UserResponse, _require_csrf, get_current_user
+from app.config import settings
 from app.services.entitlement import EntitlementError, get_entitlement_snapshot, get_usage, start_pro_trial
 from app.services.billing_provider import BillingProviderError, get_billing_provider
 from app.services.billing_service import cancel_subscription, change_subscription, process_webhook, resume_subscription, start_checkout
@@ -48,7 +49,7 @@ async def plans(
             "GET", "billing_plans", _token(access_token),
             params={"select":"id,name,description,monthly_price_minor,currency,display_order,active", "active":"eq.true", "order":"display_order.asc"},
         ).json()
-        return {"plans": rows}
+        return {"plans": rows, "billing_test_mode": bool(settings.billing_test_mode and settings.app_env.lower() != "production")}
     except Exception as exc:
         raise _map_error(exc) from exc
 
