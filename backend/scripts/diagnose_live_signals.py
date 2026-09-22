@@ -44,6 +44,34 @@ def fetch_signal(base_url: str, symbol: str, limit: int, oidc_token: str | None 
         return {"http_status": exc.code, "url": url, "payload": payload}
 
 
+PROVIDER_FAILURE_MARKERS = (
+    "all configured market-data providers were unavailable",
+    "primary crypto provider timed out",
+    "primary crypto provider failed",
+    "kraken cross-provider failed",
+    "candle provider exceeded the",
+)
+
+
+def _is_provider_failure(result: dict) -> bool:
+    """Return True only for a signal endpoint failure caused by market providers.
+
+    The production MTF and market-data verification steps are the gating checks
+    for canonical data health. This diagnostic is observational, so a signal
+    request that fails because every upstream provider is unavailable should be
+    recorded as degraded rather than turning the whole workflow red. Other
+    endpoint failures (auth, preferences, application errors, connectivity) remain
+    fatal and must continue to fail the workflow.
+    """
+    if result.get("http_status") != 503:
+        return False
+    payload = result.get("payload")
+    if not isinstance(payload, dict):
+        return False
+    detail = str(payload.get("detail", "")).lower()
+    return any(marker in detail for marker in PROVIDER_FAILURE_MARKERS)
+
+
 def _bucket(value: float, boundaries: tuple[float, ...]) -> str:
     for upper in boundaries:
         if value < upper:
@@ -52,7 +80,9 @@ def _bucket(value: float, boundaries: tuple[float, ...]) -> str:
 
 
 def _summarize(rows: list[dict]) -> dict:
-    successful = [row for row in rows if row.get("http_status") == 200 and row.get("score") is not None]
+    successful = [row for row in rows if row.get("status") == "SUCCESS"]
+    provider_failures = [row for row in rows if row.get("status") == "DEGRADED"]
+    fatal_failures = [row for row in rows if row.get("status") == "FATAL"]
     rejection_reasons = Counter(
         reason
         for row in successful
@@ -90,7 +120,10 @@ def _summarize(rows: list[dict]) -> dict:
 
     return {
         "successful_pairs": len(successful),
-        "http_failures": len(rows) - len(successful),
+        "degraded_pairs": len(provider_failures),
+        "provider_failures": len(provider_failures),
+        "fatal_failures": len(fatal_failures),
+        "http_failures": len(provider_failures) + len(fatal_failures),
         "qualified": sum(row.get("qualification_status") == "QUALIFIED" for row in successful),
         "rejected": sum(row.get("qualification_status") == "REJECTED" for row in successful),
         "score_magnitude_buckets": dict(sorted(score_buckets.items())),
@@ -147,20 +180,26 @@ def main() -> int:
             result = fetch_signal(args.base_url, symbol, args.limit, args.oidc_token or None)
             payload = result["payload"]
             if result["http_status"] >= 400:
-                failures += 1
+                provider_failure = _is_provider_failure(result)
+                if not provider_failure:
+                    failures += 1
                 row = {
                     "symbol": symbol,
                     "http_status": result["http_status"],
+                    "status": "DEGRADED" if provider_failure else "FATAL",
+                    "failure_class": "provider_unavailable" if provider_failure else "endpoint_failure",
                     "error": payload,
                 }
                 report["signals"].append(row)
-                print(f"{symbol}: HTTP {result['http_status']} {payload}")
+                label = "DEGRADED provider availability" if provider_failure else "FATAL endpoint failure"
+                print(f"{symbol}: {label} HTTP {result['http_status']} {payload}")
                 continue
 
             components = payload.get("components", [])
             row = {
                 "symbol": symbol,
                 "http_status": result["http_status"],
+                "status": "SUCCESS",
                 "signal": payload.get("signal"),
                 "score": payload.get("score"),
                 "confidence": payload.get("confidence"),
@@ -196,9 +235,14 @@ def main() -> int:
                 )
         except (urllib.error.URLError, TimeoutError, ValueError, json.JSONDecodeError) as exc:
             failures += 1
-            row = {"symbol": symbol, "error": f"{type(exc).__name__}: {exc}"}
+            row = {
+                "symbol": symbol,
+                "status": "FATAL",
+                "failure_class": "connectivity_or_client_error",
+                "error": f"{type(exc).__name__}: {exc}",
+            }
             report["signals"].append(row)
-            print(f"{symbol}: ERROR {row['error']}")
+            print(f"{symbol}: FATAL {row['error']}")
 
     report["summary"] = _summarize(report["signals"])
     report["invariant_errors"] = _validate_observational_invariants(report)
