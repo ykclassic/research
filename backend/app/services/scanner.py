@@ -285,6 +285,86 @@ async def _scan_symbol(
     )
 
 
+def _emit_intelligent_events(
+    access_token: str,
+    user_id: str,
+    preset: ScannerPreset,
+    opportunity: ScannerOpportunity,
+    opportunity_id: str,
+) -> None:
+    if not preset.alert_events:
+        return
+    previous_rows = _request(
+        "GET",
+        "scanner_opportunities",
+        access_token,
+        params={
+            "select": "*",
+            "user_id": f"eq.{user_id}",
+            "symbol": f"eq.{opportunity.symbol}",
+            "order": "observed_at.desc",
+            "limit": "2",
+        },
+    ).json()
+    previous = next(
+        (row for row in previous_rows if row.get("id") != opportunity_id),
+        None,
+    )
+    events: list[tuple[str, str, str]] = []
+    if previous is None and "NEW_QUALIFIED_SIGNAL" in preset.alert_events:
+        events.append(("NEW_QUALIFIED_SIGNAL", "New qualified signal", f"{opportunity.symbol} produced a qualified {opportunity.direction} setup at {opportunity.confidence:.0%} confidence."))
+    if previous:
+        previous_confidence = float(previous.get("confidence") or 0)
+        if opportunity.confidence - previous_confidence >= 0.05 and "SIGNAL_UPGRADE" in preset.alert_events:
+            events.append(("SIGNAL_UPGRADE", "Signal upgraded", f"{opportunity.symbol} confidence increased from {previous_confidence:.0%} to {opportunity.confidence:.0%}."))
+        if previous_confidence - opportunity.confidence >= 0.05 and "SIGNAL_DOWNGRADE" in preset.alert_events:
+            events.append(("SIGNAL_DOWNGRADE", "Signal downgraded", f"{opportunity.symbol} confidence decreased from {previous_confidence:.0%} to {opportunity.confidence:.0%}."))
+        if previous.get("regime") != opportunity.regime and "REGIME_CHANGE" in preset.alert_events:
+            events.append(("REGIME_CHANGE", "Regime changed", f"{opportunity.symbol} changed from {previous.get('regime') or 'UNKNOWN'} to {opportunity.regime or 'UNKNOWN'}."))
+        if previous.get("structure") != opportunity.structure and "BOS_CHOCH" in preset.alert_events and opportunity.structure:
+            events.append(("BOS_CHOCH", "Structure event changed", f"{opportunity.symbol} now reports {opportunity.structure}."))
+        if previous.get("setup") != opportunity.setup and "SETUP_FORMATION" in preset.alert_events:
+            events.append(("SETUP_FORMATION", "Setup formation", f"{opportunity.symbol} formed {opportunity.setup}."))
+        previous_volatility = previous.get("volatility")
+        if previous_volatility and opportunity.volatility and (
+            opportunity.volatility >= float(previous_volatility) * 1.5
+            or opportunity.volatility <= float(previous_volatility) * 0.67
+        ) and "VOLATILITY_REGIME_CHANGE" in preset.alert_events:
+            events.append(("VOLATILITY_REGIME_CHANGE", "Volatility regime changed", f"{opportunity.symbol} volatility moved from {float(previous_volatility):.4g} to {opportunity.volatility:.4g}."))
+    if opportunity.liquidity and "SWEEP" in opportunity.liquidity.upper() and "LIQUIDITY_SWEEP" in preset.alert_events:
+        events.append(("LIQUIDITY_SWEEP", "Liquidity sweep detected", f"{opportunity.symbol} reports {opportunity.liquidity}."))
+    evidence = opportunity.historical_evidence
+    if (
+        evidence.get("sample_sufficient")
+        and evidence.get("target_hit_rate") is not None
+        and abs(float(evidence["target_hit_rate"]) - opportunity.confidence) >= 0.20
+        and "RESEARCH_DIVERGENCE" in preset.alert_events
+    ):
+        events.append(("RESEARCH_DIVERGENCE", "Research divergence", f"{opportunity.symbol} confidence and historical target-hit rate differ materially."))
+    if "WATCHPOINT" in preset.alert_events:
+        events.append(("WATCHPOINT", "Scanner watchpoint", f"{opportunity.symbol} still satisfies the saved scanner conditions."))
+    now = datetime.now(timezone.utc)
+    for event_type, title, message in events:
+        fingerprint = f"{opportunity.symbol}:{opportunity.observed_at.isoformat()}:{event_type}"
+        _request(
+            "POST",
+            "scanner_alert_events",
+            access_token,
+            json={
+                "user_id": user_id,
+                "preset_id": preset.id,
+                "opportunity_id": opportunity_id,
+                "event_type": event_type,
+                "symbol": opportunity.symbol,
+                "title": title,
+                "message": message,
+                "payload": opportunity.model_dump(mode="json"),
+                "triggered_at": now.isoformat(),
+                "fingerprint": fingerprint,
+            },
+        )
+
+
 async def run_scan(
     access_token: str,
     user_id: str,
@@ -352,7 +432,7 @@ async def run_scan(
     now = datetime.now(timezone.utc)
 
     for opportunity in opportunities:
-        _request(
+        inserted = _request(
             "POST",
             "scanner_opportunities",
             access_token,
@@ -362,7 +442,16 @@ async def run_scan(
                 **opportunity.model_dump(mode="json"),
                 "historical_evidence": opportunity.historical_evidence,
             },
-        )
+            prefer="return=representation",
+        ).json()
+        if inserted:
+            _emit_intelligent_events(
+                access_token,
+                user_id,
+                preset,
+                opportunity,
+                inserted[0]["id"],
+            )
     _request(
         "PATCH",
         "scanner_runs",
