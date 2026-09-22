@@ -6,7 +6,7 @@ from fastapi import APIRouter, Cookie, Depends, HTTPException, Query
 
 from app.api.auth import UserResponse, get_current_user
 from app.services.entitlement import EntitlementError, FeatureNotEntitledError, UsageLimitExceededError
-from app.services.signal_intelligence import calibration, explorer, replay, similarity
+from app.services.signal_intelligence import calibration, engine_version_analytics, explorer, replay, similarity
 from app.services.supabase_data import DataServiceError
 
 router = APIRouter(prefix="/api/signal-intelligence", tags=["signal-intelligence"])
@@ -60,6 +60,14 @@ async def confidence_calibration(
     access_token: Annotated[str | None, Cookie(alias="mr_access_token")] = None,
 ):
     return _call(calibration, _token(access_token), user.id)
+
+
+@router.get("/engine-versions")
+async def engine_versions(
+    user: Annotated[UserResponse, Depends(get_current_user)],
+    access_token: Annotated[str | None, Cookie(alias="mr_access_token")] = None,
+):
+    return _call(engine_version_analytics, _token(access_token), user.id)
 
 
 @router.get("/similar/{signal_id}")
