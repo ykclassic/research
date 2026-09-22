@@ -48,6 +48,7 @@ class Settings(BaseSettings):
     stripe_success_url: str = "http://localhost:5173/?billing=success"
     stripe_cancel_url: str = "http://localhost:5173/?billing=cancelled"
     supabase_service_role_key: str = ""
+    scanner_scheduler_secret: str = ""
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", case_sensitive=False, extra="ignore")
 

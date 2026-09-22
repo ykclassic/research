@@ -218,3 +218,57 @@ export async function getSignalReplay(signalId: string): Promise<SignalReplay> {
 export async function logSignal(signal: CryptoSignal): Promise<SignalOutcomeRecord> { return authenticatedMutation<SignalOutcomeRecord>("/api/signal-outcomes/log", { method: "POST", body: JSON.stringify({ signal }) }); }
 export async function getSignalOutcomes(limit = 50): Promise<SignalOutcomeRecord[]> { const params = new URLSearchParams({ limit: String(limit) }); return request<SignalOutcomeRecord[]>(`/api/signal-outcomes?${params}`); }
 export async function getSignalOutcome(signalId: string, refresh = true): Promise<SignalOutcomeRecord> { const params = new URLSearchParams({ refresh: String(refresh) }); return request<SignalOutcomeRecord>(`/api/signal-outcomes/${encodeURIComponent(signalId)}?${params}`); }
+
+
+export interface ScannerConditions {
+  min_confidence?: number;
+  min_risk_reward?: number;
+  regimes: string[];
+  directions: string[];
+  structures: string[];
+  min_mtf_alignment?: number;
+  min_momentum?: number;
+  max_volatility?: number;
+  min_volume?: number;
+  require_qualified: boolean;
+}
+export type ScannerPresetCreate = Omit<ScannerPreset, "id" | "user_id" | "created_at" | "updated_at" | "enabled"> & { enabled?: boolean };
+export interface ScannerPreset {
+  id: string; user_id: string; name: string; description: string;
+  asset_universe: string[]; timeframes: string[]; conditions: ScannerConditions;
+  alert_events: string[]; enabled: boolean; created_at: string; updated_at: string;
+}
+export interface ScannerOpportunity {
+  id?: string; symbol: string; setup: string; regime: string | null; direction: string;
+  confidence: number; risk_reward: number | null; structure: string | null;
+  liquidity: string | null; mtf_alignment: number | null; momentum: number | null;
+  volatility: number | null; volume: number | null; signal_status: string;
+  historical_evidence: Record<string, unknown>; signal_id: string; observed_at: string;
+}
+export interface ScannerRun {
+  id: string; preset_id: string; status: string; scanned_count: number;
+  qualified_count: number; started_at: string; completed_at: string | null;
+  opportunities: ScannerOpportunity[];
+}
+export interface ScannerSchedule {
+  id: string; user_id: string; preset_id: string; name: string;
+  interval_minutes: number; enabled: boolean; next_run_at: string;
+  last_run_at: string | null; created_at: string; updated_at: string;
+}
+export interface ScannerAlert {
+  id: string; preset_id: string; opportunity_id: string | null; event_type: string;
+  symbol: string; title: string; message: string; payload: Record<string, unknown>;
+  triggered_at: string; read_at: string | null;
+}
+export async function getScannerPresets(): Promise<ScannerPreset[]> { return (await request<{items: ScannerPreset[]}>("/api/scanner/presets")).items; }
+export async function createScannerPreset(payload: ScannerPresetCreate): Promise<ScannerPreset> { return (await authenticatedMutation<{item: ScannerPreset}>("/api/scanner/presets",{method:"POST",body:JSON.stringify(payload)})).item; }
+export async function updateScannerPreset(id:string,payload:Partial<ScannerPreset>):Promise<ScannerPreset>{return (await authenticatedMutation<{item:ScannerPreset}>(`/api/scanner/presets/${encodeURIComponent(id)}`,{method:"PATCH",body:JSON.stringify(payload)})).item;}
+export async function deleteScannerPreset(id:string):Promise<void>{await authenticatedMutation<void>(`/api/scanner/presets/${encodeURIComponent(id)}`,{method:"DELETE"});}
+export async function runScanner(id:string):Promise<ScannerRun>{return authenticatedMutation<ScannerRun>(`/api/scanner/presets/${encodeURIComponent(id)}/scan`,{method:"POST"});}
+export async function getScannerOpportunities():Promise<ScannerOpportunity[]>{return (await request<{items:ScannerOpportunity[]}>("/api/scanner/opportunities")).items;}
+export async function getScannerSchedules():Promise<ScannerSchedule[]>{return (await request<{items:ScannerSchedule[]}>("/api/scanner/schedules")).items;}
+export async function createScannerSchedule(payload:{preset_id:string;name:string;interval_minutes:number;enabled?:boolean}):Promise<ScannerSchedule>{return (await authenticatedMutation<{item:ScannerSchedule}>("/api/scanner/schedules",{method:"POST",body:JSON.stringify(payload)})).item;}
+export async function updateScannerSchedule(id:string,payload:Partial<ScannerSchedule>):Promise<ScannerSchedule>{return (await authenticatedMutation<{item:ScannerSchedule}>(`/api/scanner/schedules/${encodeURIComponent(id)}`,{method:"PATCH",body:JSON.stringify(payload)})).item;}
+export async function deleteScannerSchedule(id:string):Promise<void>{await authenticatedMutation<void>(`/api/scanner/schedules/${encodeURIComponent(id)}`,{method:"DELETE"});}
+export async function getScannerAlerts():Promise<ScannerAlert[]>{return (await request<{items:ScannerAlert[]}>("/api/scanner/alerts")).items;}
+export async function markScannerAlertRead(id:string):Promise<ScannerAlert>{return (await authenticatedMutation<{item:ScannerAlert}>(`/api/scanner/alerts/${encodeURIComponent(id)}/read`,{method:"POST"})).item;}
