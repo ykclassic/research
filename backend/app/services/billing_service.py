@@ -298,6 +298,32 @@ def _record_event(event: dict[str, Any], user_id: str | None) -> None:
         pass
 
 
+def reconcile_checkout_session(user_id: str, checkout_session_id: str) -> dict[str, Any]:
+    """Reconcile a completed Checkout session directly with Stripe."""
+    if not checkout_session_id or len(checkout_session_id) > 255:
+        raise DataRequestError("Invalid Checkout session.")
+    provider = get_billing_provider()
+    session = provider.get_checkout_session(checkout_session_id)
+    metadata = session.get("metadata") or {}
+    session_user_id = str(metadata.get("user_id") or session.get("client_reference_id") or "")
+    if session_user_id != str(user_id):
+        raise DataRequestError("Checkout session does not belong to the signed-in user.")
+    if session.get("mode") != "subscription" or session.get("status") != "complete":
+        raise DataRequestError("Checkout session is not complete.")
+    subscription_id = session.get("subscription")
+    if not subscription_id:
+        raise DataRequestError("Checkout session has no subscription.")
+    subscription = provider.get_subscription(str(subscription_id))
+    subscription_metadata = subscription.setdefault("metadata", {})
+    subscription_metadata.setdefault("user_id", str(user_id))
+    subscription_metadata.setdefault("plan_id", metadata.get("plan_id"))
+    synced = _sync_subscription(subscription)
+    if not synced:
+        raise DataRequestError("Stripe subscription could not be synchronized.")
+    _record_event({"id": f"checkout-reconcile-{checkout_session_id}", "type": "checkout.session.reconciled", "data": {"object": session}}, str(user_id))
+    return {"status": "synchronized", "plan_id": synced.get("plan_id"), "subscription": synced}
+
+
 def process_webhook(payload: dict[str, Any]) -> dict[str, Any]:
     event_type = str(payload.get("type") or "")
     obj = ((payload.get("data") or {}).get("object") or {})
