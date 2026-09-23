@@ -1,3 +1,13 @@
+const API_BASE = (import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8000").replace(/\/$/, "");
+function csrf(): string | null { const cookie = document.cookie.split(";").map(item => item.trim()).find(item => item.startsWith("mr_csrf=")); return cookie ? decodeURIComponent(cookie.slice("mr_csrf=".length)) : null; }
+async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
+  const headers = new Headers(init.headers); if (init.body) headers.set("Content-Type","application/json");
+  if (init.method && init.method !== "GET") { const token = csrf(); if (token) headers.set("X-CSRF-Token", token); }
+  const response = await fetch(API_BASE + path, { ...init, headers, credentials: "include" });
+  if (!response.ok) { let message = "Request failed: " + response.status; try { const body = await response.json() as {detail?:string}; if(body.detail) message=body.detail; } catch {} throw new Error(message); }
+  if(response.status===204) return undefined as T; return await response.json() as T;
+}
+async function authenticatedMutation<T>(path:string, init:RequestInit):Promise<T>{return request<T>(path,init);}
 export interface ResearchSnapshot { id:string; symbol:string; snapshot_type:string; snapshot_at:string; source_history_id:string|null; state:Record<string,unknown>; engine_version:string; provenance:ResearchProvenance[]; }
 export interface ResearchProvenance { id:string; snapshot_id:string; claim_type:string; claim:string; analysis:string; data:Record<string,unknown>; sources:string[]; observed_at:string; method:string; engine_version:string; }
 export interface ResearchChange { category:string; field:string; previous:unknown; current:unknown; significance:string; }
