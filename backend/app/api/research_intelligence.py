@@ -17,6 +17,7 @@ from app.services.research_intelligence import (
     list_snapshots,
     list_watchpoint_events,
     list_watchpoints,
+    save_snapshot,
     update_watchpoint,
 )
 
@@ -86,6 +87,15 @@ async def snapshot(
     access_token: Annotated[str | None, Cookie(alias="mr_access_token")] = None,
 ):
     return {"item": get_snapshot(_token(access_token), user.id, snapshot_id)}
+
+
+@router.post("/snapshots/{snapshot_id}/save", dependencies=[Depends(_require_csrf)])
+async def save_research_snapshot(
+    snapshot_id: str,
+    user: Annotated[UserResponse, Depends(get_current_user)],
+    access_token: Annotated[str | None, Cookie(alias="mr_access_token")] = None,
+):
+    return {"item": save_snapshot(_token(access_token), user.id, snapshot_id)}
 
 
 @router.post("/watchpoints", dependencies=[Depends(_require_csrf)])
