@@ -81,6 +81,7 @@ def _provenance(row: dict[str, Any]) -> ProvenanceRecord:
         observed_at=row["observed_at"],
         method=row["method"],
         engine_version=row["engine_version"],
+        model_version=row.get("model_version") or MODEL_VERSION,
     )
 
 
@@ -372,7 +373,12 @@ async def catalysts(symbol: str | None, days: int = 7, limit: int = 25) -> tuple
     for item in research.news:
         records.append(CatalystRecord(id=item.id, title=item.headline, event_type=item.event_type.value, source=item.source, source_url=item.source_url, event_timestamp=item.published_at, affected_assets=item.affected_assets, sentiment=item.sentiment.value, market_reaction=reactions.get(item.id, {}), provider=item.provider))
     for event in research.fundamental_events:
-        records.append(CatalystRecord(id=event.id, title=event.title, event_type=event.event_type.value, source=event.source, source_url=event.source_url, event_timestamp=event.event_timestamp, affected_assets=event.affected_assets, market_reaction={}, provider=event.provider))
+        records.append(CatalystRecord(
+            id=event.id, title=event.title, event_type=event.event_type.value,
+            source=event.source, source_url=event.source_url,
+            event_timestamp=event.event_timestamp, affected_assets=event.affected_assets,
+            market_reaction={}, provider=event.provider,
+        ))
     return tuple(sorted(records, key=lambda item: item.event_timestamp, reverse=True)[:limit])
 
 def _due_snapshot_exists(access_token: str, user_id: str, symbol: str, now: datetime, interval_minutes: int = 15) -> bool:
