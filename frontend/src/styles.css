@@ -20,6 +20,11 @@ button:disabled { cursor: not-allowed; opacity: .55; }
   background:rgba(6,16,29,.92); backdrop-filter:blur(12px);
 }
 .topbar-actions { display:flex; align-items:center; gap:9px; flex-wrap:wrap; justify-content:flex-end; }
+.product-brand, .auth-brand { display:flex; align-items:center; gap:12px; min-width:0; }
+.product-brand img { width:42px; height:42px; object-fit:contain; border-radius:11px; }
+.auth-brand { align-items:flex-start; }
+.auth-brand img { width:54px; height:54px; object-fit:contain; border-radius:14px; flex:0 0 auto; }
+.auth-brand h1 { margin-top:9px; }
 .user-email { color:#91a4bc; font-size:11px; }
 h1,h2,h3,p { margin:0; }
 h1 { font-size:20px; }
