@@ -24,6 +24,12 @@ class CopilotRequest(BaseModel):
     default_symbol: str = Field(default="BTC/USD", min_length=3, max_length=32)
 
 
+class ScheduleRequest(BaseModel):
+    name: str = Field(min_length=1, max_length=120)
+    query: str = Field(min_length=3, max_length=4000)
+    interval_minutes: int = Field(ge=60, le=10080)
+
+
 class CopilotResponse(BaseModel):
     run_id: str
     query: str
@@ -86,3 +92,40 @@ async def copilot_scheduler(
     ):
         raise HTTPException(status_code=401, detail="Invalid research copilot scheduler credential.")
     return {"status": "READY", "message": "Copilot scheduling is available through the research workflow entitlement."}
+
+
+@router.get("/schedules")
+async def schedules(
+    user: UserResponse | None = Depends(get_current_user_or_github_actions),
+    access_token: Annotated[str | None, Cookie(alias="mr_access_token")] = None,
+):
+    if user is None or not access_token:
+        raise HTTPException(status_code=401, detail="Authentication required.")
+    return service.list_schedules(access_token, user.id)
+
+
+@router.post("/schedules")
+async def create_schedule(
+    request: ScheduleRequest,
+    user: UserResponse | None = Depends(get_current_user_or_github_actions),
+    access_token: Annotated[str | None, Cookie(alias="mr_access_token")] = None,
+):
+    if user is None or not access_token:
+        raise HTTPException(status_code=401, detail="Authentication required.")
+    try:
+        require_feature(access_token, user.id, "scheduled_workflows")
+        return service.create_schedule(access_token, user.id, request.name, request.query, request.interval_minutes)
+    except Exception as exc:
+        raise HTTPException(status_code=402, detail=str(exc)) from exc
+
+
+@router.delete("/schedules/{schedule_id}")
+async def delete_schedule(
+    schedule_id: str,
+    user: UserResponse | None = Depends(get_current_user_or_github_actions),
+    access_token: Annotated[str | None, Cookie(alias="mr_access_token")] = None,
+):
+    if user is None or not access_token:
+        raise HTTPException(status_code=401, detail="Authentication required.")
+    service.delete_schedule(access_token, user.id, schedule_id)
+    return {"deleted": True}
