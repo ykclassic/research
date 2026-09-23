@@ -146,6 +146,7 @@ def _build_provenance(snapshot_id: str, user_id: str, report: Any, observed_at: 
         "method": "Deterministic ResearchReportService using completed market data and configured research preferences.",
         "engine_version": ENGINE_VERSION,
         "model_version": MODEL_VERSION,
+        "model_version": MODEL_VERSION,
         "sources": sources,
     }
     claims = [
@@ -220,7 +221,7 @@ def list_snapshots(access_token: str, user_id: str, symbol: str, limit: int = 10
 def _load_provenance(access_token: str, user_id: str, snapshot_id: str) -> tuple[ProvenanceRecord, ...]:
     rows = _request(
         "GET", "research_provenance", access_token,
-        params={"select": "id,snapshot_id,claim_type,claim,analysis,data,sources,observed_at,method,engine_version", "snapshot_id": f"eq.{snapshot_id}", "user_id": f"eq.{user_id}", "order": "observed_at.asc"}
+        params={"select": "id,snapshot_id,claim_type,claim,analysis,data,sources,observed_at,method,engine_version,model_version", "snapshot_id": f"eq.{snapshot_id}", "user_id": f"eq.{user_id}", "order": "observed_at.asc"}
     ).json()
     return tuple(_provenance(row) for row in rows)
 
