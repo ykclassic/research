@@ -9,7 +9,7 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
 }
 async function authenticatedMutation<T>(path:string, init:RequestInit):Promise<T>{return request<T>(path,init);}
 export interface ResearchSnapshot { id:string; symbol:string; snapshot_type:string; snapshot_at:string; source_history_id:string|null; state:Record<string,unknown>; engine_version:string; provenance:ResearchProvenance[]; }
-export interface ResearchProvenance { id:string; snapshot_id:string; claim_type:string; claim:string; analysis:string; data:Record<string,unknown>; sources:string[]; observed_at:string; method:string; engine_version:string; }
+export interface ResearchProvenance { id:string; snapshot_id:string; claim_type:string; claim:string; analysis:string; data:Record<string,unknown>; sources:string[]; observed_at:string; method:string; engine_version:string; model_version:string; }
 export interface ResearchChange { category:string; field:string; previous:unknown; current:unknown; significance:string; }
 export interface ResearchComparison { symbol:string; baseline_type:string; current:ResearchSnapshot; baseline:ResearchSnapshot|null; changes:ResearchChange[]; summary:string; evidence_note:string; }
 export interface ResearchWatchpoint { id:string; symbol:string; name:string; condition_type:string; field:string; operator:string; value:unknown; timeframe:string|null; enabled:boolean; last_state:boolean|null; last_triggered_at:string|null; created_at:string; updated_at:string; }
