@@ -1,3 +1,4 @@
+import pytest
 from unittest.mock import patch
 
 from fastapi.testclient import TestClient
@@ -162,3 +163,47 @@ def test_me_requires_authentication():
     client.cookies.clear()
     response = client.get("/api/auth/me")
     assert response.status_code == 401
+
+
+def test_request_password_reset_sends_configured_redirect(monkeypatch):
+    from app.services import supabase_auth
+
+    class FakeResponse:
+        status_code = 200
+
+        def json(self):
+            return {}
+
+    captured = {}
+
+    def fake_post(url, *, headers, json, timeout):
+        captured.update({"url": url, "json": json, "timeout": timeout})
+        return FakeResponse()
+
+    monkeypatch.setattr(supabase_auth.httpx, "post", fake_post)
+    monkeypatch.setattr(supabase_auth.settings, "supabase_url", "https://example.supabase.co")
+    monkeypatch.setattr(supabase_auth.settings, "supabase_publishable_key", "test-publishable-key")
+    monkeypatch.setattr(
+        supabase_auth.settings,
+        "auth_password_reset_redirect_url",
+        "https://research-dusky-six.vercel.app/?reset=1",
+    )
+
+    supabase_auth.request_password_reset("user@example.com")
+
+    assert captured["url"] == "https://example.supabase.co/auth/v1/recover"
+    assert captured["json"] == {
+        "email": "user@example.com",
+        "redirect_to": "https://research-dusky-six.vercel.app/?reset=1",
+    }
+
+
+def test_request_password_reset_rejects_missing_redirect(monkeypatch):
+    from app.services import supabase_auth
+
+    monkeypatch.setattr(supabase_auth.settings, "supabase_url", "https://example.supabase.co")
+    monkeypatch.setattr(supabase_auth.settings, "supabase_publishable_key", "test-publishable-key")
+    monkeypatch.setattr(supabase_auth.settings, "auth_password_reset_redirect_url", "")
+
+    with pytest.raises(supabase_auth.AuthConfigurationError, match="redirect URL"):
+        supabase_auth.request_password_reset("user@example.com")
