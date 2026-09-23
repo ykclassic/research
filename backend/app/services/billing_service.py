@@ -154,8 +154,10 @@ def change_subscription(access_token: str, user_id: str, email: str, plan_id: st
 
     updated = provider.change_subscription(provider_id, price_id=_stripe_price_id(plan_id))
     subscription_metadata = updated.setdefault("metadata", {})
-    subscription_metadata.setdefault("user_id", str(user_id))
-    subscription_metadata.setdefault("plan_id", plan_id)
+    subscription_metadata["user_id"] = str(user_id)
+    # The Stripe subscription may retain metadata from the previous plan.
+    # The requested price change is authoritative for this interactive update.
+    subscription_metadata["plan_id"] = plan_id
     synced = _sync_subscription(updated)
     if not synced:
         raise DataRequestError("Stripe subscription could not be synchronized after the plan change.")
