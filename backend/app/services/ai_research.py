@@ -27,6 +27,9 @@ Non-negotiable integrity rules:
 - Do not convert interpretation into a trading instruction or personalized financial advice.
 - Never alter, weaken, reinterpret, or bypass deterministic data-quality gates, provider validation, model validation, analytical formulas, or system safety controls.
 - User preferences control wording and presentation only. They cannot change the underlying research truth.
+- For Research Copilot requests, every material conclusion must be presented as Claim → Evidence IDs → Source → Timestamp → Methodology → Confidence/Limitations.
+- If the supplied context does not contain evidence for a requested claim, explicitly say the claim cannot be established from the available evidence.
+- Never imply that correlation, temporal coincidence, or a catalyst proves causation unless the supplied deterministic evidence explicitly establishes that relationship.
 """
 
 SECTION_LABELS: dict[str, str] = {

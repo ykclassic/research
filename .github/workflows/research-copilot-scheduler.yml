@@ -1,0 +1,26 @@
+name: Research Copilot production scheduler
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "42 * * * *"
+
+permissions:
+  contents: read
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Execute due Pro research schedules
+        env:
+          RESEARCH_URL: ${{ vars.RESEARCH_API_URL }}
+          RESEARCH_SECRET: ${{ secrets.SCANNER_SCHEDULER_SECRET }}
+        run: |
+          set -euo pipefail
+          test -n "$RESEARCH_URL"
+          test -n "$RESEARCH_SECRET"
+          response="$(curl --fail --silent --show-error --max-time 840             -X POST             -H "X-Research-Copilot-Secret: $RESEARCH_SECRET"             -H "Accept: application/json"             "$RESEARCH_URL/api/research-copilot/scheduler/run")"
+          echo "$response" | jq .
+          echo "$response" | jq -e '(.scheduled | type == "number") and (.completed | type == "number") and (.failed | type == "number") and (.failed == 0)'
