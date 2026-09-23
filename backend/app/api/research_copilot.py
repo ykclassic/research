@@ -91,7 +91,10 @@ async def copilot_scheduler(
         x_research_copilot_secret, settings.scanner_scheduler_secret
     ):
         raise HTTPException(status_code=401, detail="Invalid research copilot scheduler credential.")
-    return {"status": "READY", "message": "Copilot scheduling is available through the research workflow entitlement."}
+    try:
+        return await service.run_due_schedules(settings.supabase_service_role_key)
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail="Scheduled research execution failed.") from exc
 
 
 @router.get("/schedules")
