@@ -146,10 +146,10 @@ async def evaluate(
 
 @router.get("/catalysts")
 async def catalyst_feed(
+    user: Annotated[UserResponse, Depends(get_current_user)],
     symbol: str | None = Query(default=None, max_length=32),
     days: int = Query(default=7, ge=1, le=30),
     limit: int = Query(default=25, ge=1, le=50),
-    user: Annotated[UserResponse, Depends(get_current_user)] = None,
 ):
     try:
         return {"items": await catalysts(symbol.upper() if symbol else None, days, limit)}
