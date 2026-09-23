@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { Check, CreditCard, Gauge, RefreshCw, Sparkles } from "lucide-react";
 import type { User } from "./api";
-import { getBillingHistory, getBillingPlans, getEntitlements, getSubscription, getUsage, startProTrial, startCheckout, changePlan, cancelSubscription, resumeSubscription, type BillingEvent, type BillingPlan, type BillingSubscription, type EntitlementSnapshot, type UsageSummary } from "./billingApi";
+import { getBillingHistory, getBillingPlans, getEntitlements, getSubscription, getUsage, startProTrial, startCheckout, changePlan, reconcileCheckout, cancelSubscription, resumeSubscription, type BillingEvent, type BillingPlan, type BillingSubscription, type EntitlementSnapshot, type UsageSummary } from "./billingApi";
 
 type Props={user:User;onLogout:()=>void};
 const labels:Record<string,string>={core_research:"Core market research",watchlists:"Watchlists",basic_portfolio:"Basic portfolio",signal_intelligence:"Signal intelligence",ai_research:"AI research",advanced_portfolio_analytics:"Advanced portfolio analytics",backtesting:"Backtesting",strategy_builder:"Strategy builder",scanner:"Intelligent scanner",webhooks:"Webhooks",scheduled_workflows:"Scheduled workflows",api:"API access",mcp:"MCP access",exports:"Advanced exports",team_workspaces:"Team workspaces"};
