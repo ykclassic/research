@@ -40,17 +40,31 @@ def test_change_subscription_updates_stripe_subscription(monkeypatch):
     provider = Mock()
     provider.change_subscription.return_value = {"id": "sub_stripe", "status": "active", "metadata": {}}
 
+    synced = {
+        "id": "sub-row",
+        "plan_id": "premium",
+        "status": "active",
+        "provider": "stripe",
+    }
+    sync = Mock(return_value=synced)
     monkeypatch.setattr(billing_service, "_active_subscription", lambda *_: current)
     monkeypatch.setattr(billing_service, "get_billing_provider", lambda: provider)
     monkeypatch.setattr(billing_service.settings, "stripe_price_premium", "price_premium")
+    monkeypatch.setattr(billing_service, "_sync_subscription", sync)
 
     result = billing_service.change_subscription("token", "user", "user@example.com", "premium")
 
     assert result["status"] == "active"
     assert result["plan_id"] == "premium"
+    assert result["subscription"] == synced
     provider.change_subscription.assert_called_once_with(
         "sub_stripe", price_id="price_premium"
     )
+    sync.assert_called_once_with({
+        "id": "sub_stripe",
+        "status": "active",
+        "metadata": {"user_id": "user", "plan_id": "premium"},
+    })
 
 
 def test_stripe_checkout_carries_identity_into_subscription_metadata(monkeypatch):
