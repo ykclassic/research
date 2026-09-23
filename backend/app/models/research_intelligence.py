@@ -15,6 +15,7 @@ class ProvenanceRecord(BaseModel):
     observed_at: datetime
     method: str
     engine_version: str
+    model_version: str = "deterministic-research"
 
 
 class ResearchSnapshot(BaseModel):
