@@ -118,3 +118,107 @@ def test_scanner_custom_conditions_support_all_and_any():
         ],
     )
     assert scanner._matches(Signal(), 100, any_conditions, "BULLISH") is True
+
+
+def test_due_schedule_claim_is_conditional(monkeypatch):
+    scanner.settings.supabase_service_role_key = "service"
+    calls = []
+
+    class Response:
+        def json(self):
+            return [{"id": "schedule"}]
+
+    def fake_request(method, resource, token, params=None, **kwargs):
+        calls.append((method, resource, token, params, kwargs))
+        return Response()
+
+    monkeypatch.setattr(scanner, "_request", fake_request)
+    claimed = scanner._claim_due_schedule(
+        {"id": "schedule", "interval_minutes": 15},
+        datetime.now(timezone.utc),
+    )
+    assert claimed is True
+    assert calls[0][0:3] == ("PATCH", "scanner_schedules", "service")
+    assert calls[0][3]["next_run_at"].startswith("lte.")
+    assert calls[0][4]["json"]["next_run_at"]
+
+
+def test_update_schedule_resets_next_run_when_interval_changes(monkeypatch):
+    captured = {}
+
+    class Response:
+        def json(self):
+            return [{
+                "id": "schedule",
+                "user_id": "user",
+                "preset_id": "preset",
+                "name": "Hourly",
+                "interval_minutes": 60,
+                "enabled": True,
+                "next_run_at": datetime.now(timezone.utc).isoformat(),
+                "last_run_at": None,
+                "created_at": datetime.now(timezone.utc).isoformat(),
+                "updated_at": datetime.now(timezone.utc).isoformat(),
+            }]
+
+    def fake_request(method, resource, token, params=None, json=None, **kwargs):
+        captured["json"] = json
+        return Response()
+
+    monkeypatch.setattr(scanner, "_request", fake_request)
+    result = scanner.update_schedule(
+        "token",
+        "user",
+        "schedule",
+        scanner.ScannerSchedulePatch(interval_minutes=60),
+    )
+    assert result.interval_minutes == 60
+    assert captured["json"]["interval_minutes"] == 60
+    assert captured["json"]["next_run_at"]
+
+
+def test_in_app_delivery_is_recorded_separately_from_email(monkeypatch):
+    requests = []
+
+    class Response:
+        def json(self):
+            return [{"id": "alert"}]
+
+    def fake_request(method, resource, token, params=None, json=None, **kwargs):
+        requests.append((method, resource, json, kwargs))
+        if resource == "scanner_alert_events":
+            return Response()
+        return Response()
+
+    monkeypatch.setattr(scanner, "_request", fake_request)
+    monkeypatch.setattr(scanner, "deliver_scanner_alert", lambda *args: "SKIPPED")
+
+    preset = type("Preset", (), {
+        "alert_events": ["NEW_QUALIFIED_SIGNAL"],
+        "id": "preset",
+    })()
+    opportunity = type("Opportunity", (), {
+        "symbol": "BTC/USDT",
+        "observed_at": datetime.now(timezone.utc),
+        "direction": "BUY",
+        "confidence": 0.9,
+        "regime": "TRENDING",
+        "setup": "TREND",
+        "volatility": 0.01,
+        "liquidity": "NONE",
+        "last_price": 100.0,
+        "target_price": 110.0,
+        "stop_loss": 90.0,
+        "structural_conditions": {},
+        "historical_evidence": {},
+        "signal_status": "QUALIFIED",
+    })()
+    opportunity.model_dump = lambda mode=None: {}
+
+    scanner._emit_intelligent_events("token", "user", preset, opportunity, "opportunity")
+    delivery_channels = [
+        item[2]["channel"] for item in requests
+        if item[1] == "scanner_alert_deliveries"
+    ]
+    assert "WEB" in delivery_channels
+    assert "EMAIL" in delivery_channels
