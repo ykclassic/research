@@ -9,7 +9,7 @@ from pydantic import BaseModel, Field
 from app.api.auth import UserResponse, _require_csrf, get_current_user_or_github_actions
 from app.config import settings
 from app.services.entitlement import UsageLimitExceededError, consume_usage, require_feature
-from app.services.research_copilot import ResearchCopilotError, ResearchCopilotService
+from app.services.research_copilot import ResearchCopilotError, ResearchCopilotService, interpret_query
 
 router = APIRouter(
     prefix="/api/research-copilot",
@@ -58,7 +58,13 @@ async def run_copilot(
         raise HTTPException(status_code=401, detail="Authentication required.")
     try:
         require_feature(access_token, user.id, "ai_research")
-        consume_usage(access_token, user.id, "ai_research_runs", 1)
+        interpretation = interpret_query(request.query, request.default_symbol)
+        if interpretation["days"] > 7 or interpretation["intent"] in {"comparison", "historical_setup"}:
+            require_feature(access_token, user.id, "copilot_deep_research")
+            consume_usage(access_token, user.id, "historical_queries", 1)
+        if len(interpretation["assets"]) > 2 or "multi-step" in request.query.lower() or "workflow" in request.query.lower():
+            require_feature(access_token, user.id, "copilot_multi_step")
+        consume_usage(access_token, user.id, "copilot_research_runs", 1)
     except UsageLimitExceededError as exc:
         raise HTTPException(status_code=429, detail=str(exc)) from exc
     except Exception as exc:
