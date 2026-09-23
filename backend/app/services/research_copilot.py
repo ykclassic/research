@@ -233,3 +233,47 @@ class ResearchCopilotService:
                 "limit": str(max(1, min(limit, 100))),
             },
         ).json()
+
+
+    def list_schedules(self, access_token: str, user_id: str) -> list[dict[str, Any]]:
+        return _request(
+            "GET", "research_schedules", access_token,
+            params={"select": "*", "user_id": f"eq.{user_id}", "order": "created_at.desc", "limit": "100"},
+        ).json()
+
+    def create_schedule(self, access_token: str, user_id: str, name: str, query: str, interval_minutes: int) -> dict[str, Any]:
+        now = datetime.now(timezone.utc)
+        row = _request(
+            "POST", "research_schedules", access_token,
+            json={"user_id": user_id, "name": name.strip(), "query": query.strip(), "interval_minutes": interval_minutes,
+                  "next_run_at": (now + timedelta(minutes=interval_minutes)).isoformat()},
+            prefer="return=representation",
+        ).json()
+        if not row:
+            raise ResearchCopilotError("Research schedule could not be created.")
+        return row[0]
+
+    def delete_schedule(self, access_token: str, user_id: str, schedule_id: str) -> None:
+        _request("DELETE", "research_schedules", access_token, params={"id": f"eq.{schedule_id}", "user_id": f"eq.{user_id}"})
+
+    async def run_due_schedules(self, access_token: str) -> dict[str, int]:
+        now = datetime.now(timezone.utc)
+        due = _request(
+            "GET", "research_schedules", access_token,
+            params={"select": "*", "enabled": "eq.true", "next_run_at": f"lte.{now.isoformat()}", "limit": "100"},
+        ).json()
+        completed = 0
+        failed = 0
+        for schedule in due:
+            try:
+                await self.run(access_token, schedule["user_id"], schedule["query"])
+                next_run = now + timedelta(minutes=int(schedule["interval_minutes"]))
+                _request(
+                    "PATCH", "research_schedules", access_token,
+                    params={"id": f"eq.{schedule['id']}"},
+                    json={"last_run_at": now.isoformat(), "next_run_at": next_run.isoformat()},
+                )
+                completed += 1
+            except Exception:
+                failed += 1
+        return {"scheduled": len(due), "completed": completed, "failed": failed}
