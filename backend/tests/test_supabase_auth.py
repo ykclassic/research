@@ -201,6 +201,8 @@ def test_request_password_reset_sends_configured_redirect(monkeypatch):
 def test_request_password_reset_rejects_missing_redirect(monkeypatch):
     from app.services import supabase_auth
 
+    monkeypatch.setattr(supabase_auth.settings, "supabase_url", "https://example.supabase.co")
+    monkeypatch.setattr(supabase_auth.settings, "supabase_publishable_key", "test-publishable-key")
     monkeypatch.setattr(supabase_auth.settings, "auth_password_reset_redirect_url", "")
 
     with pytest.raises(supabase_auth.AuthConfigurationError, match="redirect URL"):
