@@ -77,7 +77,7 @@ alter table public.research_watchpoint_events enable row level security;
 revoke all on table public.research_snapshots, public.research_provenance, public.research_watchpoints, public.research_watchpoint_events from anon;
 grant select, insert on table public.research_snapshots, public.research_provenance to authenticated;
 grant select, insert, update, delete on table public.research_watchpoints to authenticated;
-grant select on table public.research_watchpoint_events to authenticated;
+grant select, insert on table public.research_watchpoint_events to authenticated;
 
 drop policy if exists research_snapshots_own on public.research_snapshots;
 create policy research_snapshots_own on public.research_snapshots for all to authenticated using ((select auth.uid()) = user_id) with check ((select auth.uid()) = user_id);

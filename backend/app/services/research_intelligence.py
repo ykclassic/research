@@ -119,11 +119,12 @@ def _sources_from_report(report: Any) -> tuple[str, ...]:
     return tuple(sorted(sources))
 
 
-def _build_provenance(snapshot_id: str, report: Any, observed_at: datetime) -> list[dict[str, Any]]:
+def _build_provenance(snapshot_id: str, user_id: str, report: Any, observed_at: datetime) -> list[dict[str, Any]]:
     state = _state_from_report(report)
     sources = list(_sources_from_report(report))
     common = {
         "snapshot_id": snapshot_id,
+        "user_id": user_id,
         "observed_at": observed_at.astimezone(timezone.utc).isoformat(),
         "method": "Deterministic ResearchReportService using completed market data and configured research preferences.",
         "engine_version": ENGINE_VERSION,
@@ -163,11 +164,28 @@ def create_snapshot(
     if not row:
         raise DataRequestError("Research snapshot was not created.")
     snapshot_id = str(row[0]["id"])
-    provenance_rows = _build_provenance(snapshot_id, report, observed_at)
+    provenance_rows = _build_provenance(snapshot_id, user_id, report, observed_at)
     if provenance_rows:
         _request("POST", "research_provenance", access_token, json=provenance_rows, prefer="return=representation")
     snapshot = _snapshot(row[0])
     return snapshot.model_copy(update={"provenance": _load_provenance(access_token, user_id, snapshot_id)})
+
+
+def save_snapshot(access_token: str, user_id: str, snapshot_id: str) -> ResearchSnapshot:
+    current = get_snapshot(access_token, user_id, snapshot_id)
+    payload = {
+        "user_id": user_id,
+        "symbol": current.symbol,
+        "snapshot_type": "SAVED",
+        "snapshot_at": current.snapshot_at.isoformat(),
+        "source_history_id": current.source_history_id,
+        "state": current.state,
+        "engine_version": current.engine_version,
+    }
+    rows = _request("POST", "research_snapshots", access_token, json=payload, prefer="return=representation").json()
+    if not rows:
+        raise DataRequestError("Saved research snapshot was not created.")
+    return _snapshot(rows[0], current.provenance)
 
 
 def list_snapshots(access_token: str, user_id: str, symbol: str, limit: int = 100) -> list[ResearchSnapshot]:
