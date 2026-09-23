@@ -43,7 +43,8 @@
   transition: width .2s ease, transform .2s ease;
 }
 .sidebar-brand { display: flex; align-items: center; gap: 11px; padding: 4px 10px 24px; min-width: 0; }
-.brand-mark { width: 36px; height: 36px; display: grid; place-items: center; border-radius: 10px; background: rgba(255,255,255,.08); flex: 0 0 auto; }
+.brand-mark { width: 40px; height: 40px; display: grid; place-items: center; border-radius: 11px; background: rgba(255,255,255,.08); flex: 0 0 auto; overflow: hidden; }
+.brand-mark img { width: 100%; height: 100%; object-fit: contain; display: block; }
 .sidebar-brand-copy { min-width: 0; overflow: hidden; white-space: nowrap; }
 .sidebar-brand strong { font-size: 14px; }
 .sidebar-nav { flex: 1; overflow-y: auto; overflow-x: hidden; padding-right: 2px; }
