@@ -624,6 +624,12 @@ def create_schedule(access_token: str, user_id: str, payload: ScannerScheduleCre
 
 def update_schedule(access_token: str, user_id: str, schedule_id: str, payload: ScannerSchedulePatch) -> ScannerSchedule:
     data = payload.model_dump(exclude_none=True)
+    if "interval_minutes" in data:
+        # Changing cadence must also move the next execution window. Otherwise an
+        # old due timestamp can cause an immediate/unexpected scan.
+        data["next_run_at"] = (
+            datetime.now(timezone.utc) + timedelta(minutes=int(data["interval_minutes"]))
+        ).isoformat()
     row = _request(
         "PATCH",
         "scanner_schedules",
@@ -658,25 +664,120 @@ def get_due_schedules() -> list[dict[str, Any]]:
     ).json()
 
 
+def _claim_due_schedule(schedule: dict[str, Any], now: datetime) -> bool:
+    """
+    Atomically claim one due schedule before executing it.
+
+    The scheduler workflow is intentionally retryable. A conditional PATCH on
+    next_run_at makes overlapping workflow invocations harmless: only one
+    invocation can move the due schedule into the future and receive the row.
+    """
+    claimed_until = now + timedelta(minutes=int(schedule["interval_minutes"]))
+    response = _request(
+        "PATCH",
+        "scanner_schedules",
+        settings.supabase_service_role_key,
+        params={
+            "id": f"eq.{schedule['id']}",
+            "enabled": "eq.true",
+            "next_run_at": f"lte.{now.isoformat()}",
+        },
+        json={"next_run_at": claimed_until.isoformat()},
+        prefer="return=representation",
+    )
+    return bool(response.json())
+
+
+async def _retry_failed_email_deliveries(limit: int = 25) -> int:
+    """Retry durable EMAIL delivery failures without creating duplicate alerts."""
+    rows = _request(
+        "GET",
+        "scanner_alert_deliveries",
+        settings.supabase_service_role_key,
+        params={
+            "select": "id,alert_id,user_id",
+            "channel": "eq.EMAIL",
+            "status": "eq.FAILED",
+            "order": "attempted_at.asc",
+            "limit": str(limit),
+        },
+    ).json()
+    retried = 0
+    for delivery in rows:
+        alert_rows = _request(
+            "GET",
+            "scanner_alert_events",
+            settings.supabase_service_role_key,
+            params={
+                "select": "event_type,title,message",
+                "id": f"eq.{delivery['alert_id']}",
+                "limit": "1",
+            },
+        ).json()
+        if not alert_rows:
+            continue
+        alert = alert_rows[0]
+        try:
+            status = deliver_scanner_alert(
+                settings.supabase_service_role_key,
+                delivery["user_id"],
+                alert["event_type"],
+                alert["title"],
+                alert["message"],
+            )
+            error = None
+        except Exception as exc:
+            status, error = "FAILED", str(exc)[:500]
+        _request(
+            "PATCH",
+            "scanner_alert_deliveries",
+            settings.supabase_service_role_key,
+            params={"id": f"eq.{delivery['id']}"},
+            json={"status": status, "attempted_at": datetime.now(timezone.utc).isoformat(), "error": error},
+        )
+        retried += 1
+    return retried
+
+
 async def run_due_schedules() -> dict[str, Any]:
     due = get_due_schedules()
     completed = 0
     failed = 0
+    claimed = 0
+    retried_deliveries = 0
     for schedule in due:
+        now = datetime.now(timezone.utc)
+        if not _claim_due_schedule(schedule, now):
+            continue
+        claimed += 1
         try:
-            await run_scan(settings.supabase_service_role_key, schedule["user_id"], schedule["preset_id"], scheduled=True)
-            now = datetime.now(timezone.utc)
+            await run_scan(
+                settings.supabase_service_role_key,
+                schedule["user_id"],
+                schedule["preset_id"],
+                scheduled=True,
+            )
             _request(
                 "PATCH",
                 "scanner_schedules",
                 settings.supabase_service_role_key,
                 params={"id": f"eq.{schedule['id']}"},
-                json={
-                    "last_run_at": now.isoformat(),
-                    "next_run_at": (now + timedelta(minutes=int(schedule["interval_minutes"]))).isoformat(),
-                },
+                json={"last_run_at": datetime.now(timezone.utc).isoformat()},
             )
             completed += 1
         except Exception:
+            # The claim already moved next_run_at forward, so a failed scan is
+            # retried on the next cadence rather than duplicated immediately.
             failed += 1
-    return {"scheduled": len(due), "completed": completed, "failed": failed}
+    try:
+        retried_deliveries = await _retry_failed_email_deliveries()
+    except Exception:
+        # Delivery retry must never prevent other schedules from executing.
+        retried_deliveries = 0
+    return {
+        "scheduled": len(due),
+        "claimed": claimed,
+        "completed": completed,
+        "failed": failed,
+        "retried_deliveries": retried_deliveries,
+    }
