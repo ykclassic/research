@@ -1,0 +1,33 @@
+name: Research intelligence production verification
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "27,57 * * * *"
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - name: Invoke protected research intelligence scheduler
+        env:
+          RESEARCH_URL: ${{ vars.RESEARCH_API_URL }}
+          RESEARCH_SECRET: ${{ secrets.SCANNER_SCHEDULER_SECRET }}
+        run: |
+          set -euo pipefail
+          test -n "$RESEARCH_URL"
+          test -n "$RESEARCH_SECRET"
+          response="$(curl --fail --silent --show-error --max-time 600             -X POST             -H "X-Research-Scheduler-Secret: $RESEARCH_SECRET"             -H "Accept: application/json"             "$RESEARCH_URL/api/research-intelligence/scheduler/run")"
+          echo "$response" | jq .
+          echo "$response" | jq -e '
+            (.targets | type == "number") and
+            (.snapshots_created | type == "number") and
+            (.watchpoint_events | type == "number") and
+            (.catalysts_persisted | type == "number") and
+            (.failed_targets | type == "number") and
+            (.failed_targets == 0)
+          '
