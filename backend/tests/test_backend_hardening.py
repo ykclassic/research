@@ -224,6 +224,34 @@ def test_production_settings_reject_local_only_trusted_hosts():
         )
 
 
+def test_production_settings_reject_non_https_password_reset_redirect():
+    with pytest.raises(ValidationError, match="HTTPS"):
+        Settings(
+            app_env="production",
+            csrf_secret="x" * 32,
+            cors_origins="https://research-dusky-six.vercel.app",
+            trusted_hosts="research-76vr.onrender.com",
+            twelve_data_api_key="test-provider-key",
+            supabase_url="https://example.supabase.co",
+            supabase_publishable_key="test-publishable-key",
+            auth_password_reset_redirect_url="http://research-dusky-six.vercel.app/?reset=1",
+        )
+
+
+def test_production_settings_require_password_reset_redirect():
+    with pytest.raises(ValidationError, match="AUTH_PASSWORD_RESET_REDIRECT_URL"):
+        Settings(
+            app_env="production",
+            csrf_secret="x" * 32,
+            cors_origins="https://research-dusky-six.vercel.app",
+            trusted_hosts="research-76vr.onrender.com",
+            twelve_data_api_key="test-provider-key",
+            supabase_url="https://example.supabase.co",
+            supabase_publishable_key="test-publishable-key",
+            auth_password_reset_redirect_url="",
+        )
+
+
 def test_production_settings_accept_valid_security_configuration():
     configured = Settings(
         app_env="production",
