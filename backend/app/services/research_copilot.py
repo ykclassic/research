@@ -50,17 +50,17 @@ def interpret_query(query: str, default_symbol: str = "BTC/USD") -> dict[str, An
     symbols = list(dict.fromkeys(found)) or [_normalize_symbol(default_symbol)]
 
     days = 1
-    match = re.search(r"(\\d+)\\s*days?", text, re.I)
+    match = re.search(r"(\d+)\s*days?", text, re.I)
     if match:
         days = max(1, min(365, int(match.group(1))))
-    elif re.search(r"last\\s+(month|30 days?)", text, re.I):
+    elif re.search(r"last\s+(month|30 days?)", text, re.I):
         days = 30
-    elif re.search(r"last\\s+week|past\\s+week", text, re.I):
+    elif re.search(r"last\s+week|past\s+week", text, re.I):
         days = 7
-    elif re.search(r"since\\s+yesterday", text, re.I):
+    elif re.search(r"since\s+yesterday", text, re.I):
         days = 2
 
-    if re.search(r"compare|versus|\\bvs\\b|between", text, re.I):
+    if re.search(r"compare|versus|\bvs\b|between", text, re.I):
         intent = "comparison"
     elif re.search(r"what changed|since yesterday|deteriorat|improv|changed", text, re.I):
         intent = "change_analysis"
