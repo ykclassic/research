@@ -152,7 +152,7 @@ async def remove_schedule(schedule_id: str, user: Annotated[UserResponse, Depend
         raise _map_error(exc) from exc
 
 
-@router.post("/scheduler/run", dependencies=[Depends(_require_csrf)])
+@router.post("/scheduler/run")
 async def scheduler_run(x_scanner_scheduler_secret: Annotated[str | None, Header()] = None):
     if not settings.scanner_scheduler_secret or not x_scanner_scheduler_secret or not secrets.compare_digest(x_scanner_scheduler_secret, settings.scanner_scheduler_secret):
         raise HTTPException(status_code=401, detail="Invalid scanner scheduler credential.")
