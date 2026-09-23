@@ -82,8 +82,13 @@ class Settings(BaseSettings):
             raise ValueError("Production requires TWELVE_DATA_API_KEY.")
         if not self.supabase_url.strip() or not self.supabase_publishable_key.strip():
             raise ValueError("Production requires Supabase URL and publishable key.")
-        if self.auth_password_reset_redirect_url.startswith(("http://localhost", "http://127.0.0.1")):
+        reset_redirect = self.auth_password_reset_redirect_url.strip()
+        if not reset_redirect:
+            raise ValueError("Production requires AUTH_PASSWORD_RESET_REDIRECT_URL.")
+        if reset_redirect.startswith(("http://localhost", "http://127.0.0.1")):
             raise ValueError("Production password-reset redirect must not use localhost.")
+        if not reset_redirect.startswith("https://"):
+            raise ValueError("Production password-reset redirect must use HTTPS.")
         hosts = [host.strip() for host in self.trusted_hosts.split(",") if host.strip()]
         if not hosts or not any(host not in {"localhost", "127.0.0.1", "testserver"} for host in hosts):
             raise ValueError("Production TRUSTED_HOSTS must include a non-localhost host.")
