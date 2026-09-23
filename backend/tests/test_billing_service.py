@@ -38,7 +38,7 @@ def test_change_subscription_updates_stripe_subscription(monkeypatch):
         "provider_subscription_id": "sub_stripe",
     }
     provider = Mock()
-    provider.change_subscription.return_value = {"id": "sub_stripe", "status": "active"}
+    provider.change_subscription.return_value = {"id": "sub_stripe", "status": "active", "metadata": {}}
 
     monkeypatch.setattr(billing_service, "_active_subscription", lambda *_: current)
     monkeypatch.setattr(billing_service, "get_billing_provider", lambda: provider)
