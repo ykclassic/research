@@ -153,7 +153,17 @@ def change_subscription(access_token: str, user_id: str, email: str, plan_id: st
         raise BillingProviderError("Current subscription is not connected to the billing provider.")
 
     updated = provider.change_subscription(provider_id, price_id=_stripe_price_id(plan_id))
-    return {"status": str(updated.get("status", "updated")), "plan_id": plan_id, "subscription": updated}
+    subscription_metadata = updated.setdefault("metadata", {})
+    subscription_metadata.setdefault("user_id", str(user_id))
+    subscription_metadata.setdefault("plan_id", plan_id)
+    synced = _sync_subscription(updated)
+    if not synced:
+        raise DataRequestError("Stripe subscription could not be synchronized after the plan change.")
+    return {
+        "status": str(synced.get("status", updated.get("status", "updated"))),
+        "plan_id": synced.get("plan_id", plan_id),
+        "subscription": synced,
+    }
 
 
 def cancel_subscription(access_token: str, user_id: str, at_period_end: bool = True) -> dict[str, Any]:
