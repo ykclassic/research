@@ -4,6 +4,8 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from app.models.news import NewsResearchResponse
+from app.preferences.service import preferences_service
+from app.services.research_report import ResearchReportService
 from app.models.research_intelligence import (
     CatalystRecord,
     ChangeItem,
@@ -17,7 +19,8 @@ from app.services.news_research_resilient import news_research
 from app.services.supabase_data import DataRequestError, _request
 
 
-ENGINE_VERSION = "research-intelligence-v1"
+ENGINE_VERSION = "research-intelligence-v2"
+MODEL_VERSION = "deterministic-research"
 SNAPSHOT_SELECT = "id,user_id,symbol,snapshot_type,snapshot_at,source_history_id,state,engine_version,created_at"
 WATCHPOINT_SELECT = "id,user_id,symbol,name,condition_type,field,operator,value,timeframe,enabled,last_state,last_triggered_at,created_at,updated_at"
 EVENT_SELECT = "id,watchpoint_id,user_id,symbol,event_type,message,observed_value,triggered_at"
@@ -141,6 +144,7 @@ def _build_provenance(snapshot_id: str, user_id: str, report: Any, observed_at: 
         "observed_at": observed_at.astimezone(timezone.utc).isoformat(),
         "method": "Deterministic ResearchReportService using completed market data and configured research preferences.",
         "engine_version": ENGINE_VERSION,
+        "model_version": MODEL_VERSION,
         "sources": sources,
     }
     claims = [
@@ -277,8 +281,10 @@ def compare(current: ResearchSnapshot, baseline: ResearchSnapshot | None, baseli
     _changed(changes, "STRUCTURE", "resistance", _get_path(a, "resistance"), _get_path(b, "resistance"))
     _changed(changes, "MOMENTUM", "momentum", _get_path(a, "momentum"), _get_path(b, "momentum"))
     _changed(changes, "VOLATILITY", "volatility_percent", _get_path(a, "volatility_percent"), _get_path(b, "volatility_percent"))
-    _changed(changes, "EVENT", "fundamental.news_count", _get_path(a, "fundamental.news_count"), _get_path(b, "fundamental.news_count"))
-    _changed(changes, "EVENT", "fundamental.event_count", _get_path(a, "fundamental.event_count"), _get_path(b, "fundamental.event_count"))
+    _changed(changes, "FUNDAMENTAL", "fundamental.news_count", _get_path(a, "fundamental.news_count"), _get_path(b, "fundamental.news_count"))
+    _changed(changes, "FUNDAMENTAL", "fundamental.macro_count", _get_path(a, "fundamental.macro_count"), _get_path(b, "fundamental.macro_count"))
+    _changed(changes, "FUNDAMENTAL", "fundamental.event_count", _get_path(a, "fundamental.event_count"), _get_path(b, "fundamental.event_count"))
+    _changed(changes, "FUNDAMENTAL", "fundamental.headlines", _get_path(a, "fundamental.headlines"), _get_path(b, "fundamental.headlines"))
     _changed(changes, "SIGNAL", "signal.status", _get_path(a, "signal.status"), _get_path(b, "signal.status"))
     _changed(changes, "SIGNAL", "signal.confidence", _get_path(a, "signal.confidence"), _get_path(b, "signal.confidence"))
     _changed(changes, "RESEARCH", "research_score", _get_path(a, "research_score"), _get_path(b, "research_score"))
@@ -368,3 +374,46 @@ async def catalysts(symbol: str | None, days: int = 7, limit: int = 25) -> tuple
     for event in research.fundamental_events:
         records.append(CatalystRecord(id=event.id, title=event.title, event_type=event.event_type.value, source=event.source, source_url=event.source_url, event_timestamp=event.event_timestamp, affected_assets=event.affected_assets, market_reaction={}, provider=event.provider))
     return tuple(sorted(records, key=lambda item: item.event_timestamp, reverse=True)[:limit])
+
+def _due_snapshot_exists(access_token: str, user_id: str, symbol: str, now: datetime, interval_minutes: int = 15) -> bool:
+    rows = _request(
+        "GET", "research_snapshots", access_token,
+        params={"select": "id,snapshot_at", "user_id": f"eq.{user_id}", "symbol": f"eq.{symbol}", "order": "snapshot_at.desc", "limit": "1"},
+    ).json()
+    if not rows:
+        return False
+    last = datetime.fromisoformat(rows[0]["snapshot_at"].replace("Z", "+00:00"))
+    return (now - last.astimezone(timezone.utc)).total_seconds() < interval_minutes * 60
+
+
+async def run_research_intelligence_cycle(access_token: str, interval_minutes: int = 15) -> dict[str, int]:
+    """Materialize watched-asset state and evaluate watchpoints on a bounded cadence."""
+    now = datetime.now(timezone.utc)
+    rows = _request(
+        "GET", "research_watchpoints", access_token,
+        params={"select": "user_id,symbol", "enabled": "eq.true", "limit": "1000"},
+    ).json()
+    targets = sorted({(str(row["user_id"]), str(row["symbol"]).upper()) for row in rows})
+    service = ResearchReportService()
+    snapshots = 0
+    events = 0
+    failures = 0
+    for user_id, symbol in targets:
+        try:
+            if _due_snapshot_exists(access_token, user_id, symbol, now, interval_minutes):
+                continue
+            configuration = None
+            try:
+                preferences = preferences_service.get_or_create(access_token, user_id)
+                from app.services.research_preferences import resolve_research_preferences
+                configuration = resolve_research_preferences(preferences)
+            except Exception:
+                configuration = None
+            report = await service.generate(symbol, configuration=configuration)
+            snapshot = create_snapshot(access_token, user_id, report, snapshot_type="SESSION")
+            events += len(evaluate_watchpoints(access_token, user_id, snapshot))
+            snapshots += 1
+        except Exception:
+            failures += 1
+    return {"targets": len(targets), "snapshots_created": snapshots, "watchpoint_events": events, "failed_targets": failures}
+
