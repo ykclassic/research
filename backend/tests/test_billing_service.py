@@ -19,10 +19,10 @@ def test_change_subscription_from_internal_trial_starts_checkout(monkeypatch):
     monkeypatch.setattr(billing_service, "_active_subscription", lambda *_: current)
     monkeypatch.setattr(billing_service, "get_billing_provider", lambda: provider)
 
-    result = billing_service.change_subscription("token", "user", "user@example.com", "pro")
+    result = billing_service.change_subscription("token", "user", "user@example.com", "premium")
 
     assert result["status"] == "checkout_required"
-    assert result["plan_id"] == "pro"
+    assert result["plan_id"] == "premium"
     assert result["checkout_url"] == session.url
     provider.create_checkout.assert_called_once_with(
         user_id="user", email="user@example.com", plan_id="premium"
@@ -42,7 +42,7 @@ def test_change_subscription_updates_stripe_subscription(monkeypatch):
 
     synced = {
         "id": "sub-row",
-        "plan_id": "premium",
+        "plan_id": "pro",
         "status": "active",
         "provider": "stripe",
     }
@@ -52,10 +52,10 @@ def test_change_subscription_updates_stripe_subscription(monkeypatch):
     monkeypatch.setattr(billing_service.settings, "stripe_price_pro", "price_pro")
     monkeypatch.setattr(billing_service, "_sync_subscription", sync)
 
-    result = billing_service.change_subscription("token", "user", "user@example.com", "premium")
+    result = billing_service.change_subscription("token", "user", "user@example.com", "pro")
 
     assert result["status"] == "active"
-    assert result["plan_id"] == "premium"
+    assert result["plan_id"] == "pro"
     assert result["subscription"] == synced
     provider.change_subscription.assert_called_once_with(
         "sub_stripe", price_id="price_pro"
