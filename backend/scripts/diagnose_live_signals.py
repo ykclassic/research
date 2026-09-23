@@ -100,6 +100,7 @@ def _summarize(rows: list[dict]) -> dict:
     rr_buckets = Counter(
         _bucket(float(row["risk_reward"]), (1.0, 1.5, 2.0, 3.0, 5.0))
         for row in successful
+        if row.get("risk_reward") is not None
     )
     component_summary: dict[str, dict[str, float]] = {}
     for timeframe in ("1d", "4h", "1h", "15m"):
