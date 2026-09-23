@@ -421,7 +421,7 @@ def _emit_intelligent_events(
     now = datetime.now(timezone.utc)
     for event_type, title, message in events:
         fingerprint = f"{opportunity.symbol}:{opportunity.observed_at.isoformat()}:{event_type}"
-        _request(
+        inserted = _request(
             "POST",
             "scanner_alert_events",
             access_token,
