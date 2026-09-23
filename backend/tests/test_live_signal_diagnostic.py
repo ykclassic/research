@@ -14,6 +14,27 @@ def test_live_diagnostic_bucket_boundaries_are_deterministic() -> None:
     assert _bucket(0.50, (0.25, 0.40, 0.50)) == ">=0.5"
 
 
+def test_live_diagnostic_summary_ignores_missing_risk_reward() -> None:
+    rows = [
+        {
+            "symbol": "BNB/USDT",
+            "http_status": 200,
+            "status": "SUCCESS",
+            "score": 0.13,
+            "confidence": 0.565,
+            "risk_reward": None,
+            "qualification_status": "REJECTED",
+            "qualification_reasons": ["Directional bias is neutral."],
+            "components": [],
+        }
+    ]
+
+    summary = _summarize(rows)
+
+    assert summary["successful_pairs"] == 1
+    assert summary["risk_reward_buckets"] == {}
+
+
 def test_live_diagnostic_summary_counts_rejection_reasons() -> None:
     rows = [
         {
