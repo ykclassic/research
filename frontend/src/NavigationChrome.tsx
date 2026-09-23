@@ -124,11 +124,11 @@ export default function NavigationChrome() {
       <button className="chrome-menu" type="button" onClick={() => isMobile ? setMobileOpen(value => !value) : setCollapsed(value => !value)} aria-label={isMobile ? "Toggle navigation" : collapsed ? "Expand navigation" : "Collapse navigation"} title={isMobile ? "Toggle navigation" : collapsed ? "Expand sidebar" : "Collapse sidebar"}>
         {isMobile ? (mobileOpen ? <X size={20} /> : <Menu size={20} />) : (collapsed ? <PanelLeftOpen size={19} /> : <PanelLeftClose size={19} />)}
       </button>
-      <div className="chrome-heading"><div className="eyebrow">Adaptive Intelligence</div><strong>{activeItem.label}</strong></div>
+      <div className="chrome-heading"><div className="eyebrow">ProfitForge Intelligence</div><strong>{activeItem.label}</strong></div>
       <div className="chrome-user"><span>{user.email}</span><button type="button" className="chrome-signout" onClick={() => void signOut()}><LogOut size={15} /> Sign out</button></div>
     </header>
     <aside className={`app-sidebar ${collapsed && !isMobile ? "collapsed" : ""} ${mobileOpen ? "open" : ""}`} aria-label="Primary navigation">
-      <div className="sidebar-brand"><div className="brand-mark"><BrainCircuit size={20} /></div><div className="sidebar-brand-copy"><div className="eyebrow">Adaptive</div><strong>Market Research</strong></div></div>
+      <div className="sidebar-brand"><div className="brand-mark"><img src="/profitforge-logo.svg" alt="ProfitForge" /></div><div className="sidebar-brand-copy"><div className="eyebrow">ProfitForge</div><strong>ProfitForge</strong></div></div>
       <nav className="sidebar-nav">
         {GROUPS.map(group => <div className="nav-group" key={group.label}>
           <div className="nav-group-label">{group.label}</div>
