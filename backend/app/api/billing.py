@@ -19,6 +19,11 @@ class PlanRequest(BaseModel):
     plan_id: str = Field(min_length=2, max_length=32)
 
 
+class CheckoutReconcileRequest(BaseModel):
+    # Stripe Checkout session IDs are longer than normal plan IDs.
+    session_id: str = Field(min_length=2, max_length=255)
+
+
 class CancelRequest(BaseModel):
     at_period_end: bool = True
 
@@ -164,11 +169,11 @@ async def resume(
 
 @router.post("/reconcile", dependencies=[Depends(_require_csrf)])
 async def reconcile(
-    request: PlanRequest,
+    request: CheckoutReconcileRequest,
     user: Annotated[UserResponse, Depends(get_current_user)],
 ) -> dict[str, Any]:
     try:
-        return reconcile_checkout_session(user.id, request.plan_id)
+        return reconcile_checkout_session(user.id, request.session_id)
     except Exception as exc:
         raise _map_error(exc) from exc
 
