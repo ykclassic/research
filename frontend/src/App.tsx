@@ -46,7 +46,11 @@ const ROUTES: Record<AppPage, string> = {
 
 const PAGE_BY_ROUTE = new Map(Object.entries(ROUTES).map(([page, route]) => [route, page as AppPage]));
 
-function pageFromPath(pathname: string): AppPage {
+function pageFromLocation(pathname: string, search: string): AppPage {
+  if (pathname === "/") {
+    const params = new URLSearchParams(search);
+    if (params.get("billing") === "success" && params.get("session_id")) return "billing";
+  }
   return PAGE_BY_ROUTE.get(pathname) ?? "market";
 }
 
@@ -197,7 +201,7 @@ function WatchlistsPage({ user, onLogout, setPage }: { user: User; onLogout: ()=
 function App(){
   const [user,setUser]=useState<User|null>(null);
   const [checking,setChecking]=useState(true);
-  const [page,setPage]=useState<AppPage>(()=>pageFromPath(window.location.pathname));
+  const [page,setPage]=useState<AppPage>(()=>pageFromLocation(window.location.pathname,window.location.search));
 
   const navigate=useCallback((next:AppPage, replace=false)=>{
     const target=routeForPage(next);
@@ -211,7 +215,7 @@ function App(){
   const onLogout=useCallback(()=>{setUser(null);navigate("market",true);},[navigate]);
 
   useEffect(()=>{
-    const handlePopState=()=>setPage(pageFromPath(window.location.pathname));
+    const handlePopState=()=>setPage(pageFromLocation(window.location.pathname,window.location.search));
     window.addEventListener("popstate",handlePopState);
     return()=>window.removeEventListener("popstate",handlePopState);
   },[]);
