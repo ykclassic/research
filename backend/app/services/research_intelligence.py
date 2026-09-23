@@ -81,13 +81,24 @@ def _provenance(row: dict[str, Any]) -> ProvenanceRecord:
     )
 
 
-def _state_from_report(report: Any) -> dict[str, Any]:
+def _latest_signal_state(access_token: str, user_id: str, symbol: str) -> dict[str, Any]:
+    try:
+        rows = _request("GET", "signal_intelligence", access_token, params={"select": "direction,confidence,outcome,signal_engine_version,dispatched_at", "user_id": f"eq.{user_id}", "symbol": f"eq.{symbol}", "order": "dispatched_at.desc", "limit": "1"}).json()
+    except Exception:
+        return {}
+    if not rows:
+        return {}
+    row = rows[0]
+    return {"status": row.get("direction"), "confidence": float(row["confidence"]) if row.get("confidence") is not None else None, "outcome": row.get("outcome"), "engine_version": row.get("signal_engine_version"), "observed_at": row.get("dispatched_at")}
+
+
+def _state_from_report(report: Any, signal_state: dict[str, Any] | None = None) -> dict[str, Any]:
     market = report.market_status.model_dump(mode="json")
     regime = report.regime_snapshot or {}
     structure = report.smc_structure.model_dump(mode="json")
     mtf = [item.model_dump(mode="json") for item in report.multi_timeframe]
     fundamental = report.fundamental_context.model_dump(mode="json")
-    signal = {
+    signal = signal_state or {
         "status": regime.get("signal") or regime.get("signal_status"),
         "confidence": regime.get("signal_confidence"),
     }
@@ -112,16 +123,18 @@ def _state_from_report(report: Any) -> dict[str, Any]:
     }
 
 
-def _sources_from_report(report: Any) -> tuple[str, ...]:
+def _sources_from_report(report: Any, signal_state: dict[str, Any] | None = None) -> tuple[str, ...]:
     sources = {"validated market-data providers", "deterministic research engine"}
     if report.fundamental_context.news_count or report.fundamental_context.event_count:
         sources.add("news and event providers")
+    if signal_state:
+        sources.add("Phase 2 signal intelligence")
     return tuple(sorted(sources))
 
 
-def _build_provenance(snapshot_id: str, user_id: str, report: Any, observed_at: datetime) -> list[dict[str, Any]]:
-    state = _state_from_report(report)
-    sources = list(_sources_from_report(report))
+def _build_provenance(snapshot_id: str, user_id: str, report: Any, observed_at: datetime, signal_state: dict[str, Any] | None = None) -> list[dict[str, Any]]:
+    state = _state_from_report(report, signal_state)
+    sources = list(_sources_from_report(report, signal_state))
     common = {
         "snapshot_id": snapshot_id,
         "user_id": user_id,
@@ -138,6 +151,8 @@ def _build_provenance(snapshot_id: str, user_id: str, report: Any, observed_at: 
         ("FUNDAMENTAL_EVENTS", f"{report.symbol} fundamental and event context", "News and event research when enabled and available.", {"fundamental": state["fundamental"]}),
         ("RESEARCH_SCORE", f"{report.symbol} research score is {report.overall_research_score}/100", "Deterministic composite score; not a probability of profit.", {"score": report.overall_research_score, "score_basis": report.score_basis}),
     ]
+    if state["signal"].get("status") is not None or state["signal"].get("confidence") is not None:
+        claims.append(("SIGNAL", f"{report.symbol} signal state", "Authoritative Phase 2 signal-intelligence observation when available.", {"signal": state["signal"]}))
     return [{**common, "claim_type": kind, "claim": claim, "analysis": analysis, "data": data} for kind, claim, analysis, data in claims]
 
 
@@ -150,7 +165,8 @@ def create_snapshot(
     snapshot_type: str = "REPORT",
 ) -> ResearchSnapshot:
     observed_at = report.generated_at.astimezone(timezone.utc)
-    state = _state_from_report(report)
+    signal_state = _latest_signal_state(access_token, user_id, report.symbol)
+    state = _state_from_report(report, signal_state)
     payload = {
         "user_id": user_id,
         "symbol": report.symbol,
@@ -164,7 +180,7 @@ def create_snapshot(
     if not row:
         raise DataRequestError("Research snapshot was not created.")
     snapshot_id = str(row[0]["id"])
-    provenance_rows = _build_provenance(snapshot_id, user_id, report, observed_at)
+    provenance_rows = _build_provenance(snapshot_id, user_id, report, observed_at, signal_state)
     if provenance_rows:
         _request("POST", "research_provenance", access_token, json=provenance_rows, prefer="return=representation")
     snapshot = _snapshot(row[0])
@@ -219,11 +235,13 @@ def _get_baseline(snapshots: list[ResearchSnapshot], current: ResearchSnapshot, 
     if baseline_type in {"previous_session", "previous_report"}:
         return prior[0]
     if baseline_type == "previous_day":
-        cutoff = current.snapshot_at - timedelta(days=1)
-        return next((item for item in prior if item.snapshot_at <= cutoff), prior[-1])
+        target = current.snapshot_at - timedelta(days=1)
+        candidates = [item for item in prior if abs((item.snapshot_at - target).total_seconds()) <= 36 * 3600]
+        return min(candidates, key=lambda item: abs((item.snapshot_at - target).total_seconds())) if candidates else None
     if baseline_type == "previous_week":
-        cutoff = current.snapshot_at - timedelta(days=7)
-        return next((item for item in prior if item.snapshot_at <= cutoff), prior[-1])
+        target = current.snapshot_at - timedelta(days=7)
+        candidates = [item for item in prior if abs((item.snapshot_at - target).total_seconds()) <= 72 * 3600]
+        return min(candidates, key=lambda item: abs((item.snapshot_at - target).total_seconds())) if candidates else None
     if baseline_type == "saved":
         if not saved_snapshot_id:
             return next((item for item in prior if item.snapshot_type == "SAVED"), None)
@@ -344,8 +362,9 @@ def list_watchpoint_events(access_token: str, user_id: str, limit: int = 50) -> 
 async def catalysts(symbol: str | None, days: int = 7, limit: int = 25) -> tuple[CatalystRecord, ...]:
     research: NewsResearchResponse = await news_research.research(symbol=symbol, days=days, limit=limit)
     records: list[CatalystRecord] = []
+    reactions = {item.news_id: item.market_reaction.model_dump(mode="json") for item in research.correlations}
     for item in research.news:
-        records.append(CatalystRecord(id=item.id, title=item.headline, event_type=item.event_type.value, source=item.source, source_url=item.source_url, event_timestamp=item.published_at, affected_assets=item.affected_assets, sentiment=item.sentiment.value, provider=item.provider))
+        records.append(CatalystRecord(id=item.id, title=item.headline, event_type=item.event_type.value, source=item.source, source_url=item.source_url, event_timestamp=item.published_at, affected_assets=item.affected_assets, sentiment=item.sentiment.value, market_reaction=reactions.get(item.id, {}), provider=item.provider))
     for event in research.fundamental_events:
-        records.append(CatalystRecord(id=event.id, title=event.title, event_type=event.event_type.value, source=event.source, source_url=event.source_url, event_timestamp=event.event_timestamp, affected_assets=event.affected_assets, provider=event.provider))
+        records.append(CatalystRecord(id=event.id, title=event.title, event_type=event.event_type.value, source=event.source, source_url=event.source_url, event_timestamp=event.event_timestamp, affected_assets=event.affected_assets, market_reaction={}, provider=event.provider))
     return tuple(sorted(records, key=lambda item: item.event_timestamp, reverse=True)[:limit])
