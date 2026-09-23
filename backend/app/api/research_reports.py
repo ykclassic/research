@@ -67,6 +67,18 @@ async def _generate_report(
                             title=f"Research search · {report.symbol}",
                             payload={"report_history_id": saved["id"], "symbol": report.symbol},
                         )
+                    try:
+                        from app.services.research_intelligence import create_snapshot, evaluate_watchpoints
+                        snapshot = create_snapshot(
+                            access_token,
+                            user.id,
+                            report,
+                            source_history_id=saved.get("id"),
+                            snapshot_type="REPORT",
+                        )
+                        evaluate_watchpoints(access_token, user.id, snapshot)
+                    except DataServiceError:
+                        pass
             except DataServiceError:
                 pass
         return report
