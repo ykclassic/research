@@ -65,3 +65,35 @@ def test_previous_day_does_not_use_unrelated_old_snapshot():
     )
     from app.services.research_intelligence import _get_baseline
     assert _get_baseline([current, old], current, "previous_day", None) is None
+
+
+def test_compare_reports_structured_fundamental_changes():
+    before = snapshot({
+        "fundamental": {"news_count": 2, "macro_count": 1, "event_count": 1, "headlines": ["old"]},
+    })
+    after = snapshot({
+        "fundamental": {"news_count": 5, "macro_count": 2, "event_count": 3, "headlines": ["new"]},
+    })
+    result = compare(after, before, "previous_report")
+    fields = {item.field for item in result.changes}
+    assert {
+        "fundamental.news_count",
+        "fundamental.macro_count",
+        "fundamental.event_count",
+        "fundamental.headlines",
+    } <= fields
+
+
+def test_provenance_defaults_model_version():
+    from app.models.research_intelligence import ProvenanceRecord
+    item = ProvenanceRecord(
+        id="p",
+        snapshot_id="s",
+        claim_type="TEST",
+        claim="claim",
+        analysis="analysis",
+        observed_at=datetime.now(timezone.utc),
+        method="test",
+        engine_version="research-intelligence-v2",
+    )
+    assert item.model_version == "deterministic-research"
