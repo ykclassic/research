@@ -49,8 +49,8 @@ def _token(access_token: str | None) -> str:
 
 @router.get("/timeline")
 async def timeline(
-    symbol: str = Query(min_length=1, max_length=32),
     user: Annotated[UserResponse, Depends(get_current_user)],
+    symbol: str = Query(min_length=1, max_length=32),
     access_token: Annotated[str | None, Cookie(alias="mr_access_token")] = None,
 ):
     token = _token(access_token)
@@ -59,10 +59,10 @@ async def timeline(
 
 @router.get("/compare", response_model=ResearchComparison)
 async def comparison(
+    user: Annotated[UserResponse, Depends(get_current_user)],
     symbol: str = Query(min_length=1, max_length=32),
     baseline: str = Query(default="previous_session", pattern="^(previous_session|previous_report|previous_day|previous_week|saved)$"),
     saved_snapshot_id: str | None = Query(default=None),
-    user: Annotated[UserResponse, Depends(get_current_user)],
     access_token: Annotated[str | None, Cookie(alias="mr_access_token")] = None,
 ):
     token = _token(access_token)
@@ -99,8 +99,8 @@ async def create(
 
 @router.get("/watchpoints")
 async def watchpoints(
-    symbol: str | None = Query(default=None, max_length=32),
     user: Annotated[UserResponse, Depends(get_current_user)],
+    symbol: str | None = Query(default=None, max_length=32),
     access_token: Annotated[str | None, Cookie(alias="mr_access_token")] = None,
 ):
     return {"items": list_watchpoints(_token(access_token), user.id, symbol.upper() if symbol else None)}
