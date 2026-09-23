@@ -7,6 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from app.api.ai_research import router as ai_research_router
+from app.api.research_copilot import router as research_copilot_router
 from app.api.billing import router as billing_router
 from app.api.alerts import router as alerts_router
 from app.api.analysis import router as analysis_router
@@ -112,6 +113,7 @@ app.include_router(market_structure_router)
 app.include_router(mtf_router)
 app.include_router(news_router)
 app.include_router(ai_research_router)
+app.include_router(research_copilot_router)
 app.include_router(research_reports_router)
 app.include_router(research_history_router)
 app.include_router(research_intelligence_router)
