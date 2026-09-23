@@ -186,6 +186,8 @@ def test_in_app_delivery_is_recorded_separately_from_email(monkeypatch):
 
     def fake_request(method, resource, token, params=None, json=None, **kwargs):
         requests.append((method, resource, json, kwargs))
+        if resource == "scanner_opportunities":
+            return _Response([])
         if resource == "scanner_alert_events":
             return Response()
         return Response()
