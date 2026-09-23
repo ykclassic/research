@@ -167,7 +167,7 @@ def create_snapshot(
     if provenance_rows:
         _request("POST", "research_provenance", access_token, json=provenance_rows, prefer="return=representation")
     snapshot = _snapshot(row[0])
-    return snapshot.model_copy(update={"provenance": tuple(ProvenanceRecord(**{**item, "id": "pending"}) for item in provenance_rows)})
+    return snapshot.model_copy(update={"provenance": _load_provenance(access_token, user_id, snapshot_id)})
 
 
 def list_snapshots(access_token: str, user_id: str, symbol: str, limit: int = 100) -> list[ResearchSnapshot]:
