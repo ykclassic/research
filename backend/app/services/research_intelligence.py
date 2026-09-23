@@ -146,7 +146,6 @@ def _build_provenance(snapshot_id: str, user_id: str, report: Any, observed_at: 
         "method": "Deterministic ResearchReportService using completed market data and configured research preferences.",
         "engine_version": ENGINE_VERSION,
         "model_version": MODEL_VERSION,
-        "model_version": MODEL_VERSION,
         "sources": sources,
     }
     claims = [
@@ -393,6 +392,34 @@ def _due_snapshot_exists(access_token: str, user_id: str, symbol: str, now: date
     return (now - last.astimezone(timezone.utc)).total_seconds() < interval_minutes * 60
 
 
+async def persist_catalyst_events(access_token: str, user_id: str, symbol: str, days: int = 7) -> int:
+    research: NewsResearchResponse = await news_research.research(symbol=symbol, days=days, limit=50)
+    reactions = {item.news_id: item.market_reaction.model_dump(mode="json") for item in research.correlations}
+    records = []
+    for item in research.news:
+        records.append({
+            "id": item.id, "user_id": user_id, "symbol": symbol, "title": item.headline,
+            "event_type": item.event_type.value, "source": item.source, "source_url": item.source_url,
+            "event_timestamp": item.published_at.isoformat(), "affected_assets": list(item.affected_assets),
+            "sentiment": item.sentiment.value, "market_reaction": reactions.get(item.id, {}),
+            "provider": item.provider,
+        })
+    for event in research.fundamental_events:
+        records.append({
+            "id": event.id, "user_id": user_id, "symbol": symbol, "title": event.title,
+            "event_type": event.event_type.value, "source": event.source, "source_url": event.source_url,
+            "event_timestamp": event.event_timestamp.isoformat(), "affected_assets": list(event.affected_assets),
+            "market_reaction": {}, "provider": event.provider,
+            "actual": float(event.actual) if isinstance(event.actual, (int, float)) else None,
+            "estimate": float(event.estimate) if isinstance(event.estimate, (int, float)) else None,
+            "previous": float(event.previous) if isinstance(event.previous, (int, float)) else None,
+            "surprise": float(event.surprise) if isinstance(event.surprise, (int, float)) else None,
+        })
+    if records:
+        _request("POST", "research_catalyst_events", access_token, json=records, prefer="resolution=merge-duplicates,return=minimal")
+    return len(records)
+
+
 async def run_research_intelligence_cycle(access_token: str, interval_minutes: int = 15) -> dict[str, int]:
     """Materialize watched-asset state and evaluate watchpoints on a bounded cadence."""
     now = datetime.now(timezone.utc)
@@ -405,6 +432,7 @@ async def run_research_intelligence_cycle(access_token: str, interval_minutes: i
     snapshots = 0
     events = 0
     failures = 0
+    catalysts_persisted = 0
     for user_id, symbol in targets:
         try:
             if _due_snapshot_exists(access_token, user_id, symbol, now, interval_minutes):
@@ -419,8 +447,12 @@ async def run_research_intelligence_cycle(access_token: str, interval_minutes: i
             report = await service.generate(symbol, configuration=configuration)
             snapshot = create_snapshot(access_token, user_id, report, snapshot_type="SESSION")
             events += len(evaluate_watchpoints(access_token, user_id, snapshot))
+            try:
+                catalysts_persisted += await persist_catalyst_events(access_token, user_id, symbol)
+            except Exception:
+                pass
             snapshots += 1
         except Exception:
             failures += 1
-    return {"targets": len(targets), "snapshots_created": snapshots, "watchpoint_events": events, "failed_targets": failures}
+    return {"targets": len(targets), "snapshots_created": snapshots, "watchpoint_events": events, "catalysts_persisted": catalysts_persisted, "failed_targets": failures}
 
