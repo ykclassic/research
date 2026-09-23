@@ -442,6 +442,21 @@ def _emit_intelligent_events(
         if not inserted:
             continue
         alert_id = inserted[0]["id"]
+        # The persisted alert event is the in-app delivery. Record it explicitly
+        # so the delivery audit has one durable row per supported channel.
+        _request(
+            "POST",
+            "scanner_alert_deliveries",
+            access_token,
+            json={
+                "user_id": user_id,
+                "alert_id": alert_id,
+                "channel": "WEB",
+                "status": "SENT",
+                "error": None,
+            },
+            prefer="resolution=ignore-duplicates,return=minimal",
+        )
         try:
             delivery_status = deliver_scanner_alert(access_token, user_id, event_type, title, message)
             delivery_error = None
