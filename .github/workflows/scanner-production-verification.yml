@@ -1,0 +1,33 @@
+name: Scanner production verification
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "12 2 * * *"
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - name: Invoke protected scanner scheduler
+        env:
+          SCANNER_URL: ${{ vars.RESEARCH_API_URL }}
+          SCANNER_SECRET: ${{ secrets.SCANNER_SCHEDULER_SECRET }}
+        run: |
+          set -euo pipefail
+          test -n "$SCANNER_URL"
+          test -n "$SCANNER_SECRET"
+          response="$(curl --fail --silent --show-error --max-time 420             -X POST             -H "X-Scanner-Scheduler-Secret: $SCANNER_SECRET"             -H "Accept: application/json"             "$SCANNER_URL/api/scanner/scheduler/run")"
+          echo "$response" | jq .
+          echo "$response" | jq -e '
+            (.scheduled | type == "number") and
+            (.claimed | type == "number") and
+            (.completed | type == "number") and
+            (.failed | type == "number") and
+            (.retried_deliveries | type == "number") and
+            (.failed == 0)
+          '
