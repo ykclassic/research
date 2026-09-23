@@ -275,3 +275,41 @@ export async function updateScannerSchedule(id:string,payload:Partial<ScannerSch
 export async function deleteScannerSchedule(id:string):Promise<void>{await authenticatedMutation<void>(`/api/scanner/schedules/${encodeURIComponent(id)}`,{method:"DELETE"});}
 export async function getScannerAlerts():Promise<ScannerAlert[]>{return (await request<{items:ScannerAlert[]}>("/api/scanner/alerts")).items;}
 export async function markScannerAlertRead(id:string):Promise<ScannerAlert>{return (await authenticatedMutation<{item:ScannerAlert}>(`/api/scanner/alerts/${encodeURIComponent(id)}/read`,{method:"POST"})).item;}
+
+
+export type ResearchCopilotEvidence = {
+  id: string;
+  claim: string;
+  asset?: string;
+  type: string;
+  timestamp: string;
+  methodology: string;
+  confidence?: number | null;
+  data?: Record<string, unknown> | unknown[];
+};
+
+export type ResearchCopilotResult = {
+  run_id: string;
+  query: string;
+  assets: string[];
+  timeframe: string;
+  intent: string;
+  claim: string;
+  report: string;
+  evidence: ResearchCopilotEvidence[];
+  sources: Array<Record<string, unknown>>;
+  methodology: string;
+  model: string;
+  model_version: string;
+  engine_version: string;
+  timestamp: string | null;
+  limitations: string[];
+};
+
+export async function runResearchCopilot(query: string, defaultSymbol = "BTC/USD"): Promise<ResearchCopilotResult> {
+  return request("/api/research-copilot/run", { method: "POST", body: JSON.stringify({ query, default_symbol: defaultSymbol }) });
+}
+
+export async function getResearchCopilotHistory(): Promise<Array<Record<string, unknown>>> {
+  return request("/api/research-copilot/history");
+}
