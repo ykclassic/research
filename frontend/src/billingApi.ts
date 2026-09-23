@@ -24,3 +24,5 @@ export const startCheckout=(plan_id:string)=>billingRequest<{checkout_url:string
 export const changePlan=(plan_id:string)=>billingRequest<{status:string;plan_id?:string;checkout_url?:string;checkout_session_id?:string;subscription?:BillingSubscription}>("/billing/change",{method:"POST",body:JSON.stringify({plan_id})});
 export const cancelSubscription=(at_period_end=true)=>billingRequest<Record<string,unknown>>("/billing/cancel",{method:"POST",body:JSON.stringify({at_period_end})});
 export const resumeSubscription=()=>billingRequest<Record<string,unknown>>("/billing/resume",{method:"POST"});
+
+export const reconcileCheckout=(session_id:string)=>billingRequest<{status:string;plan_id:string;subscription:BillingSubscription}>("/billing/reconcile",{method:"POST",body:JSON.stringify({plan_id:session_id})});
