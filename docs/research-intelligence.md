@@ -18,7 +18,7 @@ The comparison API supports:
 - previous week
 - saved snapshot
 
-Tracked categories include regime, trend, structure/support/resistance, momentum, volatility, fundamental/event counts, signal state/confidence when present, price and research score.
+Tracked categories include regime, trend, structure/support/resistance, momentum, volatility, fundamental/event counts, authoritative Phase 2 signal state/confidence when available, price and research score. Previous-day and previous-week baselines only resolve when an observation exists within a defined time tolerance; unrelated older observations are not substituted.
 
 The comparison layer is deliberately descriptive. A simultaneous catalyst and market change is not treated as proof of causality.
 
@@ -48,6 +48,8 @@ The provenance layer is foundational and is not hidden behind a new Phase 4 enti
 
 All Phase 4 persistence is user-scoped with Supabase Row Level Security. A user can only read or mutate their own watchpoints, snapshots and provenance records.
 
-## Current limitation
+## Signal and catalyst linkage
 
-Signal-confidence watchpoints become populated when the report snapshot contains a signal-confidence field. The Phase 3 scanner/signal intelligence system remains the authoritative source for full signal lifecycle and outcome analytics; Phase 4 does not duplicate that signal engine.
+When a user has Phase 2 signal-intelligence observations for the asset, the latest authoritative signal state and confidence are attached to the Phase 4 snapshot rather than recomputed by a second signal engine.
+
+News catalysts reuse the existing correlation output, including historical market-reaction fields when the provider has enough reliable price context. Temporal correlation is presented as evidence, not as proof of causation.

@@ -50,3 +50,18 @@ def test_compare_without_baseline_is_explicit():
     result = compare(current, None, "previous_week")
     assert result.baseline is None
     assert "No earlier snapshot" in result.summary
+
+
+def test_previous_day_does_not_use_unrelated_old_snapshot():
+    current = snapshot({"market_regime": "RANGE"})
+    current.snapshot_at = datetime(2026, 9, 23, 12, tzinfo=timezone.utc)
+    old = ResearchSnapshot(
+        id="old",
+        symbol="BTC/USD",
+        snapshot_type="REPORT",
+        snapshot_at=datetime(2026, 9, 1, 12, tzinfo=timezone.utc),
+        state={"market_regime": "STRONG_TREND_DOWN"},
+        engine_version="research-intelligence-v1",
+    )
+    from app.services.research_intelligence import _get_baseline
+    assert _get_baseline([current, old], current, "previous_day", None) is None
