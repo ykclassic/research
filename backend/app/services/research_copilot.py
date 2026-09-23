@@ -1,13 +1,26 @@
 from __future__ import annotations
 
 import re
+import httpx
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from app.config import settings
 from app.services.ai_research import AIResearchService
 from app.services.research_report import ResearchReportService
-from app.services.supabase_data import DataServiceError, _request
+from app.services.supabase_data import DataServiceError
+
+
+def _request(method: str, resource: str, access_token: str, *, params: dict[str, str] | None = None, json: Any = None, prefer: str | None = None):
+    if not settings.supabase_url or not settings.supabase_publishable_key:
+        raise ResearchCopilotError("Supabase is not configured.")
+    headers = {"apikey": settings.supabase_publishable_key, "Authorization": f"Bearer {access_token}", "Content-Type": "application/json"}
+    if prefer:
+        headers["Prefer"] = prefer
+    response = httpx.request(method, f"{settings.supabase_url.rstrip('/')}/rest/v1/{resource}", headers=headers, params=params, json=json, timeout=settings.provider_timeout_seconds)
+    if response.status_code >= 400:
+        raise ResearchCopilotError(f"Research data request failed ({response.status_code}).")
+    return response
 
 ENGINE_VERSION = "research-copilot-v1"
 MODEL_VERSION_FALLBACK = settings.openai_model
