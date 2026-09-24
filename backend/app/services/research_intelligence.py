@@ -86,6 +86,7 @@ def _state_from_report(report: Any) -> dict[str, Any]:
     regime = report.regime_snapshot or {}
     structure = report.smc_structure.model_dump(mode="json")
     mtf = [item.model_dump(mode="json") for item in report.multi_timeframe]
+    timeframes = {str(item.get("timeframe")): item for item in mtf}
     fundamental = report.fundamental_context.model_dump(mode="json")
     signal = {
         "status": regime.get("signal") or regime.get("signal_status"),
@@ -104,6 +105,7 @@ def _state_from_report(report: Any) -> dict[str, Any]:
         "regime_snapshot": regime,
         "structure": structure,
         "multi_timeframe": mtf,
+        "timeframes": timeframes,
         "fundamental": fundamental,
         "signal": signal,
         "research_score": report.overall_research_score,
@@ -202,10 +204,10 @@ def _get_baseline(snapshots: list[ResearchSnapshot], current: ResearchSnapshot, 
         return prior[0]
     if baseline_type == "previous_day":
         cutoff = current.snapshot_at - timedelta(days=1)
-        return next((item for item in prior if item.snapshot_at <= cutoff), prior[-1])
+        return next((item for item in prior if item.snapshot_at <= cutoff), None)
     if baseline_type == "previous_week":
         cutoff = current.snapshot_at - timedelta(days=7)
-        return next((item for item in prior if item.snapshot_at <= cutoff), prior[-1])
+        return next((item for item in prior if item.snapshot_at <= cutoff), None)
     if baseline_type == "saved":
         if not saved_snapshot_id:
             return next((item for item in prior if item.snapshot_type == "SAVED"), None)
@@ -263,7 +265,7 @@ def _evaluate(watchpoint: Watchpoint, snapshot: ResearchSnapshot) -> tuple[bool,
         support = _field_value(snapshot, "support")
         return price is not None and support is not None and price < support, price
     if watchpoint.condition_type == "REGIME_CHANGE":
-        return bool(observed and observed != watchpoint.last_state), observed
+        return observed == target, observed
     if watchpoint.condition_type == "FIELD_EQUALS":
         return observed == target, observed
     if watchpoint.condition_type == "FIELD_THRESHOLD":
@@ -275,6 +277,17 @@ def _evaluate(watchpoint: Watchpoint, snapshot: ResearchSnapshot) -> tuple[bool,
             "gt": left > right, "gte": left >= right, "lt": left < right, "lte": left <= right, "eq": left == right
         }.get(watchpoint.operator, False), observed
     return False, observed
+
+
+def save_snapshot(access_token: str, user_id: str, snapshot_id: str) -> ResearchSnapshot:
+    rows = _request(
+        "PATCH", "research_snapshots", access_token,
+        params={"id": f"eq.{snapshot_id}", "user_id": f"eq.{user_id}"},
+        json={"snapshot_type": "SAVED"}, prefer="return=representation",
+    ).json()
+    if not rows:
+        raise DataRequestError("Research snapshot was not found.")
+    return get_snapshot(access_token, user_id, snapshot_id)
 
 
 def list_watchpoints(access_token: str, user_id: str, symbol: str | None = None) -> list[Watchpoint]:
@@ -326,8 +339,9 @@ def list_watchpoint_events(access_token: str, user_id: str, limit: int = 50) -> 
 async def catalysts(symbol: str | None, days: int = 7, limit: int = 25) -> tuple[CatalystRecord, ...]:
     research: NewsResearchResponse = await news_research.research(symbol=symbol, days=days, limit=limit)
     records: list[CatalystRecord] = []
+    reactions = {item.news_id: item.market_reaction.model_dump(mode="json") for item in research.correlations}
     for item in research.news:
-        records.append(CatalystRecord(id=item.id, title=item.headline, event_type=item.event_type.value, source=item.source, source_url=item.source_url, event_timestamp=item.published_at, affected_assets=item.affected_assets, sentiment=item.sentiment.value, provider=item.provider))
+        records.append(CatalystRecord(id=item.id, title=item.headline, event_type=item.event_type.value, source=item.source, source_url=item.source_url, event_timestamp=item.published_at, affected_assets=item.affected_assets, sentiment=item.sentiment.value, market_reaction=reactions.get(item.id, {}), provider=item.provider))
     for event in research.fundamental_events:
         records.append(CatalystRecord(id=event.id, title=event.title, event_type=event.event_type.value, source=event.source, source_url=event.source_url, event_timestamp=event.event_timestamp, affected_assets=event.affected_assets, provider=event.provider))
     return tuple(sorted(records, key=lambda item: item.event_timestamp, reverse=True)[:limit])
