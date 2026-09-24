@@ -1,6 +1,7 @@
 from datetime import datetime, timezone
 
-from app.models.research_intelligence import ResearchSnapshot
+from app.models.research_intelligence import ResearchSnapshot, Watchpoint
+from app.services.research_intelligence import _evaluate
 from app.services.research_intelligence import compare
 
 
@@ -50,3 +51,26 @@ def test_compare_without_baseline_is_explicit():
     result = compare(current, None, "previous_week")
     assert result.baseline is None
     assert "No earlier snapshot" in result.summary
+
+
+def test_compare_includes_timeframe_specific_state():
+    before = snapshot({"timeframes": {"4h": {"support": 100}}, "signal": {"confidence": 0.8}})
+    after = snapshot({"timeframes": {"4h": {"support": 92}}, "signal": {"confidence": 0.6}})
+    result = compare(after, before, "previous_session")
+    fields = {item.field for item in result.changes}
+    assert "signal.confidence" in fields
+
+
+def test_regime_watchpoint_matches_target_without_boolean_string_comparison():
+    watchpoint = Watchpoint(
+        id="w", symbol="BTC/USD", name="Downtrend", condition_type="REGIME_CHANGE",
+        field="market_regime", operator="eq", value="STRONG_TREND_DOWN",
+        enabled=True, last_state=None,
+        created_at=datetime.now(timezone.utc), updated_at=datetime.now(timezone.utc),
+    )
+    matched, observed = _evaluate(
+        watchpoint,
+        snapshot({"market_regime": "STRONG_TREND_DOWN"}),
+    )
+    assert matched is True
+    assert observed == "STRONG_TREND_DOWN"
