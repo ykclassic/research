@@ -301,6 +301,7 @@ def compare(current: ResearchSnapshot, baseline: ResearchSnapshot | None, baseli
     _changed(changes, "STRUCTURE", "technical_structure", _get_path(a, "technical_structure"), _get_path(b, "technical_structure"))
     _changed(changes, "STRUCTURE", "support", _get_path(a, "support"), _get_path(b, "support"))
     _changed(changes, "STRUCTURE", "resistance", _get_path(a, "resistance"), _get_path(b, "resistance"))
+    _changed(changes, "STRUCTURE", "timeframes.4h.support", _get_path(a, "timeframes.4h.support"), _get_path(b, "timeframes.4h.support"))
     _changed(changes, "MOMENTUM", "momentum", _get_path(a, "momentum"), _get_path(b, "momentum"))
     _changed(changes, "VOLATILITY", "volatility_percent", _get_path(a, "volatility_percent"), _get_path(b, "volatility_percent"))
     _changed(changes, "EVENT", "fundamental.news_count", _get_path(a, "fundamental.news_count"), _get_path(b, "fundamental.news_count"))
