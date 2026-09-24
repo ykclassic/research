@@ -208,7 +208,26 @@ def save_snapshot(access_token: str, user_id: str, snapshot_id: str) -> Research
     rows = _request("POST", "research_snapshots", access_token, json=payload, prefer="return=representation").json()
     if not rows:
         raise DataRequestError("Saved research snapshot was not created.")
-    return _snapshot(rows[0], current.provenance)
+    saved_id = str(rows[0]["id"])
+    if current.provenance:
+        copied = [
+            {
+                "user_id": user_id,
+                "snapshot_id": saved_id,
+                "claim_type": item.claim_type,
+                "claim": item.claim,
+                "analysis": item.analysis,
+                "data": item.data,
+                "sources": list(item.sources),
+                "observed_at": item.observed_at.isoformat(),
+                "method": item.method,
+                "engine_version": item.engine_version,
+                "model_version": item.model_version,
+            }
+            for item in current.provenance
+        ]
+        _request("POST", "research_provenance", access_token, json=copied, prefer="return=representation")
+    return get_snapshot(access_token, user_id, saved_id)
 
 
 def list_snapshots(access_token: str, user_id: str, symbol: str, limit: int = 100) -> list[ResearchSnapshot]:
