@@ -258,8 +258,10 @@ def _get_baseline(snapshots: list[ResearchSnapshot], current: ResearchSnapshot, 
     prior = [item for item in snapshots if item.id != current.id and item.snapshot_at < current.snapshot_at]
     if not prior:
         return None
-    if baseline_type in {"previous_session", "previous_report"}:
-        return prior[0]
+    if baseline_type == "previous_session":
+        return next((item for item in prior if item.snapshot_type == "SESSION"), prior[0])
+    if baseline_type == "previous_report":
+        return next((item for item in prior if item.snapshot_type == "REPORT"), prior[0])
     if baseline_type == "previous_day":
         target = current.snapshot_at - timedelta(days=1)
         candidates = [item for item in prior if abs((item.snapshot_at - target).total_seconds()) <= 36 * 3600]
