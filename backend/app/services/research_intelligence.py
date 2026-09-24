@@ -233,7 +233,7 @@ def save_snapshot(access_token: str, user_id: str, snapshot_id: str) -> Research
 def list_snapshots(access_token: str, user_id: str, symbol: str, limit: int = 100) -> list[ResearchSnapshot]:
     rows = _request(
         "GET", "research_snapshots", access_token,
-        params={"select": SNAPSHOT_SELECT, "user_id": f"eq.{user_id}", "symbol": f"eq.{symbol}", "order": "snapshot_at.desc", "limit": str(min(max(limit, 1), 100))}
+        params={"select": SNAPSHOT_SELECT, "user_id": f"eq.{user_id}", "symbol": f"eq.{symbol}", "order": "snapshot_at.desc,created_at.desc", "limit": str(min(max(limit, 1), 100))}
     ).json()
     return [_snapshot(row) for row in rows]
 
