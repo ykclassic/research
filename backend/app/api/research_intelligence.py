@@ -15,6 +15,7 @@ from app.services.research_intelligence import (
     evaluate_watchpoints,
     get_snapshot,
     list_snapshots,
+    save_snapshot,
     list_watchpoint_events,
     list_watchpoints,
     update_watchpoint,
@@ -69,10 +70,11 @@ async def comparison(
     snapshots = list_snapshots(token, user.id, symbol.upper())
     if not snapshots:
         raise HTTPException(status_code=404, detail="No research snapshots exist for this asset.")
-    current = snapshots[0]
-    baseline_snapshot = next((item for item in snapshots if item.id == saved_snapshot_id), None) if baseline == "saved" and saved_snapshot_id else None
+    current = get_snapshot(token, user.id, snapshots[0].id)
+    baseline_snapshot = get_snapshot(token, user.id, saved_snapshot_id) if baseline == "saved" and saved_snapshot_id else None
     if baseline == "saved" and baseline_snapshot is None:
-        baseline_snapshot = next((item for item in snapshots if item.snapshot_type == "SAVED"), None)
+        saved = next((item for item in snapshots if item.snapshot_type == "SAVED"), None)
+        baseline_snapshot = get_snapshot(token, user.id, saved.id) if saved else None
     if baseline_snapshot is None:
         from app.services.research_intelligence import _get_baseline
         baseline_snapshot = _get_baseline(snapshots, current, baseline, saved_snapshot_id)
@@ -86,6 +88,15 @@ async def snapshot(
     access_token: Annotated[str | None, Cookie(alias="mr_access_token")] = None,
 ):
     return {"item": get_snapshot(_token(access_token), user.id, snapshot_id)}
+
+
+@router.post("/snapshots/{snapshot_id}/save", dependencies=[Depends(_require_csrf)])
+async def save(
+    snapshot_id: str,
+    user: Annotated[UserResponse, Depends(get_current_user)],
+    access_token: Annotated[str | None, Cookie(alias="mr_access_token")] = None,
+):
+    return {"item": save_snapshot(_token(access_token), user.id, snapshot_id)}
 
 
 @router.post("/watchpoints", dependencies=[Depends(_require_csrf)])
