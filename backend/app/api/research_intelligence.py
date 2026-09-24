@@ -2,10 +2,12 @@ from __future__ import annotations
 
 from typing import Annotated
 
-from fastapi import APIRouter, Cookie, Depends, HTTPException, Query
+import secrets
+from fastapi import APIRouter, Cookie, Depends, Header, HTTPException, Query
 from pydantic import BaseModel, Field
 
 from app.api.auth import UserResponse, _require_csrf, get_current_user
+from app.config import settings
 from app.models.research_intelligence import ResearchComparison
 from app.services.research_intelligence import (
     catalysts,
@@ -15,10 +17,11 @@ from app.services.research_intelligence import (
     evaluate_watchpoints,
     get_snapshot,
     list_snapshots,
-    save_snapshot,
     list_watchpoint_events,
     list_watchpoints,
+    save_snapshot,
     update_watchpoint,
+    run_research_intelligence_cycle,
 )
 
 router = APIRouter(prefix="/api/research-intelligence", tags=["research-intelligence"])
@@ -91,7 +94,7 @@ async def snapshot(
 
 
 @router.post("/snapshots/{snapshot_id}/save", dependencies=[Depends(_require_csrf)])
-async def save(
+async def save_research_snapshot(
     snapshot_id: str,
     user: Annotated[UserResponse, Depends(get_current_user)],
     access_token: Annotated[str | None, Cookie(alias="mr_access_token")] = None,
@@ -166,3 +169,15 @@ async def catalyst_feed(
         return {"items": await catalysts(symbol.upper() if symbol else None, days, limit)}
     except (RuntimeError, ValueError) as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
+@router.post("/scheduler/run")
+async def scheduler_run(x_research_scheduler_secret: Annotated[str | None, Header()] = None):
+    if not settings.scanner_scheduler_secret or not x_research_scheduler_secret or not secrets.compare_digest(
+        x_research_scheduler_secret, settings.scanner_scheduler_secret
+    ):
+        raise HTTPException(status_code=401, detail="Invalid research intelligence scheduler credential.")
+    try:
+        return await run_research_intelligence_cycle(settings.supabase_service_role_key)
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail="Research intelligence scheduler failed.") from exc
