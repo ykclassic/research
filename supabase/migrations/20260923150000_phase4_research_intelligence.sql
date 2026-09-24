@@ -75,7 +75,8 @@ alter table public.research_watchpoints enable row level security;
 alter table public.research_watchpoint_events enable row level security;
 
 revoke all on table public.research_snapshots, public.research_provenance, public.research_watchpoints, public.research_watchpoint_events from anon;
-grant select, insert on table public.research_snapshots, public.research_provenance to authenticated;
+grant select, insert, update on table public.research_snapshots to authenticated;
+grant select, insert on table public.research_provenance to authenticated;
 grant select, insert, update, delete on table public.research_watchpoints to authenticated;
 grant select on table public.research_watchpoint_events to authenticated;
 
