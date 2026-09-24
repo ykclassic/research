@@ -22,3 +22,5 @@ export async function createResearchWatchpoint(payload:Pick<ResearchWatchpoint,"
 export async function deleteResearchWatchpoint(id:string):Promise<void>{await authenticatedMutation<void>("/api/research-intelligence/watchpoints/"+encodeURIComponent(id),{method:"DELETE"});}
 export async function getResearchWatchpointEvents():Promise<ResearchWatchpointEvent[]>{return (await request<{items:ResearchWatchpointEvent[]}>("/api/research-intelligence/watchpoint-events")).items;}
 export async function getResearchCatalysts(symbol:string):Promise<ResearchCatalyst[]>{return (await request<{items:ResearchCatalyst[]}>("/api/research-intelligence/catalysts?symbol="+encodeURIComponent(symbol)+"&days=7&limit=25")).items;}
+
+export async function saveResearchSnapshot(id:string):Promise<ResearchSnapshot>{return (await authenticatedMutation<{item:ResearchSnapshot}>("/api/research-intelligence/snapshots/"+encodeURIComponent(id)+"/save",{method:"POST"})).item;}
