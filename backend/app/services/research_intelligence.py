@@ -255,7 +255,7 @@ def get_snapshot(access_token: str, user_id: str, snapshot_id: str) -> ResearchS
 
 
 def _get_baseline(snapshots: list[ResearchSnapshot], current: ResearchSnapshot, baseline_type: str, saved_snapshot_id: str | None) -> ResearchSnapshot | None:
-    prior = [item for item in snapshots if item.id != current.id and item.snapshot_at < current.snapshot_at]
+    prior = [item for item in snapshots if item.id != current.id and item.snapshot_type != "SAVED" and item.snapshot_at < current.snapshot_at]
     if not prior:
         return None
     if baseline_type == "previous_session":
