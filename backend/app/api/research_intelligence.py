@@ -73,10 +73,11 @@ async def comparison(
     snapshots = list_snapshots(token, user.id, symbol.upper())
     if not snapshots:
         raise HTTPException(status_code=404, detail="No research snapshots exist for this asset.")
-    current = snapshots[0]
-    baseline_snapshot = next((item for item in snapshots if item.id == saved_snapshot_id), None) if baseline == "saved" and saved_snapshot_id else None
+    current = get_snapshot(token, user.id, snapshots[0].id)
+    baseline_snapshot = get_snapshot(token, user.id, saved_snapshot_id) if baseline == "saved" and saved_snapshot_id else None
     if baseline == "saved" and baseline_snapshot is None:
-        baseline_snapshot = next((item for item in snapshots if item.snapshot_type == "SAVED"), None)
+        saved = next((item for item in snapshots if item.snapshot_type == "SAVED"), None)
+        baseline_snapshot = get_snapshot(token, user.id, saved.id) if saved else None
     if baseline_snapshot is None:
         from app.services.research_intelligence import _get_baseline
         baseline_snapshot = _get_baseline(snapshots, current, baseline, saved_snapshot_id)
