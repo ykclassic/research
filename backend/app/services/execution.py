@@ -47,6 +47,7 @@ def build_order_request(
     position: PositionQualification,
     execution_mode: ExecutionMode,
     client_order_id: str | None = None,
+    experiment_id: str | None = None,
 ) -> OrderRequest:
     if position.status != RiskQualificationStatus.QUALIFIED:
         raise ValueError("Only a QUALIFIED position may be converted into an order.")
@@ -64,6 +65,7 @@ def build_order_request(
         strategy_id=position.strategy_selection.selected_strategy_id or "unknown",
         risk_policy_version=position.risk_policy.policy_version,
         execution_mode=execution_mode,
+        experiment_id=experiment_id,
         created_at=_utcnow(),
     )
 
@@ -94,6 +96,7 @@ async def execute_order(
             stop_loss=order.stop_loss,
             take_profit=order.take_profit,
             strategy_id=order.strategy_id,
+            experiment_id=order.experiment_id,
             generated_at=order.created_at,
             message="Research-only mode cannot submit orders.",
         )
@@ -110,6 +113,7 @@ async def execute_order(
             stop_loss=order.stop_loss,
             take_profit=order.take_profit,
             strategy_id=order.strategy_id,
+            experiment_id=order.experiment_id,
             generated_at=order.created_at,
             message="Explicit, valid human execution authorization is required.",
         )
@@ -127,6 +131,7 @@ async def execute_order(
             stop_loss=order.stop_loss,
             take_profit=order.take_profit,
             strategy_id=order.strategy_id,
+            experiment_id=order.experiment_id,
             generated_at=order.created_at,
             message=f"Broker adapter '{adapter.name}' does not support live execution.",
         )
@@ -145,6 +150,7 @@ async def execute_order(
             stop_loss=order.stop_loss,
             take_profit=order.take_profit,
             strategy_id=order.strategy_id,
+            experiment_id=order.experiment_id,
             generated_at=order.created_at,
             message=f"Broker submission failed: {exc}",
         )
@@ -163,6 +169,7 @@ async def execute_order(
         stop_loss=order.stop_loss,
         take_profit=order.take_profit,
         strategy_id=order.strategy_id,
+        experiment_id=order.experiment_id,
         generated_at=order.created_at,
         executed_at=now,
         message=f"Order filled by {adapter.name} adapter.",
