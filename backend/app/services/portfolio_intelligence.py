@@ -6,7 +6,7 @@ from collections import defaultdict
 from datetime import datetime, timezone
 from typing import Any
 
-from app.models.portfolio import PositionSide, PortfolioSummary
+from app.models.portfolio import PositionSide, PortfolioSummary\nfrom app.models.market import Timeframe
 from app.models.portfolio_intelligence import (
     CorrelationCluster,
     CorrelationEntry,
@@ -56,7 +56,7 @@ def _classification(position: Any) -> tuple[str, str, str]:
 async def _series(symbol: str) -> list[float]:
     try:
         mapping = __import__("app.symbols", fromlist=["normalize_symbol"]).normalize_symbol(symbol)
-        dataset = await asyncio.wait_for(quote_service.orchestrator.get_candles(mapping.internal, "1d", RETURN_CANDLES), timeout=20)
+        dataset = await asyncio.wait_for(quote_service.orchestrator.get_candles(mapping.internal, Timeframe.DAY_1, RETURN_CANDLES), timeout=20)
         closes = [float(c.close) for c in dataset.completed_candles if c.close > 0]
         return closes[-RETURN_CANDLES:]
     except Exception:
@@ -150,7 +150,7 @@ async def build_intelligence(access_token: str, user_id: str, summary: Portfolio
         try:
             from app.services.regime_detection import detect_regime
             mapping=__import__("app.symbols", fromlist=["normalize_symbol"]).normalize_symbol(e.symbol)
-            dataset=await asyncio.wait_for(quote_service.orchestrator.get_candles(mapping.internal,"1h",120),timeout=20)
+            dataset=await asyncio.wait_for(quote_service.orchestrator.get_candles(mapping.internal,Timeframe.HOUR_1,120),timeout=20)
             regime=detect_regime(dataset).regime
             confidence=float(detect_regime(dataset).confidence)
             regimes.append(RegimeAlignment(symbol=e.symbol,timeframe="1h",regime=regime.value,confidence=confidence,alignment="OBSERVED"))
