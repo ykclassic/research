@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from hashlib import sha256
+import json
 from itertools import groupby
 from typing import Any, Iterable
 
@@ -19,6 +20,7 @@ from app.models.quant_lab import (
 from app.services.entitlement import require_feature
 from app.services.supabase_data import DataRequestError, _request
 from app.services.performance import summarize_backtest_trades
+from app.services.quant_validation import validate_strategy_definition
 
 ENGINE_VERSION = "quant-lab-v2-deterministic"
 DATASET_VERSION = "ohlcv-completed-v1"
@@ -39,13 +41,13 @@ def _match(value: Any, operator: str, target: Any) -> bool:
 
 
 def _rules_match(candle: Candle, rules: Iterable[Any]) -> bool:
-    context = {"open": candle.open, "high": candle.high, "low": candle.low, "close": candle.close, "volume": candle.volume}
+    context = {"open": candle.open, "high": candle.high, "low": candle.low, "close": candle.close, "volume": candle.volume, "timeframe": candle.timeframe.value, **candle.features}
     return all(_match(context.get(rule.field), rule.operator, rule.value) for rule in rules)
 
 
 def _dataset_fingerprint(dataset: OHLCVDataset) -> str:
     canonical = "|".join(
-        f"{c.timestamp.isoformat()}:{c.open}:{c.high}:{c.low}:{c.close}:{c.volume}"
+        f"{c.timestamp.isoformat()}:{c.open}:{c.high}:{c.low}:{c.close}:{c.volume}:{json.dumps(c.features, sort_keys=True, default=str)}"
         for c in dataset.completed_candles
     )
     return sha256(f"{dataset.symbol}|{dataset.timeframe.value}|{dataset.source}|{canonical}".encode()).hexdigest()
@@ -156,6 +158,9 @@ def run_backtest(
     """Run and persist one immutable experiment through the canonical event loop."""
     require_feature(access_token, user_id, "backtesting")
     valid, warnings = validate_experiment(spec)
+    strategy_errors = validate_strategy_definition(strategy)
+    if strategy_errors:
+        raise ValueError("; ".join(strategy_errors))
     if not valid:
         raise ValueError("; ".join(warnings))
     if dataset.timeframe is not strategy.timeframe:
