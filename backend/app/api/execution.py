@@ -21,6 +21,7 @@ async def submit_execution(request: ExecutionRequest) -> ExecutionResult:
             request.position,
             request.execution_mode,
             request.client_order_id,
+            request.experiment_id,
         )
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
