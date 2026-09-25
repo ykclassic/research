@@ -18,6 +18,7 @@ from app.models.quant_lab import (
 )
 from app.services.entitlement import require_feature
 from app.services.supabase_data import DataRequestError, _request
+from app.services.performance import summarize_backtest_trades
 
 ENGINE_VERSION = "quant-lab-v2-deterministic"
 DATASET_VERSION = "ohlcv-completed-v1"
@@ -178,7 +179,7 @@ def run_backtest(
             trades.append(_trade(entry_index, absolute_index, completed, strategy.direction, spec.execution))
             entry_index = None
 
-    metrics = _metrics(trades)
+    metrics = summarize_backtest_trades(trades)
     checks = {
         "chronological_data": all(completed[i].timestamp < completed[i + 1].timestamp for i in range(len(completed) - 1)),
         "no_future_data": True,
