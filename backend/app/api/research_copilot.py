@@ -6,16 +6,12 @@ from typing import Annotated
 from fastapi import APIRouter, Cookie, Depends, Header, HTTPException
 from pydantic import BaseModel, Field
 
-from app.api.auth import UserResponse, _require_csrf, get_current_user_or_github_actions
+from app.api.auth import UserResponse, _require_csrf, get_current_user_or_github_actions, require_github_actions
 from app.config import settings
 from app.services.entitlement import UsageLimitExceededError, consume_usage, require_feature
 from app.services.research_copilot import ResearchCopilotError, ResearchCopilotService, interpret_query
 
-router = APIRouter(
-    prefix="/api/research-copilot",
-    tags=["research-copilot"],
-    dependencies=[Depends(get_current_user_or_github_actions), Depends(_require_csrf)],
-)
+router = APIRouter(prefix="/api/research-copilot", tags=["research-copilot"])
 service = ResearchCopilotService()
 
 
@@ -48,7 +44,7 @@ class CopilotResponse(BaseModel):
     limitations: list[str]
 
 
-@router.post("/run", response_model=CopilotResponse)
+@router.post("/run", response_model=CopilotResponse, dependencies=[Depends(_require_csrf)])
 async def run_copilot(
     request: CopilotRequest,
     user: UserResponse | None = Depends(get_current_user_or_github_actions),
@@ -89,7 +85,7 @@ async def copilot_history(
     return service.history(access_token, user.id)
 
 
-@router.post("/scheduler/run")
+@router.post("/scheduler/run", dependencies=[Depends(require_github_actions)])
 async def copilot_scheduler(
     x_research_copilot_secret: Annotated[str | None, Header()] = None,
 ) -> dict[str, str]:
@@ -113,7 +109,7 @@ async def schedules(
     return service.list_schedules(access_token, user.id)
 
 
-@router.post("/schedules")
+@router.post("/schedules", dependencies=[Depends(_require_csrf)])
 async def create_schedule(
     request: ScheduleRequest,
     user: UserResponse | None = Depends(get_current_user_or_github_actions),
@@ -128,7 +124,7 @@ async def create_schedule(
         raise HTTPException(status_code=402, detail=str(exc)) from exc
 
 
-@router.delete("/schedules/{schedule_id}")
+@router.delete("/schedules/{schedule_id}", dependencies=[Depends(_require_csrf)])
 async def delete_schedule(
     schedule_id: str,
     user: UserResponse | None = Depends(get_current_user_or_github_actions),
