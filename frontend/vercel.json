@@ -36,5 +36,6 @@
         }
       ]
     }
-  ]
+  ],
+  "ignoreCommand": "bash vercel-ignore-build.sh"
 }
