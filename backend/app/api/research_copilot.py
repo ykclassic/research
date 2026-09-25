@@ -10,6 +10,7 @@ from app.api.auth import UserResponse, _require_csrf, get_current_user_or_github
 from app.config import settings
 from app.services.entitlement import UsageLimitExceededError, consume_usage, require_feature
 from app.services.research_copilot import ResearchCopilotError, ResearchCopilotService, interpret_query
+from app.services.research_workspace import run_due_automation_rules
 
 router = APIRouter(prefix="/api/research-copilot", tags=["research-copilot"])
 service = ResearchCopilotService()
@@ -94,7 +95,9 @@ async def copilot_scheduler(
     ):
         raise HTTPException(status_code=401, detail="Invalid research copilot scheduler credential.")
     try:
-        return await service.run_due_schedules(settings.supabase_service_role_key)
+        scheduled = await service.run_due_schedules(settings.supabase_service_role_key)
+        workspace = await run_due_automation_rules(settings.supabase_service_role_key)
+        return {**scheduled, "workspace_scheduled": workspace["scheduled"], "workspace_completed": workspace["completed"], "workspace_failed": workspace["failed"], "failed": scheduled["failed"] + workspace["failed"]}
     except Exception as exc:
         raise HTTPException(status_code=503, detail="Scheduled research execution failed.") from exc
 
