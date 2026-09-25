@@ -75,6 +75,8 @@ def summarize_backtest_trades(trades):
             win_rate=0,
             max_drawdown=0,
             average_r=0,
+            average_mae=0,
+            average_mfe=0,
         )
 
     pnls = [trade.pnl for trade in trades]
@@ -107,6 +109,8 @@ def summarize_backtest_trades(trades):
         win_rate=len(wins) / len(trades),
         max_drawdown=max_drawdown,
         average_r=sum(trade.r_multiple for trade in trades) / len(trades),
+        average_mae=sum(trade.mae for trade in trades) / len(trades),
+        average_mfe=sum(trade.mfe for trade in trades) / len(trades),
         r_distribution=tuple(trade.r_multiple for trade in trades),
         regime_breakdown=breakdown(lambda trade: trade.regime or "UNKNOWN"),
         timeframe_breakdown=breakdown(lambda trade: trade.timeframe),
