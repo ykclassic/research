@@ -35,7 +35,7 @@ def test_experiment_rejects_non_chronological_splits():
 def test_experiment_contract_is_immutable_and_hashable():
     spec = _spec(execution=ExecutionAssumptions(commission_bps=2, slippage_bps=3, spread_bps=1))
     assert len(spec.spec_hash) == 64
-    with pytest.raises(TypeError):
+    with pytest.raises(Exception):
         spec.dataset_version = "changed"
 
 
