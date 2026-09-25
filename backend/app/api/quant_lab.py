@@ -10,7 +10,7 @@ from app.models.market import OHLCVDataset
 from app.models.quant_lab import BacktestResult, ExperimentSpec, StrategyDefinition, StrategyBuilderRequest, RobustnessResult, PaperBacktestComparison, PaperTrade
 from app.services.entitlement import require_feature
 from app.services.quant_lab import create_portfolio, list_portfolios, list_trades, run_backtest
-from app.services.quant_validation import compare_paper_to_backtest, robustness, validate_strategy_definition
+from app.services.quant_validation import compare_paper_to_backtest, diagnose, robustness, validate_strategy_definition
 from app.services.supabase_data import _request
 
 router = APIRouter(prefix="/api/quant-lab", tags=["quant-lab"])
@@ -139,3 +139,20 @@ async def paper_comparison(
     token = _token(access_token)
     require_feature(token, user.id, "backtesting")
     return compare_paper_to_backtest(payload.result, payload.paper_trades, payload.experiment_id)
+
+
+class DiagnosisRequest(BaseModel):
+    result: BacktestResult
+    baseline: BacktestResult | None = None
+    sensitivity_values: dict[str, list[float]] = Field(default_factory=dict)
+
+
+@router.post("/diagnosis")
+async def strategy_diagnosis(
+    payload: DiagnosisRequest,
+    user: Annotated[UserResponse, Depends(get_current_user)],
+    access_token: Annotated[str | None, Cookie(alias="mr_access_token")] = None,
+):
+    token = _token(access_token)
+    require_feature(token, user.id, "backtesting")
+    return {"item": diagnose(payload.result, payload.baseline, payload.sensitivity_values)}
