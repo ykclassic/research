@@ -32,6 +32,7 @@ class TradeOutcome(BaseModel):
     symbol: str
     direction: SignalDirection
     strategy_id: str
+    experiment_id: str | None = None
     entry_price: float = Field(gt=0)
     exit_price: float | None = Field(default=None, gt=0)
     quantity: float = Field(gt=0)
@@ -73,6 +74,7 @@ def trade_from_execution(execution: ExecutionResult) -> TradeOutcome:
         symbol=execution.symbol,
         direction=execution.direction,
         strategy_id=execution.strategy_id,
+        experiment_id=execution.experiment_id,
         entry_price=execution.fill_price or execution.requested_entry_price,
         quantity=execution.filled_quantity,
         stop_loss=execution.stop_loss,
