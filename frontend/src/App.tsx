@@ -21,12 +21,14 @@ import TradingSessionPanel from "./TradingSessionPanel";
 import BillingPage from "./BillingPage";
 import ScannerPage from "./ScannerPage";
 import QuantLabPage from "./QuantLabPage";
+import ResearchWorkspacesPage from "./ResearchWorkspacesPage";
 
-export type AppPage = "quant-lab" | "market" | "watchlists" | "analysis" | "market-structure" | "mtf" | "signals" | "signal-outcome" | "signal-intelligence" | "portfolio" | "ai-research" | "news-research" | "research-reports" | "research-history" | "research-intelligence" | "alerts" | "settings" | "billing" | "scanner";
+export type AppPage = "research-workspaces" | "quant-lab" | "market" | "watchlists" | "analysis" | "market-structure" | "mtf" | "signals" | "signal-outcome" | "signal-intelligence" | "portfolio" | "ai-research" | "news-research" | "research-reports" | "research-history" | "research-intelligence" | "alerts" | "settings" | "billing" | "scanner";
 
 type AuthMode = "login" | "register" | "forgot" | "reset";
 
 const ROUTES: Record<AppPage, string> = {
+  "research-workspaces": "/research/workspaces",
   "quant-lab": "/quant-lab",
   market: "/dashboard",
   watchlists: "/markets/watchlists",
@@ -151,7 +153,7 @@ function AuthScreen({ onAuthenticated }: { onAuthenticated: (u: User) => void })
 
 function Header({ user, page, setPage, onLogout }: { user: User; page: AppPage; setPage: (p: AppPage) => void; onLogout: () => void }) {
   const signOut = async () => { try { await logout(); } finally { onLogout(); } };
-  const items: [AppPage,string][] = [["market","Market Data"],["scanner","Scanner"],["watchlists","Watchlists"],["analysis","Technical Analysis"],["market-structure","Market Structure"],["mtf","MTF Analysis"],["signals","Signals"],["signal-intelligence","Signal Intelligence"],["research-intelligence","Research Intelligence"],["portfolio","Portfolio"],["quant-lab","Quant Lab"],["billing","Plans & Billing"]];
+  const items: [AppPage,string][] = [["research-workspaces","Research Workspaces"],"market","Market Data"],["scanner","Scanner"],["watchlists","Watchlists"],["analysis","Technical Analysis"],["market-structure","Market Structure"],["mtf","MTF Analysis"],["signals","Signals"],["signal-intelligence","Signal Intelligence"],["research-intelligence","Research Intelligence"],["portfolio","Portfolio"],["quant-lab","Quant Lab"],["billing","Plans & Billing"]];
   return <header className="topbar"><div className="product-brand"><img src="/profitforge-logo.svg" alt="ProfitForge" /><div><div className="eyebrow">ProfitForge Intelligence</div><h1>ProfitForge</h1></div></div><nav className="main-nav" aria-label="Research sections">{items.map(([id,label])=><button key={id} className={`nav-button ${page===id?"active":""}`} onClick={()=>setPage(id)}>{label}</button>)}</nav><div className="topbar-actions"><span className="user-email">{user.email}</span><button className="logout" onClick={()=>void signOut()}><LogOut size={16}/>Sign out</button></div></header>;
 }
 
