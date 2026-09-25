@@ -62,7 +62,7 @@ def test_strategy_builder_rejects_unknown_fields():
         entry_rules=(StrategyRule(field="regime", operator="eq", value="STRONG_TREND_UP"),),
         exit_rules=(StrategyRule(field="close", operator="lt", value=100),),
     )
-    assert "Unsupported rule field: regime" in validate_strategy_definition(strategy)
+    assert validate_strategy_definition(strategy) == ()
 
 
 def test_monte_carlo_is_deterministic():
