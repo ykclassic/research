@@ -80,3 +80,39 @@ def validate_strategy_definition(strategy: StrategyDefinition) -> tuple[str, ...
     if not strategy.entry_rules: errors.append('At least one entry rule is required.')
     if not strategy.exit_rules: errors.append('At least one exit rule is required.')
     return tuple(errors)
+
+def diagnose(result: BacktestResult, baseline: BacktestResult | None = None, sensitivity_values: dict[str, list[float]] | None = None) -> StrategyDiagnosis:
+    trades = list(result.trades)
+    if not trades:
+        return StrategyDiagnosis(sample_weakness=True)
+    half = max(1, len(trades) // 2)
+    first = trades[:half]
+    second = trades[half:]
+    first_avg = mean(t.pnl for t in first) if first else 0.0
+    second_avg = mean(t.pnl for t in second) if second else 0.0
+    decay = ((second_avg - first_avg) / abs(first_avg)) if first_avg else None
+    regime_stats = {}
+    for t in trades:
+        key = t.regime or "UNKNOWN"
+        regime_stats.setdefault(key, []).append(t.pnl)
+    regime_deterioration = {}
+    for key, values in regime_stats.items():
+        if len(values) < 2:
+            continue
+        midpoint = max(1, len(values) // 2)
+        a, b = values[:midpoint], values[midpoint:]
+        regime_deterioration[key] = (mean(b) - mean(a)) / abs(mean(a)) if mean(a) else 0.0
+    unstable = []
+    for name, values in (sensitivity_values or {}).items():
+        if len(values) > 1 and max(values) != min(values):
+            unstable.append(name)
+    concentration = {key: len(values) / len(trades) for key, values in regime_stats.items()}
+    if baseline is not None and baseline.metrics.trades:
+        concentration["baseline_pnl_drift"] = (result.metrics.net_pnl - baseline.metrics.net_pnl) / max(abs(baseline.metrics.net_pnl), 1.0)
+    return StrategyDiagnosis(
+        performance_decay=decay,
+        concentration=concentration,
+        unstable_parameters=tuple(unstable),
+        sample_weakness=len(trades) < 30,
+        regime_deterioration=regime_deterioration,
+    )
