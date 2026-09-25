@@ -77,3 +77,4 @@ class ExecutionRequest(BaseModel):
     execution_mode: ExecutionMode = ExecutionMode.PAPER
     authorization: ExecutionAuthorization = ExecutionAuthorization()
     client_order_id: str | None = None
+    experiment_id: str | None = None
