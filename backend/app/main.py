@@ -23,6 +23,7 @@ from app.api.providers import router as providers_router
 from app.api.regime import router as regime_router
 from app.api.research_history import router as research_history_router
 from app.api.research_intelligence import router as research_intelligence_router
+from app.api.research_intelligence import router as research_intelligence_router
 from app.api.research_reports import router as research_reports_router
 from app.api.risk_management import router as risk_management_router
 from app.api.signals import router as signals_router
@@ -114,6 +115,7 @@ app.include_router(news_router)
 app.include_router(ai_research_router)
 app.include_router(research_reports_router)
 app.include_router(research_history_router)
+app.include_router(research_intelligence_router)
 app.include_router(research_intelligence_router)
 app.include_router(alerts_router)
 app.include_router(execution_router)
