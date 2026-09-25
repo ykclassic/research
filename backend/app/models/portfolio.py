@@ -1,12 +1,11 @@
 from __future__ import annotations
 
 from datetime import datetime
-from enum import Enum
 
 from pydantic import BaseModel, ConfigDict, Field
 
 
-class PositionSide(str, Enum):
+class PositionSide(str, __import__("enum").Enum):
     LONG = "LONG"
     SHORT = "SHORT"
 
@@ -16,6 +15,9 @@ class PortfolioPositionCreate(BaseModel):
     side: PositionSide
     quantity: float = Field(gt=0)
     average_entry_price: float = Field(gt=0)
+    asset_class: str = Field(default="OTHER", max_length=16)
+    sector: str = Field(default="OTHER", max_length=64)
+    category: str = Field(default="OTHER", max_length=64)
     notes: str | None = Field(default=None, max_length=500)
 
 
@@ -24,6 +26,9 @@ class PortfolioPositionUpdate(BaseModel):
     side: PositionSide | None = None
     quantity: float | None = Field(default=None, gt=0)
     average_entry_price: float | None = Field(default=None, gt=0)
+    asset_class: str | None = Field(default=None, max_length=16)
+    sector: str | None = Field(default=None, max_length=64)
+    category: str | None = Field(default=None, max_length=64)
     notes: str | None = Field(default=None, max_length=500)
 
 
