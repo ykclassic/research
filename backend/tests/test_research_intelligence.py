@@ -97,3 +97,26 @@ def test_provenance_defaults_model_version():
         engine_version="research-intelligence-v2",
     )
     assert item.model_version == "deterministic-research"
+
+
+def test_regime_watchpoint_matches_target_state():
+    from app.models.research_intelligence import Watchpoint
+    from app.services.research_intelligence import _evaluate
+
+    watchpoint = Watchpoint(
+        id="watch",
+        symbol="BTC/USD",
+        name="BTC strong downtrend",
+        condition_type="REGIME_CHANGE",
+        field="market_regime",
+        operator="eq",
+        value="STRONG_TREND_DOWN",
+        enabled=True,
+        last_state=None,
+        created_at=datetime.now(timezone.utc),
+        updated_at=datetime.now(timezone.utc),
+    )
+    current = snapshot({"market_regime": "STRONG_TREND_DOWN"})
+    matched, observed = _evaluate(watchpoint, current)
+    assert matched is True
+    assert observed == "STRONG_TREND_DOWN"

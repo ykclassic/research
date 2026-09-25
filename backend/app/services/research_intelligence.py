@@ -101,6 +101,7 @@ def _state_from_report(report: Any, signal_state: dict[str, Any] | None = None) 
     regime = report.regime_snapshot or {}
     structure = report.smc_structure.model_dump(mode="json")
     mtf = [item.model_dump(mode="json") for item in report.multi_timeframe]
+    timeframes = {str(item.get("timeframe")): item for item in mtf}
     fundamental = report.fundamental_context.model_dump(mode="json")
     signal = signal_state or {
         "status": regime.get("signal") or regime.get("signal_status"),
@@ -119,6 +120,7 @@ def _state_from_report(report: Any, signal_state: dict[str, Any] | None = None) 
         "regime_snapshot": regime,
         "structure": structure,
         "multi_timeframe": mtf,
+        "timeframes": timeframes,
         "fundamental": fundamental,
         "signal": signal,
         "research_score": report.overall_research_score,
@@ -206,7 +208,14 @@ def save_snapshot(access_token: str, user_id: str, snapshot_id: str) -> Research
     rows = _request("POST", "research_snapshots", access_token, json=payload, prefer="return=representation").json()
     if not rows:
         raise DataRequestError("Saved research snapshot was not created.")
-    return _snapshot(rows[0], current.provenance)
+    saved = _snapshot(rows[0])
+    provenance_rows = [
+        item.model_dump(mode="json", exclude={"id"}) | {"user_id": user_id, "snapshot_id": saved.id}
+        for item in current.provenance
+    ]
+    if provenance_rows:
+        _request("POST", "research_provenance", access_token, json=provenance_rows, prefer="return=minimal")
+    return saved.model_copy(update={"provenance": current.provenance})
 
 
 def list_snapshots(access_token: str, user_id: str, symbol: str, limit: int = 100) -> list[ResearchSnapshot]:
@@ -237,8 +246,10 @@ def _get_baseline(snapshots: list[ResearchSnapshot], current: ResearchSnapshot, 
     prior = [item for item in snapshots if item.id != current.id and item.snapshot_at < current.snapshot_at]
     if not prior:
         return None
-    if baseline_type in {"previous_session", "previous_report"}:
-        return prior[0]
+    if baseline_type == "previous_session":
+        return next((item for item in prior if item.snapshot_type in {"SESSION", "REPORT"}), prior[0])
+    if baseline_type == "previous_report":
+        return next((item for item in prior if item.snapshot_type == "REPORT"), None)
     if baseline_type == "previous_day":
         target = current.snapshot_at - timedelta(days=1)
         candidates = [item for item in prior if abs((item.snapshot_at - target).total_seconds()) <= 36 * 3600]
@@ -306,7 +317,7 @@ def _evaluate(watchpoint: Watchpoint, snapshot: ResearchSnapshot) -> tuple[bool,
         support = _field_value(snapshot, "support")
         return price is not None and support is not None and price < support, price
     if watchpoint.condition_type == "REGIME_CHANGE":
-        return bool(observed and observed != watchpoint.last_state), observed
+        return observed == target, observed
     if watchpoint.condition_type == "FIELD_EQUALS":
         return observed == target, observed
     if watchpoint.condition_type == "FIELD_THRESHOLD":
@@ -403,6 +414,7 @@ async def persist_catalyst_events(access_token: str, user_id: str, symbol: str, 
             "event_timestamp": item.published_at.isoformat(), "affected_assets": list(item.affected_assets),
             "sentiment": item.sentiment.value, "market_reaction": reactions.get(item.id, {}),
             "provider": item.provider,
+            "observed_at": datetime.now(timezone.utc).isoformat(),
         })
     for event in research.fundamental_events:
         records.append({
@@ -414,6 +426,7 @@ async def persist_catalyst_events(access_token: str, user_id: str, symbol: str, 
             "estimate": float(event.estimate) if isinstance(event.estimate, (int, float)) else None,
             "previous": float(event.previous) if isinstance(event.previous, (int, float)) else None,
             "surprise": float(event.surprise) if isinstance(event.surprise, (int, float)) else None,
+            "observed_at": datetime.now(timezone.utc).isoformat(),
         })
     if records:
         _request("POST", "research_catalyst_events", access_token, json=records, prefer="resolution=merge-duplicates,return=minimal")
