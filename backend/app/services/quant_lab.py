@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from hashlib import sha256
+import json
 from itertools import groupby
 from typing import Any, Iterable
 
@@ -40,13 +41,13 @@ def _match(value: Any, operator: str, target: Any) -> bool:
 
 
 def _rules_match(candle: Candle, rules: Iterable[Any]) -> bool:
-    context = {"open": candle.open, "high": candle.high, "low": candle.low, "close": candle.close, "volume": candle.volume}
+    context = {"open": candle.open, "high": candle.high, "low": candle.low, "close": candle.close, "volume": candle.volume, "timeframe": candle.timeframe.value, **candle.features}
     return all(_match(context.get(rule.field), rule.operator, rule.value) for rule in rules)
 
 
 def _dataset_fingerprint(dataset: OHLCVDataset) -> str:
     canonical = "|".join(
-        f"{c.timestamp.isoformat()}:{c.open}:{c.high}:{c.low}:{c.close}:{c.volume}"
+        f"{c.timestamp.isoformat()}:{c.open}:{c.high}:{c.low}:{c.close}:{c.volume}:{json.dumps(c.features, sort_keys=True, default=str)}"
         for c in dataset.completed_candles
     )
     return sha256(f"{dataset.symbol}|{dataset.timeframe.value}|{dataset.source}|{canonical}".encode()).hexdigest()
