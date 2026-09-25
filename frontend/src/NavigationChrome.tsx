@@ -20,6 +20,7 @@ const GROUPS: readonly NavGroup[] = [
     { label: "Signals", page: "signals", route: "/analysis/signals", icon: ShieldCheck },
   ] },
   { label: "Research", items: [
+    { label: "Research Workspaces", page: "research-workspaces", route: "/research/workspaces", icon: FlaskConical },
     { label: "Quant Lab", page: "quant-lab", route: "/quant-lab", icon: FlaskConical },
     { label: "AI Market Research", page: "ai-research", route: "/research/ai", icon: BrainCircuit },
     { label: "News & Fundamentals", page: "news-research", route: "/research/news", icon: Newspaper },
