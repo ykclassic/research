@@ -26,7 +26,8 @@ export type AppPage = "quant-lab" | "market" | "watchlists" | "analysis" | "mark
 
 type AuthMode = "login" | "register" | "forgot" | "reset";
 
-const ROUTES: Record<AppPage, string> = {\n  "quant-lab": "/quant-lab",
+const ROUTES: Record<AppPage, string> = {
+  "quant-lab": "/quant-lab",
   market: "/dashboard",
   watchlists: "/markets/watchlists",
   analysis: "/analysis/technical",
@@ -246,7 +247,8 @@ function App(){
   if(page==="signals")return <SignalPage user={user} onLogout={onLogout} setPage={navigate}/>;
   if(page==="signal-outcome")return <SignalOutcomePage user={user} onLogout={onLogout} setPage={navigate}/>;
   if(page==="signal-intelligence")return <SignalIntelligencePage user={user} onLogout={onLogout} setPage={navigate}/>;
-  if(page==="portfolio")return <PortfolioPage user={user} onLogout={onLogout} setPage={navigate}/>;\n  if(page==="quant-lab")return <QuantLabPage user={user} onLogout={onLogout} setPage={navigate}/>;
+  if(page==="portfolio")return <PortfolioPage user={user} onLogout={onLogout} setPage={navigate}/>;
+  if(page==="quant-lab")return <QuantLabPage user={user} onLogout={onLogout} setPage={navigate}/>;
   if(page==="ai-research")return <AIResearchPage user={user} onLogout={onLogout} setPage={navigate}/>;
   if(page==="news-research")return <NewsResearchPage onLogout={onLogout}/>;
   if(page==="research-reports")return <ResearchReportsPage/>;
