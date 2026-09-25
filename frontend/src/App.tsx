@@ -14,7 +14,6 @@ import AIResearchPage from "./AIResearchPage";
 import NewsResearchPage from "./NewsResearchPage";
 import ResearchReportsPage from "./ResearchReportsPage";
 import ResearchHistoryPage from "./ResearchHistoryPage";
-import ResearchIntelligencePage from "./ResearchIntelligencePage";
 import AlertsPage from "./AlertsPage";
 import SettingsPage from "./SettingsPage";
 import TradingSessionPanel from "./TradingSessionPanel";
@@ -22,7 +21,7 @@ import BillingPage from "./BillingPage";
 import ScannerPage from "./ScannerPage";
 import ResearchIntelligencePage from "./ResearchIntelligencePage";
 
-export type AppPage = "market" | "watchlists" | "analysis" | "market-structure" | "mtf" | "signals" | "signal-outcome" | "signal-intelligence" | "portfolio" | "ai-research" | "news-research" | "research-reports" | "research-history" | "research-intelligence" | "alerts" | "settings" | "billing" | "scanner" | "research-intelligence";
+export type AppPage = "market" | "watchlists" | "analysis" | "market-structure" | "mtf" | "signals" | "signal-outcome" | "signal-intelligence" | "portfolio" | "ai-research" | "news-research" | "research-reports" | "research-history" | "research-intelligence" | "alerts" | "settings" | "billing" | "scanner";
 
 type AuthMode = "login" | "register" | "forgot" | "reset";
 
@@ -45,7 +44,6 @@ const ROUTES: Record<AppPage, string> = {
   settings: "/settings",
   billing: "/billing",
   scanner: "/monitoring/scanner",
-  "research-intelligence": "/research/intelligence",
 };
 
 const PAGE_BY_ROUTE = new Map(Object.entries(ROUTES).map(([page, route]) => [route, page as AppPage]));
