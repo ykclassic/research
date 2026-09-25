@@ -111,3 +111,4 @@ drop policy if exists research_automation_rules_own on public.research_automatio
 create policy research_automation_rules_own on public.research_automation_rules for all to authenticated using ((select auth.uid()) = user_id) with check ((select auth.uid()) = user_id);
 drop policy if exists research_cross_asset_runs_own on public.research_cross_asset_runs;
 create policy research_cross_asset_runs_own on public.research_cross_asset_runs for all to authenticated using ((select auth.uid()) = user_id) with check ((select auth.uid()) = user_id);
+grant select, insert, update, delete on public.research_workspaces, public.research_workspace_assets, public.research_workspace_dashboards, public.research_workspace_links, public.research_scorecards, public.research_automation_rules, public.research_cross_asset_runs to authenticated;
