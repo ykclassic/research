@@ -54,6 +54,7 @@ class Candle(BaseModel):
     timeframe: Timeframe
     source: str
     is_complete: bool
+    features: dict[str, object] = Field(default_factory=dict)
 
     @field_validator("timestamp")
     @classmethod
