@@ -6,7 +6,7 @@ import { getPreferences, type DisplayPreferences } from "./settingsApi";
 type NavItem = { label: string; page: string; route: string; icon: LucideIcon };
 type NavGroup = { label: string; items: readonly NavItem[] };
 
-const GROUPS: readonly NavGroup[] = [
+// Portfolio is a primary workspace destination alongside the dashboard.\nconst GROUPS: readonly NavGroup[] = [
   { label: "Overview", items: [
     { label: "Dashboard", page: "market", route: "/dashboard", icon: LayoutDashboard },
     { label: "Portfolio", page: "portfolio", route: "/portfolio", icon: BriefcaseBusiness },
