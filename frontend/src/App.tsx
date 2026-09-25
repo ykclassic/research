@@ -254,7 +254,6 @@ function App(){
   if(page==="settings")return <SettingsPage user={user} onLogout={onLogout} setPage={navigate}/>;
   if(page==="billing")return <BillingPage user={user} onLogout={onLogout}/>;
   if(page==="scanner")return <ScannerPage user={user} onLogout={onLogout} setPage={navigate}/>;
-  if(page==="research-intelligence")return <ResearchIntelligencePage/>;
   return <AlertsPage/>;
 }
 
