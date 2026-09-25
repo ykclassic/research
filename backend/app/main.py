@@ -21,6 +21,7 @@ from app.api.news import router as news_router
 from app.api.performance import router as performance_router
 from app.api.portfolio import router as portfolio_router
 from app.api.quant_lab import router as quant_lab_router
+from app.api.research_workspaces import router as research_workspaces_router
 from app.api.providers import router as providers_router
 from app.api.regime import router as regime_router
 from app.api.research_history import router as research_history_router
@@ -123,6 +124,7 @@ app.include_router(execution_router)
 app.include_router(performance_router)
 app.include_router(portfolio_router)
 app.include_router(quant_lab_router)
+app.include_router(research_workspaces_router)
 
 
 @app.get("/health")
