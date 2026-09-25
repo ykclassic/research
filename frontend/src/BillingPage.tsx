@@ -4,7 +4,7 @@ import type { User } from "./api";
 import { getBillingHistory, getBillingPlans, getEntitlements, getSubscription, getUsage, startProTrial, startCheckout, changePlan, reconcileCheckout, cancelSubscription, resumeSubscription, type BillingEvent, type BillingPlan, type BillingSubscription, type EntitlementSnapshot, type UsageSummary } from "./billingApi";
 
 type Props={user:User;onLogout:()=>void};
-const labels:Record<string,string>={core_research:"Core market research",watchlists:"Watchlists",basic_portfolio:"Basic portfolio",signal_intelligence:"Signal intelligence",ai_research:"AI research",advanced_portfolio_analytics:"Advanced portfolio analytics",backtesting:"Backtesting",strategy_builder:"Strategy builder",scanner:"Intelligent scanner",webhooks:"Webhooks",scheduled_workflows:"Scheduled workflows",api:"API access",mcp:"MCP access",exports:"Advanced exports",team_workspaces:"Team workspaces"};
+const labels:Record<string,string>={core_research:"Core market research",watchlists:"Watchlists",basic_portfolio:"Basic portfolio",signal_intelligence:"Signal intelligence",ai_research:"AI research",advanced_portfolio_analytics:"Advanced portfolio analytics",backtesting:"Backtesting",strategy_builder:"Strategy builder",scanner:"Intelligent scanner",webhooks:"Webhooks",scheduled_workflows:"Scheduled workflows",api:"API access",mcp:"MCP access",exports:"Advanced exports",team_workspaces:"Team workspaces",copilot_deep_research:"Copilot deep research",copilot_multi_step:"Copilot multi-step research"};
 const freeFeatures=new Set(["core_research","watchlists","basic_portfolio","signal_intelligence","ai_research"]);
 const money=(minor:number,currency:string)=>minor===0?"Free":currency+" "+(minor/100).toFixed(2)+"/month";
 

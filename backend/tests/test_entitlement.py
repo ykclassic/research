@@ -100,3 +100,28 @@ def test_get_usage_loads_threshold_notifications(monkeypatch):
 
     assert result["notifications"][0]["threshold_percent"] == 80
     assert result["metrics"]["ai_research_runs"]["used"] == 2
+
+
+def test_paid_feature_matrix_includes_quant_and_copilot_features():
+    assert {"backtesting", "strategy_builder", "copilot_deep_research", "copilot_multi_step"} <= entitlement.FEATURE_KEYS
+    assert "copilot_research_runs" in entitlement.METRICS
+
+
+def test_pro_can_resolve_quant_lab_feature(monkeypatch):
+    monkeypatch.setattr(
+        entitlement,
+        "get_entitlement_snapshot",
+        lambda *_: {
+            "plan_id": "pro",
+            "features": {
+                "backtesting": True,
+                "strategy_builder": True,
+                "copilot_deep_research": True,
+                "copilot_multi_step": True,
+            },
+            "plan": {"id": "pro"},
+            "limits": {},
+            "subscription": None,
+        },
+    )
+    assert entitlement.require_feature("token", "user", "backtesting")["plan_id"] == "pro"
