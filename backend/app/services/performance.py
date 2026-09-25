@@ -60,3 +60,54 @@ def summarize_performance(trades: list[TradeOutcome]) -> tuple[PerformanceSummar
             profit_factor=profit_factor,
         ))
     return tuple(summaries)
+
+
+def summarize_backtest_trades(trades):
+    """Canonical performance aggregation for deterministic Quant Lab results."""
+    from app.models.quant_lab import BacktestMetrics
+
+    if not trades:
+        return BacktestMetrics(
+            trades=0,
+            net_pnl=0,
+            expectancy=0,
+            profit_factor=None,
+            win_rate=0,
+            max_drawdown=0,
+            average_r=0,
+        )
+
+    pnls = [trade.pnl for trade in trades]
+    wins = [pnl for pnl in pnls if pnl > 0]
+    losses = [pnl for pnl in pnls if pnl < 0]
+    equity = peak = max_drawdown = 0.0
+    for pnl in pnls:
+        equity += pnl
+        peak = max(peak, equity)
+        max_drawdown = max(max_drawdown, peak - equity)
+
+    def breakdown(key):
+        groups = {}
+        for trade in trades:
+            groups.setdefault(key(trade), []).append(trade)
+        return {
+            group: {
+                "trades": float(len(items)),
+                "net_pnl": sum(item.pnl for item in items),
+                "win_rate": sum(item.pnl > 0 for item in items) / len(items),
+            }
+            for group, items in groups.items()
+        }
+
+    return BacktestMetrics(
+        trades=len(trades),
+        net_pnl=sum(pnls),
+        expectancy=sum(pnls) / len(pnls),
+        profit_factor=(sum(wins) / abs(sum(losses)) if losses else None),
+        win_rate=len(wins) / len(trades),
+        max_drawdown=max_drawdown,
+        average_r=sum(trade.r_multiple for trade in trades) / len(trades),
+        r_distribution=tuple(trade.r_multiple for trade in trades),
+        regime_breakdown=breakdown(lambda trade: trade.regime or "UNKNOWN"),
+        timeframe_breakdown=breakdown(lambda trade: trade.timeframe),
+    )
