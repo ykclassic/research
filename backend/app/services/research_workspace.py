@@ -156,3 +156,22 @@ def diagnosis(token: str,user_id: str,experiment_id: str) -> dict[str,Any]:
 
 def list_cross_asset(token: str,user_id: str,workspace_id: str) -> list[dict[str,Any]]:
     return _get("research_cross_asset_runs",token,user_id,workspace_id=f"eq.{workspace_id}",order="created_at.desc",limit="20")
+
+
+async def run_due_automation_rules(token: str) -> dict[str,int]:
+    now=datetime.now(timezone.utc)
+    due=_request("GET","research_automation_rules",token,params={"select":"*","enabled":"eq.true","trigger_type":"eq.SCHEDULE","next_run_at":f"lte.{now.isoformat()}","limit":"500"}).json()
+    completed=failed=0
+    from app.services.research_copilot import ResearchCopilotService
+    copilot=ResearchCopilotService()
+    for rule in due:
+        try:
+            action=rule.get("action") or {}
+            if action.get("type","RESEARCH_RUN") == "RESEARCH_RUN":
+                query=action.get("query") or f"Research intelligence for {rule.get('symbol') or 'workspace assets'}"
+                await copilot.run(token,rule["user_id"],query,rule.get("symbol") or "BTC/USD")
+            _request("PATCH","research_automation_rules",token,params={"id":f"eq.{rule['id']}"},json={"last_triggered_at":now.isoformat(),"next_run_at":(now.replace(minute=0,second=0,microsecond=0)+__import__("datetime").timedelta(days=1)).isoformat()})
+            completed+=1
+        except Exception:
+            failed+=1
+    return {"scheduled":len(due),"completed":completed,"failed":failed}
