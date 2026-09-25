@@ -6,7 +6,8 @@ from collections import defaultdict
 from datetime import datetime, timezone
 from typing import Any
 
-from app.models.portfolio import PositionSide, PortfolioSummary\nfrom app.models.market import Timeframe
+from app.models.portfolio import PositionSide, PortfolioSummary
+from app.models.market import Timeframe
 from app.models.portfolio_intelligence import (
     CorrelationCluster,
     CorrelationEntry,
