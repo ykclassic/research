@@ -8,10 +8,11 @@ from app.services.quote_service import QuoteService
 from app.services.supabase_data import _request
 
 quote_service = QuoteService()
+SELECT = "id,user_id,symbol,side,quantity,average_entry_price,asset_class,sector,category,notes,created_at,updated_at"
 
 
 def _rows(access_token: str, user_id: str) -> list[dict[str, Any]]:
-    response = _request("GET", "portfolio_positions", access_token, params={"select": "id,user_id,symbol,side,quantity,average_entry_price,notes,created_at,updated_at", "user_id": f"eq.{user_id}", "order": "created_at.asc"})
+    response = _request("GET", "portfolio_positions", access_token, params={"select": SELECT, "user_id": f"eq.{user_id}", "order": "created_at.asc"})
     return response.json()
 
 
@@ -70,7 +71,8 @@ def scenario(summary: PortfolioSummary, change_percent: float) -> ScenarioResult
     delta = 0.0
     affected = 0
     for snapshot in summary.positions:
-        if snapshot.current_price is None: continue
+        if snapshot.current_price is None:
+            continue
         affected += 1
         signed = 1 if snapshot.position.side == PositionSide.LONG else -1
         delta += snapshot.market_value * (change_percent / 100) * signed
