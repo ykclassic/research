@@ -35,7 +35,7 @@ def _metrics(trades:list[TradeResult])->BacktestMetrics:
     pnls=[t.pnl for t in trades]; wins=[p for p in pnls if p>0]; losses=[p for p in pnls if p<0]
     equity=peak=0.; max_dd=0.
     for pnl in pnls: equity+=pnl; peak=max(peak,equity); max_dd=max(max_dd,peak-equity)
-    groups=lambda key:{k:{"trades":float(len(v)),"net_pnl":sum(x.pnl for x in v),"win_rate":sum(x.pnl>0 for x in v)/len(v)} for k,v in __import__("itertools").groupby(sorted(trades,key=key),key)}
+    groups=lambda key:{k:{"trades":float(len(items)),"net_pnl":sum(x.pnl for x in items),"win_rate":sum(x.pnl>0 for x in items)/len(items)} for k,v in __import__("itertools").groupby(sorted(trades,key=key),key) for items in [list(v)]}
     return BacktestMetrics(trades=len(trades),net_pnl=sum(pnls),expectancy=sum(pnls)/len(pnls),profit_factor=(sum(wins)/abs(sum(losses)) if losses else None),win_rate=len(wins)/len(trades),max_drawdown=max_dd,average_r=sum(t.r_multiple for t in trades)/len(trades),r_distribution=tuple(t.r_multiple for t in trades),regime_breakdown=groups(lambda t:t.regime or "UNKNOWN"),timeframe_breakdown=groups(lambda t:t.timeframe))
 
 def validate_experiment(spec:ExperimentSpec)->tuple[bool,tuple[str,...]]:
