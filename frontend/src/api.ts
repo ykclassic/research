@@ -87,7 +87,7 @@ export interface SignalOutcomeRecord {
 }
 export interface AIResearchResponse { symbol: string; timeframe: string; deterministic_gate: "PASSED"; verified_context: Record<string, unknown>; report: string; model: string; }
 export type PositionSide = "LONG" | "SHORT";
-export interface PortfolioPosition { id: string; user_id: string; symbol: string; side: PositionSide; quantity: number; average_entry_price: number; notes: string | null; created_at: string; updated_at: string; }
+export interface PortfolioPosition { id: string; user_id: string; symbol: string; side: PositionSide; quantity: number; average_entry_price: number; asset_class: string; sector: string; category: string; notes: string | null; created_at: string; updated_at: string; }
 export interface PortfolioPositionSnapshot { position: PortfolioPosition; current_price: number | null; market_value: number; unrealized_pnl: number | null; pnl_percent: number | null; quote_status: string; quote_timestamp: string | null; }
 export interface PortfolioSummary { calculated_at: string; position_count: number; invested_value: number; gross_exposure: number; net_exposure: number; unrealized_pnl: number; unrealized_pnl_percent: number | null; max_position_concentration_percent: number; portfolio_drawdown_percent: number; risk_flags: string[]; positions: PortfolioPositionSnapshot[]; }
 export interface PortfolioScenario { price_change_percent: number; projected_unrealized_pnl: number; projected_pnl_delta: number; projected_gross_exposure: number; affected_positions: number; }
@@ -187,7 +187,7 @@ export async function getCryptoSignals(limit = 250): Promise<CryptoSignalList> {
 export async function getSignal(symbol: string, limit = 250): Promise<CryptoSignal> { const params = new URLSearchParams({ limit: String(limit) }); return request<CryptoSignal>(`/api/signals/${encodeURIComponent(symbol)}?${params}`); }
 export async function createAIResearchReport(symbol: string, timeframe = "1h", limit = 250, question?: string): Promise<AIResearchResponse> { return authenticatedMutation<AIResearchResponse>("/api/ai-research/report", { method: "POST", body: JSON.stringify({ symbol, timeframe, limit, question }) }); }
 export async function getPortfolioSummary(): Promise<PortfolioSummary> { return request<PortfolioSummary>("/api/portfolio/summary"); }
-export async function createPortfolioPosition(payload: { symbol: string; side: PositionSide; quantity: number; average_entry_price: number; notes?: string }): Promise<PortfolioPosition> { return authenticatedMutation<PortfolioPosition>("/api/portfolio/positions", { method: "POST", body: JSON.stringify(payload) }); }
+export async function createPortfolioPosition(payload: { symbol: string; side: PositionSide; quantity: number; average_entry_price: number; asset_class?: string; sector?: string; category?: string; notes?: string }): Promise<PortfolioPosition> { return authenticatedMutation<PortfolioPosition>("/api/portfolio/positions", { method: "POST", body: JSON.stringify(payload) }); }
 export async function deletePortfolioPosition(id: string): Promise<void> { await authenticatedMutation<void>(`/api/portfolio/positions/${encodeURIComponent(id)}`, { method: "DELETE" }); }
 export async function runPortfolioScenario(priceChangePercent: number): Promise<PortfolioScenario> { return request<PortfolioScenario>("/api/portfolio/scenario", { method: "POST", body: JSON.stringify({ price_change_percent: priceChangePercent }) }); }
 
