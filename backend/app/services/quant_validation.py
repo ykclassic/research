@@ -73,7 +73,7 @@ def compare_paper_to_backtest(result: BacktestResult, paper_trades: Iterable[Pap
 
 def validate_strategy_definition(strategy: StrategyDefinition) -> tuple[str, ...]:
     errors = []
-    allowed_fields = {'open', 'high', 'low', 'close', 'volume'}
+    allowed_fields = {'open', 'high', 'low', 'close', 'volume', 'timeframe', 'regime', 'trend_aligned', 'liquidity_sweep', 'rr'}
     for rule in (*strategy.entry_rules, *strategy.exit_rules):
         if rule.field not in allowed_fields: errors.append(f'Unsupported rule field: {rule.field}')
         if rule.operator == 'contains' and not isinstance(rule.value, (str, list, tuple, set)): errors.append(f'contains requires a collection or string value for {rule.field}')
