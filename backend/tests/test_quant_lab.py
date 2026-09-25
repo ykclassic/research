@@ -1,6 +1,7 @@
 from datetime import datetime, timezone, timedelta
 
 import pytest
+from pydantic import ValidationError
 
 from app.models.quant_lab import ExperimentSpec, ExecutionAssumptions
 from app.services.quant_lab import validate_experiment
@@ -35,7 +36,7 @@ def test_experiment_rejects_non_chronological_splits():
 def test_experiment_contract_is_immutable_and_hashable():
     spec = _spec(execution=ExecutionAssumptions(commission_bps=2, slippage_bps=3, spread_bps=1))
     assert len(spec.spec_hash) == 64
-    with pytest.raises(Exception):
+    with pytest.raises(ValidationError):
         spec.dataset_version = "changed"
 
 
