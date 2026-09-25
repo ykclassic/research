@@ -74,7 +74,7 @@ def create_scorecard(token: str,user_id: str,workspace_id: str,payload: dict[str
     require_feature(token,user_id,"advanced_research")
     return _one("research_scorecards",token,user_id,{"workspace_id":workspace_id,**payload})
 
-def evaluate_scorecard(token: str,user_id: str,scorecard: dict[str,Any],symbol: str) -> dict[str,Any]:
+async def evaluate_scorecard(token: str,user_id: str,scorecard: dict[str,Any],symbol: str) -> dict[str,Any]:
     factors=scorecard.get("factors") or []
     scores=[]; total_weight=0.0; weighted=0.0
     try:
