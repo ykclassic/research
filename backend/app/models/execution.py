@@ -35,6 +35,7 @@ class OrderRequest(BaseModel):
     model_config = ConfigDict(frozen=True)
 
     client_order_id: str = Field(min_length=1)
+    experiment_id: str | None = None
     symbol: str = Field(min_length=1)
     direction: SignalDirection
     quantity: float = Field(gt=0)
@@ -63,6 +64,7 @@ class ExecutionResult(BaseModel):
     stop_loss: float
     take_profit: float
     strategy_id: str
+    experiment_id: str | None = None
     generated_at: datetime
     executed_at: datetime | None = None
     message: str
