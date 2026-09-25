@@ -138,7 +138,10 @@ async def cross_asset(token: str,user_id: str,workspace_id: str,symbols:list[str
 
 def create_automation(token: str,user_id: str,workspace_id: str,payload:dict[str,Any]) -> dict[str,Any]:
     require_feature(token,user_id,"scheduled_workflows")
-    return _one("research_automation_rules",token,user_id,{"workspace_id":workspace_id,**payload})
+    row = {"workspace_id":workspace_id, **payload}
+    if row.get("trigger_type") == "SCHEDULE" and not row.get("next_run_at"):
+        row["next_run_at"] = (datetime.now(timezone.utc) + __import__("datetime").timedelta(hours=1)).isoformat()
+    return _one("research_automation_rules",token,user_id,row)
 
 def diagnosis(token: str,user_id: str,experiment_id: str) -> dict[str,Any]:
     require_feature(token,user_id,"advanced_research")
