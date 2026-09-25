@@ -7,7 +7,7 @@ from pydantic import BaseModel, Field
 
 from app.api.auth import UserResponse, _require_csrf, get_current_user
 from app.models.market import OHLCVDataset
-from app.models.quant_lab import BacktestResult, ExperimentSpec, StrategyDefinition, StrategyBuilderRequest, RobustnessResult, PaperBacktestComparison
+from app.models.quant_lab import BacktestResult, ExperimentSpec, StrategyDefinition, StrategyBuilderRequest, RobustnessResult, PaperBacktestComparison, PaperTrade
 from app.services.entitlement import require_feature
 from app.services.quant_lab import create_portfolio, list_portfolios, list_trades, run_backtest
 from app.services.quant_validation import compare_paper_to_backtest, robustness, validate_strategy_definition
@@ -108,7 +108,7 @@ async def saved_strategies(
 class RobustnessRequest(BaseModel):
     experiment: ExperimentSpec
     result: BacktestResult
-    sensitivity_values: dict[str, list[float]] = {}
+    sensitivity_values: dict[str, list[float]] = Field(default_factory=dict)
 
 
 @router.post("/robustness", response_model=RobustnessResult, dependencies=[Depends(_require_csrf)])
@@ -127,7 +127,7 @@ async def validate_robustness(
 class PaperComparisonRequest(BaseModel):
     experiment_id: str
     result: BacktestResult
-    paper_trades: list
+    paper_trades: list[PaperTrade]
 
 
 @router.post("/paper-comparison", response_model=PaperBacktestComparison)
