@@ -7,9 +7,11 @@ from pydantic import BaseModel, Field
 
 from app.api.auth import UserResponse, _require_csrf, get_current_user
 from app.models.market import OHLCVDataset
-from app.models.quant_lab import BacktestResult, ExperimentSpec, StrategyDefinition
+from app.models.quant_lab import BacktestResult, ExperimentSpec, StrategyDefinition, StrategyBuilderRequest, RobustnessResult, PaperBacktestComparison
 from app.services.entitlement import require_feature
 from app.services.quant_lab import create_portfolio, list_portfolios, list_trades, run_backtest
+from app.services.quant_validation import compare_paper_to_backtest, robustness, validate_strategy_definition
+from app.services.supabase_data import _request
 
 router = APIRouter(prefix="/api/quant-lab", tags=["quant-lab"])
 
@@ -70,3 +72,70 @@ async def trades(
     access_token: Annotated[str | None, Cookie(alias="mr_access_token")] = None,
 ):
     return {"items": list_trades(_token(access_token), user.id, portfolio_id)}
+
+
+@router.post("/strategies", dependencies=[Depends(_require_csrf)])
+async def save_strategy(
+    payload: StrategyBuilderRequest,
+    user: Annotated[UserResponse, Depends(get_current_user)],
+    access_token: Annotated[str | None, Cookie(alias="mr_access_token")] = None,
+):
+    token = _token(access_token)
+    require_feature(token, user.id, "strategy_builder")
+    strategy = StrategyDefinition(**payload.model_dump())
+    errors = validate_strategy_definition(strategy)
+    if errors:
+        raise HTTPException(status_code=422, detail=list(errors))
+    row = _request(
+        "POST", "strategy_definitions", token,
+        json={"user_id": user.id, "name": strategy.name, "version": strategy.version, "definition": strategy.model_dump(mode="json")},
+        prefer="return=representation",
+    ).json()
+    return {"item": strategy.model_copy(update={"id": str(row[0]["id"])})}
+
+
+@router.get("/strategies")
+async def saved_strategies(
+    user: Annotated[UserResponse, Depends(get_current_user)],
+    access_token: Annotated[str | None, Cookie(alias="mr_access_token")] = None,
+):
+    token = _token(access_token)
+    require_feature(token, user.id, "strategy_builder")
+    rows = _request("GET", "strategy_definitions", token, params={"select":"id,name,version,definition,created_at","user_id":f"eq.{user.id}","order":"created_at.desc"}).json()
+    return {"items": rows}
+
+
+class RobustnessRequest(BaseModel):
+    experiment: ExperimentSpec
+    result: BacktestResult
+    sensitivity_values: dict[str, list[float]] = {}
+
+
+@router.post("/robustness", response_model=RobustnessResult, dependencies=[Depends(_require_csrf)])
+async def validate_robustness(
+    payload: RobustnessRequest,
+    user: Annotated[UserResponse, Depends(get_current_user)],
+    access_token: Annotated[str | None, Cookie(alias="mr_access_token")] = None,
+):
+    token = _token(access_token)
+    require_feature(token, user.id, "backtesting")
+    if payload.result.spec_hash != payload.experiment.spec_hash:
+        raise HTTPException(status_code=422, detail="Experiment and backtest result spec hashes must match.")
+    return robustness(payload.result, payload.experiment, payload.sensitivity_values)
+
+
+class PaperComparisonRequest(BaseModel):
+    experiment_id: str
+    result: BacktestResult
+    paper_trades: list
+
+
+@router.post("/paper-comparison", response_model=PaperBacktestComparison)
+async def paper_comparison(
+    payload: PaperComparisonRequest,
+    user: Annotated[UserResponse, Depends(get_current_user)],
+    access_token: Annotated[str | None, Cookie(alias="mr_access_token")] = None,
+):
+    token = _token(access_token)
+    require_feature(token, user.id, "backtesting")
+    return compare_paper_to_backtest(payload.result, payload.paper_trades, payload.experiment_id)
