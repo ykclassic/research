@@ -19,6 +19,7 @@ from app.models.quant_lab import (
 from app.services.entitlement import require_feature
 from app.services.supabase_data import DataRequestError, _request
 from app.services.performance import summarize_backtest_trades
+from app.services.quant_validation import validate_strategy_definition
 
 ENGINE_VERSION = "quant-lab-v2-deterministic"
 DATASET_VERSION = "ohlcv-completed-v1"
@@ -156,6 +157,9 @@ def run_backtest(
     """Run and persist one immutable experiment through the canonical event loop."""
     require_feature(access_token, user_id, "backtesting")
     valid, warnings = validate_experiment(spec)
+    strategy_errors = validate_strategy_definition(strategy)
+    if strategy_errors:
+        raise ValueError("; ".join(strategy_errors))
     if not valid:
         raise ValueError("; ".join(warnings))
     if dataset.timeframe is not strategy.timeframe:
