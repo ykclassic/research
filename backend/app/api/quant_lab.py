@@ -11,6 +11,7 @@ from app.models.quant_lab import BacktestResult, ExperimentSpec, StrategyDefinit
 from app.services.entitlement import require_feature
 from app.services.quant_lab import create_portfolio, list_portfolios, list_trades, run_backtest
 from app.services.quant_validation import compare_paper_to_backtest, diagnose, robustness, validate_strategy_definition
+from app.models.quant_lab import WalkForwardResult, WalkForwardWindow
 from app.services.supabase_data import _request
 
 router = APIRouter(prefix="/api/quant-lab", tags=["quant-lab"])
@@ -156,3 +157,55 @@ async def strategy_diagnosis(
     token = _token(access_token)
     require_feature(token, user.id, "backtesting")
     return {"item": diagnose(payload.result, payload.baseline, payload.sensitivity_values)}
+
+
+class WalkForwardRequest(BacktestRequest):
+    step_days: int = Field(default=7, ge=1, le=365)
+
+
+@router.post("/walk-forward", response_model=WalkForwardResult, dependencies=[Depends(_require_csrf)])
+async def walk_forward_backtest(
+    payload: WalkForwardRequest,
+    user: Annotated[UserResponse, Depends(get_current_user)],
+    access_token: Annotated[str | None, Cookie(alias="mr_access_token")] = None,
+):
+    token = _token(access_token)
+    require_feature(token, user.id, "backtesting")
+    from datetime import timedelta
+    train_len = payload.experiment.train_end - payload.experiment.train_start
+    validation_len = payload.experiment.validation_end - payload.experiment.validation_start
+    test_len = payload.experiment.test_end - payload.experiment.test_start
+    step = timedelta(days=payload.step_days)
+    cursor = payload.experiment.train_start
+    dataset_end = max(c.timestamp for c in payload.dataset.completed_candles)
+    windows = []
+    oos_trades = 0
+    oos_pnl = 0.0
+    while cursor + train_len + validation_len + test_len <= dataset_end:
+        train_start = cursor
+        train_end = train_start + train_len
+        validation_start = train_end + (payload.experiment.validation_start - payload.experiment.train_end)
+        validation_end = validation_start + validation_len
+        test_start = validation_end + (payload.experiment.test_start - payload.experiment.validation_end)
+        test_end = test_start + test_len
+        if test_end > dataset_end:
+            break
+        spec = payload.experiment.model_copy(update={
+            "train_start": train_start, "train_end": train_end,
+            "validation_start": validation_start, "validation_end": validation_end,
+            "test_start": test_start, "test_end": test_end,
+        })
+        result = run_backtest(token, user.id, payload.strategy, payload.dataset, spec)
+        windows.append(WalkForwardWindow(train_start=train_start, train_end=train_end, validation_start=validation_start, validation_end=validation_end, test_start=test_start, test_end=test_end))
+        oos_trades += result.metrics.trades
+        oos_pnl += result.metrics.net_pnl
+        cursor += step
+    if not windows:
+        raise HTTPException(status_code=422, detail="Dataset does not contain enough chronological history for one walk-forward window.")
+    return WalkForwardResult(
+        windows=tuple(windows),
+        oos_trades=oos_trades,
+        oos_net_pnl=oos_pnl,
+        oos_expectancy=oos_pnl / oos_trades if oos_trades else 0.0,
+        warnings=(),
+    )
