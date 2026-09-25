@@ -5,7 +5,6 @@ from typing import Any
 
 from app.models.news import NewsResearchResponse
 from app.preferences.service import preferences_service
-from app.services.research_report import ResearchReportService
 from app.models.research_intelligence import (
     CatalystRecord,
     ChangeItem,
@@ -430,6 +429,7 @@ async def run_research_intelligence_cycle(access_token: str, interval_minutes: i
         params={"select": "user_id,symbol", "enabled": "eq.true", "limit": "1000"},
     ).json()
     targets = sorted({(str(row["user_id"]), str(row["symbol"]).upper()) for row in rows})
+    from app.services.research_report import ResearchReportService
     service = ResearchReportService()
     snapshots = 0
     events = 0
