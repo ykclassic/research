@@ -251,6 +251,7 @@ function App(){
   if(page==="signal-intelligence")return <SignalIntelligencePage user={user} onLogout={onLogout} setPage={navigate}/>;
   if(page==="portfolio")return <PortfolioPage user={user} onLogout={onLogout} setPage={navigate}/>;
   if(page==="quant-lab")return <QuantLabPage user={user} onLogout={onLogout} setPage={navigate}/>;
+  if(page==="research-workspaces")return <ResearchWorkspacesPage/>;
   if(page==="ai-research")return <AIResearchPage user={user} onLogout={onLogout} setPage={navigate}/>;
   if(page==="news-research")return <NewsResearchPage onLogout={onLogout}/>;
   if(page==="research-reports")return <ResearchReportsPage/>;
