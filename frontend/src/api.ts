@@ -313,3 +313,22 @@ export async function runResearchCopilot(query: string, defaultSymbol = "BTC/USD
 export async function getResearchCopilotHistory(): Promise<Array<Record<string, unknown>>> {
   return request("/api/research-copilot/history");
 }
+
+
+export interface PortfolioExposure { symbol:string; market_value:number; weight_percent:number; net_weight_percent:number; side:string; asset_class:string; sector:string; category:string; }
+export interface CorrelationEntry { symbol:string; correlation:number; }
+export interface CorrelationCluster { cluster_id:string; symbols:string[]; average_pairwise_correlation:number|null; }
+export interface RiskContribution { symbol:string; exposure_percent:number; volatility_percent:number|null; risk_contribution_percent:number|null; }
+export interface RegimeAlignment { symbol:string; timeframe:string; regime:string; confidence:number; alignment:string; }
+export interface SignalExposure { symbol:string; active_signals:number; net_direction:string; average_confidence:number|null; regimes:string[]; }
+export interface PortfolioIntelligence {
+  calculated_at:string; exposures:PortfolioExposure[]; asset_allocation:Record<string,number>; sector_exposure:Record<string,number>; category_exposure:Record<string,number>;
+  correlation_matrix:Record<string,CorrelationEntry[]>; correlation_clusters:CorrelationCluster[]; risk_contribution:RiskContribution[]; regime_alignment:RegimeAlignment[];
+  signal_exposure:SignalExposure[]; changes:string[]; risk_drivers:string[]; alerts:string[]; relevant_signals:string[]; relevant_catalysts:string[]; data_quality:string[];
+}
+export interface PortfolioScenarioV2 {
+  name:string; assumptions:string[]; projected_pnl_delta:number; projected_unrealized_pnl:number; projected_gross_exposure:number;
+  impacts:Array<{symbol:string;shock_percent:number;pnl_delta:number;exposure_delta:number}>; affected_positions:number; data_quality:string[];
+}
+export async function getPortfolioIntelligence():Promise<PortfolioIntelligence>{return request<PortfolioIntelligence>("/api/portfolio/intelligence");}
+export async function runDefinedPortfolioScenario(payload:{scenario_type:string;symbol?:string;shock_percent?:number}):Promise<PortfolioScenarioV2>{return request<PortfolioScenarioV2>("/api/portfolio/scenario/v2",{method:"POST",body:JSON.stringify(payload)});}
