@@ -1,4 +1,4 @@
-from fastapi import routing
+from fastapi.routing import APIRoute
 
 from app.api import research_copilot
 
@@ -6,9 +6,9 @@ from app.api import research_copilot
 def _dependency_callables(path: str, method: str) -> set[object]:
     route = next(
         item for item in research_copilot.router.routes
-        if isinstance(item, routing.APIRoute) and item.path == path and method in item.methods
+        if isinstance(item, APIRoute) and item.path == path and method in item.methods
     )
-    return {dependency.call for dependency in route.dependencies}
+    return {dependency.call for dependency in route.dependant.dependencies}
 
 
 def test_scheduler_uses_github_oidc_and_not_browser_csrf() -> None:
