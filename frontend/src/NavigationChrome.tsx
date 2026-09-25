@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { BarChart3, Bell, BrainCircuit, ChevronRight, FileText, History, LayoutDashboard, List, Menu, Network, Settings, ShieldCheck, X, LogOut, Newspaper, PanelLeftClose, PanelLeftOpen, type LucideIcon } from "lucide-react";
+import { BarChart3, Bell, BrainCircuit, FlaskConical, ChevronRight, FileText, History, LayoutDashboard, List, Menu, Network, Settings, ShieldCheck, X, LogOut, Newspaper, PanelLeftClose, PanelLeftOpen, type LucideIcon } from "lucide-react";
 import { getCurrentUser, logout, User } from "./api";
 import { getPreferences, type DisplayPreferences } from "./settingsApi";
 
@@ -16,6 +16,7 @@ const GROUPS: readonly NavGroup[] = [
     { label: "Signals", page: "signals", route: "/analysis/signals", icon: ShieldCheck },
   ] },
   { label: "Research", items: [
+    { label: "Quant Lab", page: "quant-lab", route: "/quant-lab", icon: FlaskConical },
     { label: "AI Market Research", page: "ai-research", route: "/research/ai", icon: BrainCircuit },
     { label: "News & Fundamentals", page: "news-research", route: "/research/news", icon: Newspaper },
     { label: "Research Reports", page: "research-reports", route: "/research/reports", icon: FileText },
