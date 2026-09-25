@@ -88,6 +88,8 @@ class BacktestMetrics(BaseModel):
     win_rate: float
     max_drawdown: float
     average_r: float
+    average_mae: float = 0.0
+    average_mfe: float = 0.0
     r_distribution: tuple[float, ...] = ()
     regime_breakdown: dict[str, dict[str, float]] = Field(default_factory=dict)
     timeframe_breakdown: dict[str, dict[str, float]] = Field(default_factory=dict)
