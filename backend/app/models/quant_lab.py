@@ -139,3 +139,66 @@ class StrategyDiagnosis(BaseModel):
     unstable_parameters: tuple[str, ...] = ()
     sample_weakness: bool = False
     regime_deterioration: dict[str, float] = Field(default_factory=dict)
+
+class WalkForwardWindow(BaseModel):
+    model_config = ConfigDict(frozen=True)
+    train_start: datetime
+    train_end: datetime
+    validation_start: datetime
+    validation_end: datetime
+    test_start: datetime
+    test_end: datetime
+
+class WalkForwardResult(BaseModel):
+    model_config = ConfigDict(frozen=True)
+    windows: tuple[WalkForwardWindow, ...]
+    oos_trades: int
+    oos_net_pnl: float
+    oos_expectancy: float
+    warnings: tuple[str, ...] = ()
+
+class MonteCarloResult(BaseModel):
+    model_config = ConfigDict(frozen=True)
+    simulations: int
+    seed: int
+    median_pnl: float
+    p05_pnl: float
+    p95_pnl: float
+    probability_of_loss: float
+    max_drawdown_p95: float
+
+class ParameterSensitivityResult(BaseModel):
+    model_config = ConfigDict(frozen=True)
+    parameter: str
+    values: tuple[float, ...]
+    net_pnl: tuple[float, ...]
+    expectancy: tuple[float, ...]
+    stable: bool
+
+class RobustnessResult(BaseModel):
+    model_config = ConfigDict(frozen=True)
+    walk_forward: WalkForwardResult
+    monte_carlo: MonteCarloResult
+    sensitivities: tuple[ParameterSensitivityResult, ...]
+    scorecard: dict[str, bool]
+    warnings: tuple[str, ...] = ()
+
+class PaperBacktestComparison(BaseModel):
+    model_config = ConfigDict(frozen=True)
+    experiment_id: str
+    paper_trade_count: int
+    backtest_trade_count: int
+    paper_net_pnl: float
+    backtest_net_pnl: float
+    pnl_drift: float
+    trade_count_drift: float
+    win_rate_drift: float | None = None
+    status: str
+
+class StrategyBuilderRequest(BaseModel):
+    name: str = Field(min_length=1, max_length=120)
+    version: str = Field(default='1', min_length=1, max_length=64)
+    entry_rules: tuple[StrategyRule, ...] = ()
+    exit_rules: tuple[StrategyRule, ...] = ()
+    direction: Side = Side.LONG
+    timeframe: Timeframe = Timeframe.HOUR_1
