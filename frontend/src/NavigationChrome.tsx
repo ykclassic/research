@@ -1,13 +1,17 @@
 import { useEffect, useRef, useState } from "react";
-import { BarChart3, Bell, BrainCircuit, FlaskConical, ChevronRight, FileText, History, LayoutDashboard, List, Menu, Network, Settings, ShieldCheck, X, LogOut, Newspaper, PanelLeftClose, PanelLeftOpen, type LucideIcon } from "lucide-react";
+import { BarChart3, Bell, BrainCircuit, BriefcaseBusiness, FlaskConical, ChevronRight, FileText, History, LayoutDashboard, List, Menu, Network, Settings, ShieldCheck, X, LogOut, Newspaper, PanelLeftClose, PanelLeftOpen, type LucideIcon } from "lucide-react";
 import { getCurrentUser, logout, User } from "./api";
 import { getPreferences, type DisplayPreferences } from "./settingsApi";
 
 type NavItem = { label: string; page: string; route: string; icon: LucideIcon };
 type NavGroup = { label: string; items: readonly NavItem[] };
 
+// Portfolio is a primary workspace destination alongside the dashboard.
 const GROUPS: readonly NavGroup[] = [
-  { label: "Overview", items: [{ label: "Dashboard", page: "market", route: "/dashboard", icon: LayoutDashboard }] },
+  { label: "Overview", items: [
+    { label: "Dashboard", page: "market", route: "/dashboard", icon: LayoutDashboard },
+    { label: "Portfolio", page: "portfolio", route: "/portfolio", icon: BriefcaseBusiness },
+  ] },
   { label: "Markets", items: [{ label: "Watchlists", page: "watchlists", route: "/markets/watchlists", icon: List }] },
   { label: "Analysis", items: [
     { label: "Technical Analysis", page: "analysis", route: "/analysis/technical", icon: BarChart3 },
