@@ -16,7 +16,7 @@ from app.services.supabase_data import DataRequestError, service_request
 
 API_SCOPES = {
     "market:read","research:read","signals:read","regimes:read","outcomes:read",
-    "analytics:read","runs:read","snapshots:read","exports:read","org:read"
+    "analytics:read","runs:read","snapshots:read","exports:read","org:read","mcp:read"
 }
 WEBHOOK_EVENTS = {"signal.event","regime.change","watchpoint.trigger","research.completed","outcome.event"}
 
@@ -144,8 +144,11 @@ def create_organization(user_id: str, name: str) -> dict[str,Any]:
     return row
 
 def list_organizations(user_id: str) -> list[dict[str,Any]]:
-    orgs=_rows("organizations",{"select":"id,name,owner_user_id,created_at,updated_at","or":f"(owner_user_id.eq.{user_id},organization_members.user_id.eq.{user_id})","order":"created_at.desc"})
-    return orgs
+    owned=_rows("organizations",{"select":"id,name,owner_user_id,created_at,updated_at","owner_user_id":f"eq.{user_id}","order":"created_at.desc"})
+    memberships=_rows("organization_members",{"select":"organization_id","user_id":f"eq.{user_id}"})
+    ids={str(row["id"]) for row in owned}|{str(row["organization_id"]) for row in memberships}
+    if not ids: return []
+    return _rows("organizations",{"select":"id,name,owner_user_id,created_at,updated_at","id":f"in.({','.join(sorted(ids))})","order":"created_at.desc"})
 
 def list_members(user_id: str, org_id: str) -> list[dict[str,Any]]:
     ensure_org_access(user_id,org_id)
