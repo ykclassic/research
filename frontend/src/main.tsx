@@ -1,7 +1,9 @@
-import React from "react";
+import React,{useEffect,useState} from "react";
 import ReactDOM from "react-dom/client";
 import App from "./App";
 import NavigationChrome from "./NavigationChrome";
+import Phase10Page from "./Phase10Page";
+import { getCurrentUser, User } from "./api";
 import "./styles.css";
 import "./phase-pages.css";
 import "./technical-analysis.css";
@@ -16,11 +18,15 @@ import "./navigation.css";
 import "./settings.css";
 import "./market-data-health.css";
 import "./display-interface.css";
-import "./billing.css";\nimport "./phase9.css";
+import "./billing.css";
+import "./phase9.css";
+import "./phase10.css";
 
-ReactDOM.createRoot(document.getElementById("root")!).render(
-  <React.StrictMode>
-    <App />
-    <NavigationChrome />
-  </React.StrictMode>,
-);
+function Phase10Route(){
+ const[user,setUser]=useState<User|null>(null); const[checking,setChecking]=useState(true);
+ useEffect(()=>{let active=true;getCurrentUser().then(next=>{if(active)setUser(next)}).catch(()=>{if(active)setUser(null)}).finally(()=>{if(active)setChecking(false)});return()=>{active=false}},[]);
+ if(checking)return <div className="auth-loading">Checking session…</div>;
+ return user?<Phase10Page user={user} onLogout={()=>setUser(null)}/>:<App/>;
+}
+function Root(){const[phase10,setPhase10]=useState(()=>window.location.pathname==="/intelligence/optimization");useEffect(()=>{const sync=()=>setPhase10(window.location.pathname==="/intelligence/optimization");window.addEventListener("popstate",sync);return()=>window.removeEventListener("popstate",sync)},[]);return <React.StrictMode>{phase10?<Phase10Route/>:<App/>}<NavigationChrome/></React.StrictMode>}
+ReactDOM.createRoot(document.getElementById("root")!).render(<Root/>);
