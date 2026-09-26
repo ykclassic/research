@@ -105,7 +105,7 @@ def create_webhook(user_id: str, name: str, url: str, events: list[str]) -> dict
     if not events: raise ValueError("At least one webhook event is required.")
     secret="whsec_"+secrets.token_urlsafe(30)
     row=service_request("POST","webhook_endpoints",json={"user_id":user_id,"name":name.strip(),"url":url.strip(),"events":sorted(set(events)),"secret":secret},prefer="return=representation").json()[0]
-    return {k:v for k,v in {**row,"secret":secret}.items() if k!="secret" or True}
+    return {**row,"secret":secret}
 
 def list_webhooks(user_id: str) -> list[dict[str,Any]]:
     rows=_rows("webhook_endpoints",{"select":"id,name,url,events,active,failure_count,last_delivered_at,last_error,created_at,updated_at","user_id":f"eq.{user_id}","order":"created_at.desc"})
@@ -133,7 +133,10 @@ def deliver_pending_webhooks(limit: int = 50) -> dict[str,int]:
         except Exception as exc:
             attempt=int(d.get("attempt_count") or 0)+1
             status="FAILED" if attempt>=5 else "PENDING"
-            service_request("PATCH","webhook_deliveries",params={"id":f"eq.{d['id']}"},json={"status":status,"attempt_count":attempt,"next_attempt_at":(datetime.now(timezone.utc).replace(microsecond=0)).isoformat(),"response_body":str(exc)[:2000]})
+            delay_minutes=min(60, 2 ** min(attempt, 6))
+            next_attempt=(datetime.now(timezone.utc).replace(microsecond=0) + __import__("datetime").timedelta(minutes=delay_minutes)).isoformat()
+            service_request("PATCH","webhook_deliveries",params={"id":f"eq.{d['id']}"},json={"status":status,"attempt_count":attempt,"next_attempt_at":next_attempt,"response_body":str(exc)[:2000]})
+            service_request("PATCH","webhook_endpoints",params={"id":f"eq.{endpoint['id']}"},json={"failure_count":attempt,"last_error":str(exc)[:2000]})
             failed+=1
     return {"processed":len(deliveries),"delivered":delivered,"failed":failed}
 
