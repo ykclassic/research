@@ -122,3 +122,18 @@ using ((select auth.uid())=user_id or exists(select 1 from public.resource_share
 drop policy if exists research_snapshots_own on public.research_snapshots;
 create policy research_snapshots_select_shared on public.research_snapshots for select to authenticated
 using ((select auth.uid())=user_id or exists(select 1 from public.resource_shares rs where rs.resource_type='SNAPSHOT' and rs.resource_id=research_snapshots.id and (select private.user_is_org_member(rs.organization_id))));
+
+drop policy if exists research_snapshots_insert_own on public.research_snapshots;
+create policy research_snapshots_insert_own on public.research_snapshots for insert to authenticated
+with check ((select auth.uid())=user_id);
+drop policy if exists research_snapshots_update_own on public.research_snapshots;
+create policy research_snapshots_update_own on public.research_snapshots for update to authenticated
+using ((select auth.uid())=user_id) with check ((select auth.uid())=user_id);
+drop policy if exists research_snapshots_delete_own on public.research_snapshots;
+create policy research_snapshots_delete_own on public.research_snapshots for delete to authenticated
+using ((select auth.uid())=user_id);
+
+drop policy if exists "watchlists_update_shared" on public.watchlists;
+create policy "watchlists_update_shared" on public.watchlists for update to authenticated
+using ((select auth.uid())=user_id or exists(select 1 from public.resource_shares rs where rs.resource_type='WATCHLIST' and rs.resource_id=watchlists.id and rs.permission in ('EDIT','ADMIN') and (select private.user_is_org_member(rs.organization_id))))
+with check ((select auth.uid())=user_id or exists(select 1 from public.resource_shares rs where rs.resource_type='WATCHLIST' and rs.resource_id=watchlists.id and rs.permission in ('EDIT','ADMIN') and (select private.user_is_org_member(rs.organization_id))));
