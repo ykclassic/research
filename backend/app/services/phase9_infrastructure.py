@@ -187,6 +187,9 @@ def share_resource(user_id: str, org_id: str, resource_type: str, resource_id: s
     ensure_org_role(user_id,org_id,{"owner","admin","editor"})
     if resource_type not in {"WORKSPACE","DASHBOARD","WATCHLIST","REPORT","RESEARCH_RUN","SNAPSHOT"}: raise ValueError("Invalid resource type.")
     if permission not in {"VIEW","EDIT","ADMIN"}: raise ValueError("Invalid permission.")
+    resource_table={"WORKSPACE":"research_workspaces","DASHBOARD":"research_workspace_dashboards","WATCHLIST":"watchlists","REPORT":"research_history","RESEARCH_RUN":"research_runs","SNAPSHOT":"research_snapshots"}[resource_type]
+    owned=_rows(resource_table,{"select":"id,user_id","id":f"eq.{resource_id}","user_id":f"eq.{user_id}","limit":"1"})
+    if not owned: raise PermissionError("Only the resource owner can share this resource.")
     row=service_request("POST","resource_shares",json={"organization_id":org_id,"shared_by_user_id":user_id,"resource_type":resource_type,"resource_id":resource_id,"permission":permission},prefer="return=representation").json()[0]
     audit(user_id,org_id,"resource.shared",resource_type,resource_id,{"permission":permission})
     return row
