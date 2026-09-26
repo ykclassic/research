@@ -21,9 +21,9 @@ import TradingSessionPanel from "./TradingSessionPanel";
 import BillingPage from "./BillingPage";
 import ScannerPage from "./ScannerPage";
 import QuantLabPage from "./QuantLabPage";
-import ResearchWorkspacesPage from "./ResearchWorkspacesPage";
+import ResearchWorkspacesPage from "./ResearchWorkspacesPage";\nimport InfrastructurePage from "./InfrastructurePage";
 
-export type AppPage = "research-workspaces" | "quant-lab" | "market" | "watchlists" | "analysis" | "market-structure" | "mtf" | "signals" | "signal-outcome" | "signal-intelligence" | "portfolio" | "ai-research" | "news-research" | "research-reports" | "research-history" | "research-intelligence" | "alerts" | "settings" | "billing" | "scanner";
+export type AppPage = "infrastructure" | "research-workspaces" | "quant-lab" | "market" | "watchlists" | "analysis" | "market-structure" | "mtf" | "signals" | "signal-outcome" | "signal-intelligence" | "portfolio" | "ai-research" | "news-research" | "research-reports" | "research-history" | "research-intelligence" | "alerts" | "settings" | "billing" | "scanner";
 
 type AuthMode = "login" | "register" | "forgot" | "reset";
 
@@ -251,7 +251,7 @@ function App(){
   if(page==="signal-intelligence")return <SignalIntelligencePage user={user} onLogout={onLogout} setPage={navigate}/>;
   if(page==="portfolio")return <PortfolioPage user={user} onLogout={onLogout} setPage={navigate}/>;
   if(page==="quant-lab")return <QuantLabPage user={user} onLogout={onLogout} setPage={navigate}/>;
-  if(page==="research-workspaces")return <ResearchWorkspacesPage/>;
+  if(page==="research-workspaces")return <ResearchWorkspacesPage/>;\n  if(page==="infrastructure")return <InfrastructurePage/>;
   if(page==="ai-research")return <AIResearchPage user={user} onLogout={onLogout} setPage={navigate}/>;
   if(page==="news-research")return <NewsResearchPage onLogout={onLogout}/>;
   if(page==="research-reports")return <ResearchReportsPage/>;
