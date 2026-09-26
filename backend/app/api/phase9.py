@@ -14,7 +14,7 @@ from app.services.phase9_infrastructure import (
     API_SCOPES, WEBHOOK_EVENTS, add_member, audit, authenticate_api_key, consume_api_request,
     create_api_key, create_organization, create_webhook, delete_webhook, ensure_org_access,
     export_rows, has_feature, list_audit, list_api_keys, list_members, list_organizations,
-    list_shares, list_webhooks, revoke_api_key, share_resource, to_csv, update_member,
+    list_shares, list_webhooks, revoke_api_key, share_resource, to_csv, update_member, create_export_schedule, list_export_schedules, delete_export_schedule,
 )
 from app.services.supabase_data import service_request
 
@@ -100,6 +100,21 @@ async def post_webhook(payload:WebhookCreate,user:Annotated[UserResponse,Depends
 @router.delete("/infrastructure/webhooks/{webhook_id}",dependencies=[Depends(_require_csrf)],status_code=204)
 async def remove_webhook(webhook_id:str,user:Annotated[UserResponse,Depends(get_current_user)],token:Annotated[str|None,Cookie(alias="mr_access_token")]=None):
     _feature(token or "",user.id,"webhooks"); delete_webhook(user.id,webhook_id)
+
+@router.get("/infrastructure/export-schedules")
+async def get_export_schedules(user:Annotated[UserResponse,Depends(get_current_user)],token:Annotated[str|None,Cookie(alias="mr_access_token")]=None):
+    _feature(token or "",user.id,"exports")
+    return {"items":list_export_schedules(user.id)}
+
+@router.post("/infrastructure/export-schedules",dependencies=[Depends(_require_csrf)])
+async def post_export_schedule(payload:ExportScheduleCreate,user:Annotated[UserResponse,Depends(get_current_user)],token:Annotated[str|None,Cookie(alias="mr_access_token")]=None):
+    _feature(token or "",user.id,"exports")
+    try:return {"item":create_export_schedule(user.id,payload.name,payload.resource_type,payload.format,payload.interval_minutes)}
+    except ValueError as exc:raise HTTPException(status_code=400,detail=str(exc)) from exc
+
+@router.delete("/infrastructure/export-schedules/{schedule_id}",dependencies=[Depends(_require_csrf)],status_code=204)
+async def remove_export_schedule(schedule_id:str,user:Annotated[UserResponse,Depends(get_current_user)],token:Annotated[str|None,Cookie(alias="mr_access_token")]=None):
+    _feature(token or "",user.id,"exports"); delete_export_schedule(user.id,schedule_id)
 
 @router.get("/infrastructure/organizations")
 async def get_orgs(user:Annotated[UserResponse,Depends(get_current_user)],token:Annotated[str|None,Cookie(alias="mr_access_token")]=None):
