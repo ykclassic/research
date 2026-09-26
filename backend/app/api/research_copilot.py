@@ -10,7 +10,7 @@ from app.api.auth import UserResponse, _require_csrf, get_current_user_or_github
 from app.config import settings
 from app.services.entitlement import UsageLimitExceededError, consume_usage, require_feature
 from app.services.research_copilot import ResearchCopilotError, ResearchCopilotService, interpret_query
-from app.services.research_workspace import run_due_automation_rules
+from app.services.research_workspace import run_due_automation_rules\nfrom app.services.phase9_infrastructure import deliver_pending_webhooks
 
 router = APIRouter(prefix="/api/research-copilot", tags=["research-copilot"])
 service = ResearchCopilotService()
