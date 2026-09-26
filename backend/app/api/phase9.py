@@ -198,10 +198,10 @@ async def v1_outcomes(authorization:Annotated[str|None,Header(alias="Authorizati
 @router.get("/v1/portfolio/analytics")
 async def v1_portfolio(authorization:Annotated[str|None,Header(alias="Authorization")]=None):
     key=_api_key(authorization,"analytics:read")
-    from app.services.portfolio import summary
+    from app.services.portfolio import summarize
     from app.services.portfolio_intelligence import build_intelligence
     from app.models.portfolio import PortfolioSummary
-    summary_row=summary(settings.supabase_service_role_key,key["user_id"])
+    summary_row=await summarize(settings.supabase_service_role_key,key["user_id"])
     intelligence=await build_intelligence(settings.supabase_service_role_key,key["user_id"],summary_row)
     return {"data":intelligence.model_dump(mode="json"),"meta":{"contract_version":"1.0"}}
 
@@ -239,7 +239,7 @@ async def mcp(request: dict[str,Any],authorization:Annotated[str|None,Header(ali
     elif name=="portfolio_analytics":
         from app.services.portfolio import summary
         from app.services.portfolio_intelligence import build_intelligence
-        result=(await build_intelligence(settings.supabase_service_role_key,key["user_id"],summary(settings.supabase_service_role_key,key["user_id"]))).model_dump(mode="json")
+        result=(await build_intelligence(settings.supabase_service_role_key,key["user_id"],await summarize(settings.supabase_service_role_key,key["user_id"]))).model_dump(mode="json")
     else:
         return {"jsonrpc":"2.0","id":request_id,"error":{"code":-32602,"message":"Unknown tool."}}
     return {"jsonrpc":"2.0","id":request_id,"result":{"content":[{"type":"text","text":json.dumps(result,default=str)}]}}
