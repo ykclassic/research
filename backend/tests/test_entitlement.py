@@ -5,6 +5,22 @@ import pytest
 from app.services import entitlement
 
 
+def test_require_feature_allows_advanced_research(monkeypatch):
+    monkeypatch.setattr(
+        entitlement,
+        "get_entitlement_snapshot",
+        lambda *_: {
+            "plan_id": "pro",
+            "features": {"advanced_research": True},
+            "plan": {"id": "pro"},
+            "limits": {},
+            "subscription": None,
+        },
+    )
+    result = entitlement.require_feature("token", "user", "advanced_research")
+    assert result["plan_id"] == "pro"
+
+
 def test_require_feature_allows_enabled_feature(monkeypatch):
     monkeypatch.setattr(
         entitlement,
