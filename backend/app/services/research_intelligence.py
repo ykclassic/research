@@ -16,7 +16,8 @@ from app.models.research_intelligence import (
     WatchpointEvent,
 )
 from app.services.news_research_resilient import news_research
-from app.services.supabase_data import DataRequestError, _request\nfrom app.services.phase9_infrastructure import reproducibility_hash
+from app.services.supabase_data import DataRequestError, _request
+from app.services.phase9_infrastructure import reproducibility_hash
 
 
 ENGINE_VERSION = "research-intelligence-v2"
