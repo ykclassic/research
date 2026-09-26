@@ -228,3 +228,43 @@ def to_csv(rows: list[dict[str,Any]]) -> str:
     for row in rows:
         writer.writerow({k:(json.dumps(row.get(k),sort_keys=True) if isinstance(row.get(k),(dict,list)) else row.get(k)) for k in keys})
     return output.getvalue()
+
+
+def create_export_schedule(user_id: str, name: str, resource_type: str, format: str, interval_minutes: int) -> dict[str,Any]:
+    if resource_type not in {"RUNS","SNAPSHOTS","OUTCOMES"}: raise ValueError("Unsupported export resource.")
+    if format not in {"JSON","CSV"}: raise ValueError("Unsupported export format.")
+    if interval_minutes < 15 or interval_minutes > 43200: raise ValueError("Export interval must be between 15 minutes and 30 days.")
+    from datetime import timedelta
+    next_run=(datetime.now(timezone.utc)+timedelta(minutes=interval_minutes)).isoformat()
+    return service_request("POST","research_export_schedules",json={"user_id":user_id,"name":name.strip(),"resource_type":resource_type,"format":format,"interval_minutes":interval_minutes,"next_run_at":next_run},prefer="return=representation").json()[0]
+
+def list_export_schedules(user_id: str) -> list[dict[str,Any]]:
+    return _rows("research_export_schedules",{"select":"id,name,resource_type,format,interval_minutes,next_run_at,last_run_at,enabled,created_at,updated_at","user_id":f"eq.{user_id}","order":"created_at.desc"})
+
+def delete_export_schedule(user_id: str, schedule_id: str) -> None:
+    service_request("DELETE","research_export_schedules",params={"id":f"eq.{schedule_id}","user_id":f"eq.{user_id}"})
+
+def run_due_export_schedules(limit: int = 50) -> dict[str,int]:
+    now=_now()
+    due=_rows("research_export_schedules",{"select":"*","enabled":"eq.true","next_run_at":f"lte.{now}","order":"next_run_at.asc","limit":str(limit)})
+    completed=failed=0
+    from datetime import timedelta
+    for schedule in due:
+        try:
+            rows=export_rows(schedule["user_id"],"DATASET",schedule["resource_type"])
+            dataset_version="dataset-v1"
+            feature_version="features-v1"
+            engine_version="research-infrastructure-v1"
+            model_version="deterministic-research"
+            payload={"rows":rows}
+            service_request("POST","research_exports",json={
+                "user_id":schedule["user_id"],"export_type":"DATASET","resource_type":schedule["resource_type"],
+                "format":schedule["format"],"dataset_version":dataset_version,"feature_version":feature_version,
+                "engine_version":engine_version,"model_version":model_version,"row_count":len(rows),"payload":payload
+            })
+            next_run=(datetime.now(timezone.utc)+timedelta(minutes=int(schedule["interval_minutes"]))).isoformat()
+            service_request("PATCH","research_export_schedules",params={"id":f"eq.{schedule['id']}"},json={"last_run_at":now,"next_run_at":next_run})
+            completed+=1
+        except Exception:
+            failed+=1
+    return {"scheduled":len(due),"completed":completed,"failed":failed}
