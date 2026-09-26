@@ -349,3 +349,38 @@ export async function createResearchAutomation(id:string,payload:Record<string,a
 export async function runCrossAssetResearch(id:string,symbols:string[],timeframe="1d"):Promise<Record<string,any>>{return (await authenticatedMutation<{item:Record<string,any>}>(`/api/research-workspaces/${encodeURIComponent(id)}/cross-asset`,{method:"POST",body:JSON.stringify({symbols,timeframe})})).item;}
 export async function getCrossAssetResearch(id:string):Promise<Array<Record<string,any>>>{return (await request<{items:Array<Record<string,any>>}>(`/api/research-workspaces/${encodeURIComponent(id)}/cross-asset`)).items;}
 export async function diagnoseWorkspaceStrategy(experimentId:string):Promise<Record<string,any>>{return (await authenticatedMutation<{item:Record<string,any>}>(`/api/research-workspaces/strategy-diagnosis`,{method:"POST",body:JSON.stringify({experiment_id:experimentId})})).item;}
+
+
+export type InfrastructureApiKey = {
+  id:string; name:string; key_prefix:string; scopes:string[]; active:boolean;
+  last_used_at:string|null; expires_at:string|null; created_at:string; revoked_at:string|null;
+};
+export type InfrastructureWebhook = {
+  id:string; name:string; url:string; events:string[]; active:boolean; failure_count:number;
+  last_delivered_at:string|null; last_error:string|null; created_at:string; updated_at:string;
+};
+export type InfrastructureOrganization = { id:string; name:string; owner_user_id:string; created_at:string; updated_at:string };
+export type InfrastructureMember = { id:string; organization_id:string; user_id:string; role:string; created_at:string };
+export type InfrastructureShare = { id:string; organization_id:string; shared_by_user_id:string; resource_type:string; resource_id:string; permission:string; created_at:string };
+export type InfrastructureAudit = { id:string; organization_id:string|null; actor_user_id:string|null; action:string; resource_type:string|null; resource_id:string|null; metadata:Record<string,unknown>; created_at:string };
+export const API_KEY_SCOPES = ["market:read","research:read","signals:read","regimes:read","outcomes:read","analytics:read","runs:read","snapshots:read","exports:read","org:read","mcp:read"];
+export const WEBHOOK_EVENTS = ["signal.event","regime.change","watchpoint.trigger","research.completed","outcome.event"];
+export async function getInfrastructureKeys():Promise<InfrastructureApiKey[]>{return (await request<{items:InfrastructureApiKey[]}>("/api/infrastructure/keys")).items;}
+export async function createInfrastructureKey(payload:{name:string;scopes:string[];expires_at?:string}):Promise<InfrastructureApiKey & {secret:string}>{return (await authenticatedMutation<{item:InfrastructureApiKey & {secret:string}}>("/api/infrastructure/keys",{method:"POST",body:JSON.stringify(payload)})).item;}
+export async function revokeInfrastructureKey(id:string):Promise<void>{await authenticatedMutation<void>(`/api/infrastructure/keys/${encodeURIComponent(id)}`,{method:"DELETE"});}
+export async function getInfrastructureWebhooks():Promise<InfrastructureWebhook[]>{return (await request<{items:InfrastructureWebhook[]}>("/api/infrastructure/webhooks")).items;}
+export async function createInfrastructureWebhook(payload:{name:string;url:string;events:string[]}):Promise<InfrastructureWebhook & {secret:string}>{return (await authenticatedMutation<{item:InfrastructureWebhook & {secret:string}}>("/api/infrastructure/webhooks",{method:"POST",body:JSON.stringify(payload)})).item;}
+export async function deleteInfrastructureWebhook(id:string):Promise<void>{await authenticatedMutation<void>(`/api/infrastructure/webhooks/${encodeURIComponent(id)}`,{method:"DELETE"});}
+export async function getInfrastructureOrganizations():Promise<InfrastructureOrganization[]>{return (await request<{items:InfrastructureOrganization[]}>("/api/infrastructure/organizations")).items;}
+export async function createInfrastructureOrganization(name:string):Promise<InfrastructureOrganization>{return (await authenticatedMutation<{item:InfrastructureOrganization}>("/api/infrastructure/organizations",{method:"POST",body:JSON.stringify({name})})).item;}
+export async function getInfrastructureMembers(orgId:string):Promise<InfrastructureMember[]>{return (await request<{items:InfrastructureMember[]}>(`/api/infrastructure/organizations/${encodeURIComponent(orgId)}/members`)).items;}
+export async function addInfrastructureMember(orgId:string,userId:string,role:string):Promise<InfrastructureMember>{return (await authenticatedMutation<{item:InfrastructureMember}>(`/api/infrastructure/organizations/${encodeURIComponent(orgId)}/members`,{method:"POST",body:JSON.stringify({user_id:userId,role})})).item;}
+export async function updateInfrastructureMember(orgId:string,memberId:string,role:string):Promise<InfrastructureMember>{return (await authenticatedMutation<{item:InfrastructureMember}>(`/api/infrastructure/organizations/${encodeURIComponent(orgId)}/members/${encodeURIComponent(memberId)}`,{method:"PATCH",body:JSON.stringify({role})})).item;}
+export async function getInfrastructureShares(orgId:string):Promise<InfrastructureShare[]>{return (await request<{items:InfrastructureShare[]}>(`/api/infrastructure/organizations/${encodeURIComponent(orgId)}/shares`)).items;}
+export async function shareInfrastructureResource(orgId:string,payload:{resource_type:string;resource_id:string;permission:string}):Promise<InfrastructureShare>{return (await authenticatedMutation<{item:InfrastructureShare}>(`/api/infrastructure/organizations/${encodeURIComponent(orgId)}/shares`,{method:"POST",body:JSON.stringify(payload)})).item;}
+export async function getInfrastructureAudit(orgId:string):Promise<InfrastructureAudit[]>{return (await request<{items:InfrastructureAudit[]}>(`/api/infrastructure/organizations/${encodeURIComponent(orgId)}/audit`)).items;}
+
+export type InfrastructureExportSchedule = { id:string; name:string; resource_type:string; format:string; interval_minutes:number; next_run_at:string; last_run_at:string|null; enabled:boolean; created_at:string; updated_at:string };
+export async function getInfrastructureExportSchedules():Promise<InfrastructureExportSchedule[]>{return (await request<{items:InfrastructureExportSchedule[]}>("/api/infrastructure/export-schedules")).items;}
+export async function createInfrastructureExportSchedule(payload:{name:string;resource_type:string;format:string;interval_minutes:number}):Promise<InfrastructureExportSchedule>{return (await authenticatedMutation<{item:InfrastructureExportSchedule}>("/api/infrastructure/export-schedules",{method:"POST",body:JSON.stringify(payload)})).item;}
+export async function deleteInfrastructureExportSchedule(id:string):Promise<void>{await authenticatedMutation<void>(`/api/infrastructure/export-schedules/${encodeURIComponent(id)}`,{method:"DELETE"});}

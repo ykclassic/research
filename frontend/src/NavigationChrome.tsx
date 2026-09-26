@@ -28,7 +28,7 @@ const GROUPS: readonly NavGroup[] = [
     { label: "Research History", page: "research-history", route: "/research/history", icon: History },
   ] },
   { label: "Monitoring", items: [{ label: "Alerts & Monitoring", page: "alerts", route: "/monitoring/alerts", icon: Bell }] },
-  { label: "System", items: [{ label: "Settings", page: "settings", route: "/settings", icon: Settings }] },
+  { label: "System", items: [{ label: "Infrastructure", page: "infrastructure", route: "/infrastructure", icon: ShieldCheck }, { label: "Settings", page: "settings", route: "/settings", icon: Settings }] },
 ];
 
 const pageByPath = new Map(GROUPS.flatMap(group => group.items.map(item => [item.route, item.page] as const)));

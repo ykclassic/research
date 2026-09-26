@@ -8,7 +8,7 @@ from typing import Any
 from app.config import settings
 from app.services.ai_research import AIResearchService
 from app.services.research_report import ResearchReportService
-from app.services.supabase_data import DataServiceError
+from app.services.supabase_data import DataServiceError\nfrom app.services.phase9_infrastructure import queue_event
 
 
 def _request(method: str, resource: str, access_token: str, *, params: dict[str, str] | None = None, json: Any = None, prefer: str | None = None):
