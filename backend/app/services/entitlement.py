@@ -11,6 +11,7 @@ FEATURE_KEYS = {
     "ai_research", "advanced_portfolio_analytics", "backtesting",
     "strategy_builder", "scanner", "webhooks", "scheduled_workflows",
     "api", "mcp", "exports", "team_workspaces", "signal_intelligence_analytics", "advanced_research",
+    "phase10_intelligence",
 }
 
 METRICS = {
