@@ -1,154 +1,23 @@
 import { useEffect, useRef, useState } from "react";
-import { BarChart3, Bell, BrainCircuit, BriefcaseBusiness, FlaskConical, ChevronRight, FileText, History, LayoutDashboard, List, Menu, Network, Settings, ShieldCheck, X, LogOut, Newspaper, PanelLeftClose, PanelLeftOpen, type LucideIcon } from "lucide-react";
+import { Activity, BarChart3, Bell, BrainCircuit, BriefcaseBusiness, FlaskConical, ChevronRight, FileText, History, LayoutDashboard, List, Menu, Network, Settings, ShieldCheck, X, LogOut, Newspaper, PanelLeftClose, PanelLeftOpen, type LucideIcon } from "lucide-react";
 import { getCurrentUser, logout, User } from "./api";
 import { getPreferences, type DisplayPreferences } from "./settingsApi";
-
-type NavItem = { label: string; page: string; route: string; icon: LucideIcon };
-type NavGroup = { label: string; items: readonly NavItem[] };
-
-// Portfolio is a primary workspace destination alongside the dashboard.
-const GROUPS: readonly NavGroup[] = [
-  { label: "Overview", items: [
-    { label: "Dashboard", page: "market", route: "/dashboard", icon: LayoutDashboard },
-    { label: "Portfolio", page: "portfolio", route: "/portfolio", icon: BriefcaseBusiness },
-  ] },
-  { label: "Markets", items: [{ label: "Watchlists", page: "watchlists", route: "/markets/watchlists", icon: List }] },
-  { label: "Analysis", items: [
-    { label: "Technical Analysis", page: "analysis", route: "/analysis/technical", icon: BarChart3 },
-    { label: "Market Structure", page: "market-structure", route: "/analysis/structure", icon: Network },
-    { label: "Multi-Timeframe", page: "mtf", route: "/analysis/multi-timeframe", icon: BarChart3 },
-    { label: "Signals", page: "signals", route: "/analysis/signals", icon: ShieldCheck },
-  ] },
-  { label: "Research", items: [
-    { label: "Research Workspaces", page: "research-workspaces", route: "/research/workspaces", icon: FlaskConical },
-    { label: "Quant Lab", page: "quant-lab", route: "/quant-lab", icon: FlaskConical },
-    { label: "AI Market Research", page: "ai-research", route: "/research/ai", icon: BrainCircuit },
-    { label: "News & Fundamentals", page: "news-research", route: "/research/news", icon: Newspaper },
-    { label: "Research Reports", page: "research-reports", route: "/research/reports", icon: FileText },
-    { label: "Research History", page: "research-history", route: "/research/history", icon: History },
-  ] },
-  { label: "Monitoring", items: [{ label: "Alerts & Monitoring", page: "alerts", route: "/monitoring/alerts", icon: Bell }] },
-  { label: "System", items: [{ label: "Infrastructure", page: "infrastructure", route: "/infrastructure", icon: ShieldCheck }, { label: "Settings", page: "settings", route: "/settings", icon: Settings }] },
+type NavItem={label:string;page:string;route:string;icon:LucideIcon}; type NavGroup={label:string;items:readonly NavItem[]};
+const GROUPS:readonly NavGroup[]=[
+ {label:"Overview",items:[{label:"Dashboard",page:"market",route:"/dashboard",icon:LayoutDashboard},{label:"Portfolio",page:"portfolio",route:"/portfolio",icon:BriefcaseBusiness}]},
+ {label:"Markets",items:[{label:"Watchlists",page:"watchlists",route:"/markets/watchlists",icon:List}]},
+ {label:"Analysis",items:[{label:"Technical Analysis",page:"analysis",route:"/analysis/technical",icon:BarChart3},{label:"Market Structure",page:"market-structure",route:"/analysis/structure",icon:Network},{label:"Multi-Timeframe",page:"mtf",route:"/analysis/multi-timeframe",icon:BarChart3},{label:"Signals",page:"signals",route:"/analysis/signals",icon:ShieldCheck}]},
+ {label:"Research",items:[{label:"Research Workspaces",page:"research-workspaces",route:"/research/workspaces",icon:FlaskConical},{label:"Quant Lab",page:"quant-lab",route:"/quant-lab",icon:FlaskConical},{label:"AI Market Research",page:"ai-research",route:"/research/ai",icon:BrainCircuit},{label:"News & Fundamentals",page:"news-research",route:"/research/news",icon:Newspaper},{label:"Research Reports",page:"research-reports",route:"/research/reports",icon:FileText},{label:"Research History",page:"research-history",route:"/research/history",icon:History},{label:"Optimization & Intelligence",page:"phase10",route:"/intelligence/optimization",icon:Activity}]},
+ {label:"Monitoring",items:[{label:"Alerts & Monitoring",page:"alerts",route:"/monitoring/alerts",icon:Bell}]},
+ {label:"System",items:[{label:"Infrastructure",page:"infrastructure",route:"/infrastructure",icon:ShieldCheck},{label:"Settings",page:"settings",route:"/settings",icon:Settings}]},
 ];
-
-const pageByPath = new Map(GROUPS.flatMap(group => group.items.map(item => [item.route, item.page] as const)));
-function currentPage(): string { return pageByPath.get(window.location.pathname) ?? "market"; }
-
-function applyDisplayPreferences(display: DisplayPreferences): void {
-  const root = document.documentElement;
-  root.dataset.theme = display.theme;
-  root.dataset.density = display.density;
-  root.dataset.accessibleContrast = String(display.accessible_contrast);
-  root.dataset.reducedMotion = String(display.reduce_animations || display.reduced_motion);
-  document.body.classList.toggle("sidebar-collapsed", display.sidebar_collapsed && window.innerWidth > 900);
-  try {
-    window.localStorage.setItem("research-display-preferences", JSON.stringify(display));
-    window.localStorage.setItem("research-sidebar-collapsed", String(display.sidebar_collapsed));
-  } catch { /* storage may be unavailable */ }
-}
-
-export default function NavigationChrome() {
-  const [user, setUser] = useState<User | null>(null);
-  const [mobileOpen, setMobileOpen] = useState(false);
-  const [isMobile, setIsMobile] = useState(() => window.innerWidth <= 900);
-  const [collapsed, setCollapsed] = useState(() => {
-    try { return window.localStorage.getItem("research-sidebar-collapsed") === "true"; } catch { return false; }
-  });
-  const [page, setPage] = useState(currentPage);
-  const didApplyLanding = useRef(false);
-
-  useEffect(() => {
-    let active = true;
-    const check = () => getCurrentUser().then(next => { if (active) setUser(next); }).catch(() => { if (active) setUser(null); });
-    check();
-    const timer = window.setInterval(check, 5000);
-    return () => { active = false; window.clearInterval(timer); };
-  }, []);
-
-  useEffect(() => {
-    if (!user) return;
-    let active = true;
-    getPreferences().then(preferences => {
-      if (!active) return;
-      applyDisplayPreferences(preferences.display_preferences);
-      setCollapsed(preferences.display_preferences.sidebar_collapsed);
-      if (!didApplyLanding.current && window.location.pathname === "/dashboard" && preferences.display_preferences.default_landing_page !== "/dashboard") {
-        didApplyLanding.current = true;
-        window.history.replaceState({}, "", preferences.display_preferences.default_landing_page);
-        setPage(currentPage());
-        window.dispatchEvent(new PopStateEvent("popstate"));
-      } else {
-        didApplyLanding.current = true;
-      }
-    }).catch(() => { /* workspace remains usable with local/default display state */ });
-    return () => { active = false; };
-  }, [user]);
-
-  useEffect(() => {
-    const sync = () => setPage(currentPage());
-    const handleResize = () => {
-      setIsMobile(window.innerWidth <= 900);
-      document.body.classList.toggle("sidebar-collapsed", collapsed && window.innerWidth > 900);
-    };
-    window.addEventListener("popstate", sync);
-    window.addEventListener("resize", handleResize);
-    sync();
-    return () => {
-      window.removeEventListener("popstate", sync);
-      window.removeEventListener("resize", handleResize);
-    };
-  }, [collapsed]);
-
-  useEffect(() => {
-    try { window.localStorage.setItem("research-sidebar-collapsed", String(collapsed)); } catch { /* localStorage may be unavailable */ }
-    document.body.classList.toggle("sidebar-collapsed", collapsed && !isMobile);
-    return () => document.body.classList.remove("sidebar-collapsed");
-  }, [collapsed, isMobile]);
-
-  const navigate = (item: NavItem) => {
-    if (window.location.pathname !== item.route) window.history.pushState({}, "", item.route);
-    setPage(item.page);
-    setMobileOpen(false);
-    window.dispatchEvent(new PopStateEvent("popstate"));
-    window.scrollTo({ top: 0, behavior: "auto" });
-  };
-
-  const signOut = async () => {
-    try { await logout(); } finally {
-      setUser(null);
-      setMobileOpen(false);
-      window.history.replaceState({}, "", "/dashboard");
-      window.dispatchEvent(new PopStateEvent("popstate"));
-    }
-  };
-
-  const activeItem = GROUPS.flatMap(group => group.items).find(item => item.page === page) ?? GROUPS[0].items[0];
-  if (!user) return null;
-
-  return <>
-    <header className={`app-chrome-header ${collapsed && !isMobile ? "sidebar-collapsed" : ""}`}>
-      <button className="chrome-menu" type="button" onClick={() => isMobile ? setMobileOpen(value => !value) : setCollapsed(value => !value)} aria-label={isMobile ? "Toggle navigation" : collapsed ? "Expand navigation" : "Collapse navigation"} title={isMobile ? "Toggle navigation" : collapsed ? "Expand sidebar" : "Collapse sidebar"}>
-        {isMobile ? (mobileOpen ? <X size={20} /> : <Menu size={20} />) : (collapsed ? <PanelLeftOpen size={19} /> : <PanelLeftClose size={19} />)}
-      </button>
-      <div className="chrome-heading"><div className="eyebrow">ProfitForge Intelligence</div><strong>{activeItem.label}</strong></div>
-      <div className="chrome-user"><span>{user.email}</span><button type="button" className="chrome-signout" onClick={() => void signOut()}><LogOut size={15} /> Sign out</button></div>
-    </header>
-    <aside className={`app-sidebar ${collapsed && !isMobile ? "collapsed" : ""} ${mobileOpen ? "open" : ""}`} aria-label="Primary navigation">
-      <div className="sidebar-brand"><div className="brand-mark"><img src="/profitforge-logo.svg" alt="ProfitForge" /></div><div className="sidebar-brand-copy"><div className="eyebrow">ProfitForge</div><strong>ProfitForge</strong></div></div>
-      <nav className="sidebar-nav">
-        {GROUPS.map(group => <div className="nav-group" key={group.label}>
-          <div className="nav-group-label">{group.label}</div>
-          {group.items.map(item => {
-            const Icon = item.icon;
-            const active = page === item.page;
-            return <button key={item.page} type="button" className={`sidebar-item ${active ? "active" : ""}`} onClick={() => navigate(item)} title={collapsed && !isMobile ? item.label : undefined}>
-              <Icon size={17} /><span>{item.label}</span>{active ? <ChevronRight size={15} /> : null}
-            </button>;
-          })}
-        </div>)}
-      </nav>
-      <div className="sidebar-footer"><ShieldCheck size={15} /><span>Validated research workspace</span></div>
-    </aside>
-    {mobileOpen && <button className="sidebar-backdrop" type="button" aria-label="Close navigation" onClick={() => setMobileOpen(false)} />}
-  </>;
+const pageByPath=new Map(GROUPS.flatMap(group=>group.items.map(item=>[item.route,item.page] as const))); function currentPage():string{return pageByPath.get(window.location.pathname)??"market";}
+function applyDisplayPreferences(display:DisplayPreferences):void{const root=document.documentElement;root.dataset.theme=display.theme;root.dataset.density=display.density;root.dataset.accessibleContrast=String(display.accessible_contrast);root.dataset.reducedMotion=String(display.reduce_animations||display.reduced_motion);document.body.classList.toggle("sidebar-collapsed",display.sidebar_collapsed&&window.innerWidth>900);try{window.localStorage.setItem("research-display-preferences",JSON.stringify(display));window.localStorage.setItem("research-sidebar-collapsed",String(display.sidebar_collapsed));}catch{}}
+export default function NavigationChrome(){const[user,setUser]=useState<User|null>(null);const[mobileOpen,setMobileOpen]=useState(false);const[isMobile,setIsMobile]=useState(()=>window.innerWidth<=900);const[collapsed,setCollapsed]=useState(()=>{try{return window.localStorage.getItem("research-sidebar-collapsed")==="true";}catch{return false;}});const[page,setPage]=useState(currentPage);const didApplyLanding=useRef(false);
+ useEffect(()=>{let active=true;const check=()=>getCurrentUser().then(next=>{if(active)setUser(next)}).catch(()=>{if(active)setUser(null)});check();const timer=window.setInterval(check,5000);return()=>{active=false;window.clearInterval(timer)}},[]);
+ useEffect(()=>{if(!user)return;let active=true;getPreferences().then(preferences=>{if(!active)return;applyDisplayPreferences(preferences.display_preferences);setCollapsed(preferences.display_preferences.sidebar_collapsed);if(!didApplyLanding.current&&window.location.pathname==="/dashboard"&&preferences.display_preferences.default_landing_page!=="/dashboard"){didApplyLanding.current=true;window.history.replaceState({},"",preferences.display_preferences.default_landing_page);setPage(currentPage());window.dispatchEvent(new PopStateEvent("popstate"));}else didApplyLanding.current=true}).catch(()=>{});return()=>{active=false}},[user]);
+ useEffect(()=>{const sync=()=>setPage(currentPage());const handleResize=()=>{setIsMobile(window.innerWidth<=900);document.body.classList.toggle("sidebar-collapsed",collapsed&&window.innerWidth>900)};window.addEventListener("popstate",sync);window.addEventListener("resize",handleResize);sync();return()=>{window.removeEventListener("popstate",sync);window.removeEventListener("resize",handleResize)}},[collapsed]);
+ useEffect(()=>{try{window.localStorage.setItem("research-sidebar-collapsed",String(collapsed))}catch{}document.body.classList.toggle("sidebar-collapsed",collapsed&&!isMobile);return()=>document.body.classList.remove("sidebar-collapsed")},[collapsed,isMobile]);
+ const navigate=(item:NavItem)=>{if(window.location.pathname!==item.route)window.history.pushState({},"",item.route);setPage(item.page);setMobileOpen(false);window.dispatchEvent(new PopStateEvent("popstate"));window.scrollTo({top:0,behavior:"auto"})}; const signOut=async()=>{try{await logout()}finally{setUser(null);setMobileOpen(false);window.history.replaceState({},"","/dashboard");window.dispatchEvent(new PopStateEvent("popstate"))}}; const activeItem=GROUPS.flatMap(group=>group.items).find(item=>item.page===page)??GROUPS[0].items[0]; if(!user)return null;
+ return <><header className={`app-chrome-header ${collapsed&&!isMobile?"sidebar-collapsed":""}`}><button className="chrome-menu" type="button" onClick={()=>isMobile?setMobileOpen(value=>!value):setCollapsed(value=>!value)} aria-label={isMobile?"Toggle navigation":collapsed?"Expand navigation":"Collapse navigation"} title={isMobile?"Toggle navigation":collapsed?"Expand sidebar":"Collapse sidebar"}>{isMobile?(mobileOpen?<X size={20}/>:<Menu size={20}/>):(collapsed?<PanelLeftOpen size={19}/>:<PanelLeftClose size={19}/>)}</button><div className="chrome-heading"><div className="eyebrow">ProfitForge Intelligence</div><strong>{activeItem.label}</strong></div><div className="chrome-user"><span>{user.email}</span><button type="button" className="chrome-signout" onClick={()=>void signOut()}><LogOut size={15}/> Sign out</button></div></header><aside className={`app-sidebar ${collapsed&&!isMobile?"collapsed":""} ${mobileOpen?"open":""}`} aria-label="Primary navigation"><div className="sidebar-brand"><div className="brand-mark"><img src="/profitforge-logo.svg" alt="ProfitForge"/></div><div className="sidebar-brand-copy"><div className="eyebrow">ProfitForge</div><strong>ProfitForge</strong></div></div><nav className="sidebar-nav">{GROUPS.map(group=><div className="nav-group" key={group.label}><div className="nav-group-label">{group.label}</div>{group.items.map(item=>{const Icon=item.icon;const active=page===item.page;return <button key={item.page} type="button" className={`sidebar-item ${active?"active":""}`} onClick={()=>navigate(item)} title={collapsed&&!isMobile?item.label:undefined}><Icon size={17}/><span>{item.label}</span>{active?<ChevronRight size={15}/>:null}</button>})}</div>)}</nav><div className="sidebar-footer"><ShieldCheck size={15}/><span>Validated research workspace</span></div></aside>{mobileOpen&&<button className="sidebar-backdrop" type="button" aria-label="Close navigation" onClick={()=>setMobileOpen(false)}/>}</>;
 }
