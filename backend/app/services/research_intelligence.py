@@ -202,8 +202,13 @@ def save_snapshot(access_token: str, user_id: str, snapshot_id: str) -> Research
         "snapshot_type": "SAVED",
         "snapshot_at": current.snapshot_at.isoformat(),
         "source_history_id": current.source_history_id,
+        "research_run_id": current.research_run_id,
         "state": current.state,
+        "dataset_version": current.dataset_version,
+        "feature_version": current.feature_version,
         "engine_version": current.engine_version,
+        "model_version": current.model_version,
+        "reproducibility_hash": current.reproducibility_hash,
     }
     rows = _request("POST", "research_snapshots", access_token, json=payload, prefer="return=representation").json()
     if not rows:
