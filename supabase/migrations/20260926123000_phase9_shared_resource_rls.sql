@@ -107,8 +107,38 @@ using (exists(select 1 from public.watchlists w where w.id=watchlist_items.watch
 create policy "watchlist_items_insert_shared" on public.watchlist_items for insert to authenticated
 with check (exists(select 1 from public.watchlists w where w.id=watchlist_items.watchlist_id and ((select auth.uid())=w.user_id or exists(select 1 from public.resource_shares rs where rs.resource_type='WATCHLIST' and rs.resource_id=w.id and rs.permission in ('EDIT','ADMIN') and (select private.user_is_org_member(rs.organization_id))))));
 create policy "watchlist_items_update_shared" on public.watchlist_items for update to authenticated
-using (exists(select 1 from public.watchlists w where w.id=watchlist_items.watchlist_id and ((select auth.uid())=w.user_id or exists(select 1 from public.resource_shares rs where rs.resource_type='WATCHLIST' and rs.resource_id=w.id and rs.permission in ('EDIT','ADMIN') and (select private.user_is_org_member(rs.organization_id)))))
-with check (exists(select 1 from public.watchlists w where w.id=watchlist_items.watchlist_id and ((select auth.uid())=w.user_id or exists(select 1 from public.resource_shares rs where rs.resource_type='WATCHLIST' and rs.resource_id=w.id and rs.permission in ('EDIT','ADMIN') and (select private.user_is_org_member(rs.organization_id))))));
+using (
+  exists (
+    select 1 from public.watchlists w
+    where w.id=watchlist_items.watchlist_id
+      and (
+        (select auth.uid())=w.user_id
+        or exists (
+          select 1 from public.resource_shares rs
+          where rs.resource_type='WATCHLIST'
+            and rs.resource_id=w.id
+            and rs.permission in ('EDIT','ADMIN')
+            and (select private.user_is_org_member(rs.organization_id))
+        )
+      )
+  )
+)
+with check (
+  exists (
+    select 1 from public.watchlists w
+    where w.id=watchlist_items.watchlist_id
+      and (
+        (select auth.uid())=w.user_id
+        or exists (
+          select 1 from public.resource_shares rs
+          where rs.resource_type='WATCHLIST'
+            and rs.resource_id=w.id
+            and rs.permission in ('EDIT','ADMIN')
+            and (select private.user_is_org_member(rs.organization_id))
+        )
+      )
+  )
+);
 create policy "watchlist_items_delete_shared" on public.watchlist_items for delete to authenticated
 using (exists(select 1 from public.watchlists w where w.id=watchlist_items.watchlist_id and ((select auth.uid())=w.user_id or exists(select 1 from public.resource_shares rs where rs.resource_type='WATCHLIST' and rs.resource_id=w.id and rs.permission in ('EDIT','ADMIN') and (select private.user_is_org_member(rs.organization_id))))));
 
