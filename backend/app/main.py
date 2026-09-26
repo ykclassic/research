@@ -56,10 +56,6 @@ app = FastAPI(
 origins = [item.strip() for item in settings.cors_origins.split(",") if item.strip()]
 trusted_hosts = [item.strip() for item in settings.trusted_hosts.split(",") if item.strip()]
 
-# Vercel creates a new HTTPS origin for each production/preview deployment and
-# branch URL. Keep the explicit CORS allow-list for fixed origins, while also
-# allowing only this project's Vercel hostname family. This is required because
-# browser credentials cannot use a wildcard CORS origin.
 vercel_origin_regex = VERCEL_ORIGIN_REGEX
 
 app.add_middleware(
@@ -79,55 +75,66 @@ app.add_middleware(
 
 @app.middleware("http")
 async def security_headers(request: Request, call_next):
+    started = perf_counter()
     response = await call_next(request)
-    response.headers.setdefault("X-Content-Type-Options", "nosniff")
-    response.headers.setdefault("X-Frame-Options", "DENY")
-    response.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
-    response.headers.setdefault("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
-    return response
-
-
-@app.middleware("http")
-async def request_metrics(request: Request, call_next):
-    start = perf_counter()
-    response = await call_next(request)
-    response.headers["X-Response-Time-Ms"] = f"{(perf_counter() - start) * 1000:.2f}"
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+    response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
+    response.headers["X-Permitted-Cross-Domain-Policies"] = "none"
+    response.headers["Server-Timing"] = f"app;dur={(perf_counter() - started) * 1000:.2f}"
+    deployment_commit = os.getenv("RENDER_GIT_COMMIT")
+    if deployment_commit:
+        response.headers["X-Deployment-Commit"] = deployment_commit
+    if request.url.path.startswith("/api/"):
+        response.headers["Cache-Control"] = "no-store"
+    if settings.app_env.lower() == "production":
+        response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
     return response
 
 
 app.include_router(auth_router)
 app.include_router(billing_router)
+app.include_router(preferences_router)
 app.include_router(market_router)
 app.include_router(market_session_router)
+app.include_router(providers_router)
 app.include_router(watchlists_router)
 app.include_router(analysis_router)
-app.include_router(market_structure_router)
-app.include_router(mtf_router)
+app.include_router(regime_router)
+app.include_router(strategies_router)
+app.include_router(strategy_selection_router)
+app.include_router(risk_management_router)
 app.include_router(signals_router)
+app.include_router(scanner_router)
 app.include_router(signal_outcomes_router)
 app.include_router(signal_intelligence_router)
-app.include_router(regime_router)
+app.include_router(market_structure_router)
+app.include_router(mtf_router)
+app.include_router(news_router)
+app.include_router(ai_research_router)
+app.include_router(research_copilot_router)
+app.include_router(research_reports_router)
+app.include_router(research_history_router)
+app.include_router(research_intelligence_router)
+app.include_router(alerts_router)
 app.include_router(execution_router)
+app.include_router(performance_router)
 app.include_router(portfolio_router)
 app.include_router(quant_lab_router)
 app.include_router(research_workspaces_router)
 app.include_router(phase9_router)
 app.include_router(phase10_router)
-app.include_router(research_copilot_router)
-app.include_router(ai_research_router)
-app.include_router(news_router)
-app.include_router(research_reports_router)
-app.include_router(research_history_router)
-app.include_router(research_intelligence_router)
-app.include_router(risk_management_router)
-app.include_router(providers_router)
-app.include_router(scanner_router)
-app.include_router(strategies_router)
-app.include_router(strategy_selection_router)
-app.include_router(alerts_router)
-app.include_router(preferences_router)
 
 
 @app.get("/health")
-async def health() -> dict[str, str]:
-    return {"status": "ok", "version": APPLICATION_VERSION}
+async def health() -> dict:
+    return {
+        "ok": True,
+        "service": "adaptive-market-research-bot",
+        "environment": settings.app_env,
+        "application_version": APPLICATION_VERSION,
+        "deployment_commit": os.getenv("RENDER_GIT_COMMIT"),
+        "deployment_branch": os.getenv("RENDER_GIT_BRANCH"),
+        "deployment_repository": os.getenv("RENDER_GIT_REPO_SLUG"),
+    }
