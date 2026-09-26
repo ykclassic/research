@@ -12,6 +12,7 @@ from app.services.entitlement import UsageLimitExceededError, consume_usage, req
 from app.services.research_copilot import ResearchCopilotError, ResearchCopilotService, interpret_query
 from app.services.research_workspace import run_due_automation_rules
 from app.services.phase9_infrastructure import deliver_pending_webhooks, run_due_export_schedules
+from app.services.phase10_intelligence import run_maintenance
 
 router = APIRouter(prefix="/api/research-copilot", tags=["research-copilot"])
 service = ResearchCopilotService()
@@ -47,11 +48,7 @@ class CopilotResponse(BaseModel):
 
 
 @router.post("/run", response_model=CopilotResponse, dependencies=[Depends(_require_csrf)])
-async def run_copilot(
-    request: CopilotRequest,
-    user: UserResponse | None = Depends(get_current_user_or_github_actions),
-    access_token: Annotated[str | None, Cookie(alias="mr_access_token")] = None,
-) -> CopilotResponse:
+async def run_copilot(request: CopilotRequest, user: UserResponse | None = Depends(get_current_user_or_github_actions), access_token: Annotated[str | None, Cookie(alias="mr_access_token")] = None) -> CopilotResponse:
     if user is None or not access_token:
         raise HTTPException(status_code=401, detail="Authentication required.")
     try:
@@ -67,7 +64,6 @@ async def run_copilot(
         raise HTTPException(status_code=429, detail=str(exc)) from exc
     except Exception as exc:
         raise HTTPException(status_code=402, detail=str(exc)) from exc
-
     try:
         result = await service.run(access_token, user.id, request.query, request.default_symbol)
         return CopilotResponse(**result)
@@ -78,47 +74,36 @@ async def run_copilot(
 
 
 @router.get("/history")
-async def copilot_history(
-    user: UserResponse | None = Depends(get_current_user_or_github_actions),
-    access_token: Annotated[str | None, Cookie(alias="mr_access_token")] = None,
-) -> list[dict]:
+async def copilot_history(user: UserResponse | None = Depends(get_current_user_or_github_actions), access_token: Annotated[str | None, Cookie(alias="mr_access_token")] = None) -> list[dict]:
     if user is None or not access_token:
         raise HTTPException(status_code=401, detail="Authentication required.")
     return service.history(access_token, user.id)
 
 
 @router.post("/scheduler/run", dependencies=[Depends(require_github_actions)])
-async def copilot_scheduler(
-    x_research_copilot_secret: Annotated[str | None, Header()] = None,
-) -> dict[str, str]:
-    if not settings.scanner_scheduler_secret or not x_research_copilot_secret or not secrets.compare_digest(
-        x_research_copilot_secret, settings.scanner_scheduler_secret
-    ):
+async def copilot_scheduler(x_research_copilot_secret: Annotated[str | None, Header()] = None) -> dict[str, str]:
+    if not settings.scanner_scheduler_secret or not x_research_copilot_secret or not secrets.compare_digest(x_research_copilot_secret, settings.scanner_scheduler_secret):
         raise HTTPException(status_code=401, detail="Invalid research copilot scheduler credential.")
     try:
         scheduled = await service.run_due_schedules(settings.supabase_service_role_key)
         workspace = await run_due_automation_rules(settings.supabase_service_role_key)
-        return {**scheduled, "workspace_scheduled": workspace["scheduled"], "workspace_completed": workspace["completed"], "workspace_failed": workspace["failed"], "failed": scheduled["failed"] + workspace["failed"]}
+        webhooks = deliver_pending_webhooks()
+        exports = run_due_export_schedules()
+        maintenance = run_maintenance()
+        return {**scheduled, "workspace_scheduled": workspace["scheduled"], "workspace_completed": workspace["completed"], "workspace_failed": workspace["failed"], "webhook_processed": webhooks["processed"], "webhook_delivered": webhooks["delivered"], "webhook_failed": webhooks["failed"], "export_scheduled": exports["scheduled"], "export_completed": exports["completed"], "export_failed": exports["failed"], "cache_expired": maintenance["expired_cache_entries"], "failed": scheduled["failed"] + workspace["failed"] + webhooks["failed"] + exports["failed"]}
     except Exception as exc:
         raise HTTPException(status_code=503, detail="Scheduled research execution failed.") from exc
 
 
 @router.get("/schedules")
-async def schedules(
-    user: UserResponse | None = Depends(get_current_user_or_github_actions),
-    access_token: Annotated[str | None, Cookie(alias="mr_access_token")] = None,
-):
+async def schedules(user: UserResponse | None = Depends(get_current_user_or_github_actions), access_token: Annotated[str | None, Cookie(alias="mr_access_token")] = None):
     if user is None or not access_token:
         raise HTTPException(status_code=401, detail="Authentication required.")
     return service.list_schedules(access_token, user.id)
 
 
 @router.post("/schedules", dependencies=[Depends(_require_csrf)])
-async def create_schedule(
-    request: ScheduleRequest,
-    user: UserResponse | None = Depends(get_current_user_or_github_actions),
-    access_token: Annotated[str | None, Cookie(alias="mr_access_token")] = None,
-):
+async def create_schedule(request: ScheduleRequest, user: UserResponse | None = Depends(get_current_user_or_github_actions), access_token: Annotated[str | None, Cookie(alias="mr_access_token")] = None):
     if user is None or not access_token:
         raise HTTPException(status_code=401, detail="Authentication required.")
     try:
@@ -129,11 +114,7 @@ async def create_schedule(
 
 
 @router.delete("/schedules/{schedule_id}", dependencies=[Depends(_require_csrf)])
-async def delete_schedule(
-    schedule_id: str,
-    user: UserResponse | None = Depends(get_current_user_or_github_actions),
-    access_token: Annotated[str | None, Cookie(alias="mr_access_token")] = None,
-):
+async def delete_schedule(schedule_id: str, user: UserResponse | None = Depends(get_current_user_or_github_actions), access_token: Annotated[str | None, Cookie(alias="mr_access_token")] = None):
     if user is None or not access_token:
         raise HTTPException(status_code=401, detail="Authentication required.")
     service.delete_schedule(access_token, user.id, schedule_id)
