@@ -136,7 +136,8 @@ def deliver_pending_webhooks(limit: int = 50) -> dict[str,int]:
             delay_minutes=min(60, 2 ** min(attempt, 6))
             next_attempt=(datetime.now(timezone.utc).replace(microsecond=0) + __import__("datetime").timedelta(minutes=delay_minutes)).isoformat()
             service_request("PATCH","webhook_deliveries",params={"id":f"eq.{d['id']}"},json={"status":status,"attempt_count":attempt,"next_attempt_at":next_attempt,"response_body":str(exc)[:2000]})
-            if endpoint:\n                service_request("PATCH","webhook_endpoints",params={"id":f"eq.{endpoint['id']}"},json={"failure_count":attempt,"last_error":str(exc)[:2000]})
+            if endpoint:
+                service_request("PATCH","webhook_endpoints",params={"id":f"eq.{endpoint['id']}"},json={"failure_count":attempt,"last_error":str(exc)[:2000]})
             failed+=1
     return {"processed":len(deliveries),"delivered":delivered,"failed":failed}
 
