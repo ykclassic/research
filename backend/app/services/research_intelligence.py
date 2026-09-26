@@ -16,12 +16,12 @@ from app.models.research_intelligence import (
     WatchpointEvent,
 )
 from app.services.news_research_resilient import news_research
-from app.services.supabase_data import DataRequestError, _request
+from app.services.supabase_data import DataRequestError, _request\nfrom app.services.phase9_infrastructure import reproducibility_hash
 
 
 ENGINE_VERSION = "research-intelligence-v2"
 MODEL_VERSION = "deterministic-research"
-SNAPSHOT_SELECT = "id,user_id,symbol,snapshot_type,snapshot_at,source_history_id,state,engine_version,created_at"
+SNAPSHOT_SELECT = "id,user_id,symbol,snapshot_type,snapshot_at,source_history_id,research_run_id,state,dataset_version,feature_version,engine_version,model_version,reproducibility_hash,created_at"
 WATCHPOINT_SELECT = "id,user_id,symbol,name,condition_type,field,operator,value,timeframe,enabled,last_state,last_triggered_at,created_at,updated_at"
 EVENT_SELECT = "id,watchpoint_id,user_id,symbol,event_type,message,observed_value,triggered_at"
 
