@@ -5,8 +5,8 @@ import {
   createInfrastructureWebhook, deleteInfrastructureWebhook, getInfrastructureAudit,
   getInfrastructureKeys, getInfrastructureMembers, getInfrastructureOrganizations,
   getInfrastructureShares, InfrastructureApiKey, InfrastructureAudit, InfrastructureMember,
-  InfrastructureOrganization, InfrastructureShare, InfrastructureWebhook, revokeInfrastructureKey,
-  shareInfrastructureResource, addInfrastructureMember, updateInfrastructureMember,
+  InfrastructureOrganization, InfrastructureShare, InfrastructureWebhook, InfrastructureExportSchedule, revokeInfrastructureKey,
+  shareInfrastructureResource, addInfrastructureMember, updateInfrastructureMember, getInfrastructureExportSchedules, createInfrastructureExportSchedule, deleteInfrastructureExportSchedule,
 } from "./api";
 
 const scopeDefaults=["market:read","research:read","signals:read","regimes:read","outcomes:read","analytics:read","runs:read","snapshots:read","exports:read","org:read"];
@@ -19,7 +19,7 @@ export default function InfrastructurePage() {
   const [org,setOrg]=useState<InfrastructureOrganization|null>(null);
   const [members,setMembers]=useState<InfrastructureMember[]>([]);
   const [shares,setShares]=useState<InfrastructureShare[]>([]);
-  const [audit,setAudit]=useState<InfrastructureAudit[]>([]);
+  const [audit,setAudit]=useState<InfrastructureAudit[]>([]);\n  const [exportSchedules,setExportSchedules]=useState<InfrastructureExportSchedule[]>([]);\n  const [exportName,setExportName]=useState("Daily research dataset");\n  const [exportResource,setExportResource]=useState("RUNS");\n  const [exportFormat,setExportFormat]=useState("JSON");\n  const [exportInterval,setExportInterval]=useState(1440);
   const [keyName,setKeyName]=useState("Research integration");
   const [scopes,setScopes]=useState(scopeDefaults);
   const [newSecret,setNewSecret]=useState<string|null>(null);
@@ -39,8 +39,8 @@ export default function InfrastructurePage() {
   const load=useCallback(async()=>{
     try {
       setError(null);
-      const [k,w,o]=await Promise.all([getInfrastructureKeys(),getInfrastructureWebhooks(),getInfrastructureOrganizations()]);
-      setKeys(k); setWebhooks(w); setOrgs(o);
+      const [k,w,o,e]=await Promise.all([getInfrastructureKeys(),getInfrastructureWebhooks(),getInfrastructureOrganizations(),getInfrastructureExportSchedules()]);
+      setKeys(k); setWebhooks(w); setOrgs(o); setExportSchedules(e);
       const selected=org && o.some(item=>item.id===org.id) ? o.find(item=>item.id===org.id)! : o[0]??null;
       setOrg(selected);
       if(selected){
@@ -67,6 +67,7 @@ export default function InfrastructurePage() {
     if(!org||!memberUserId.trim())return;
     try{setBusy(true);await addInfrastructureMember(org.id,memberUserId.trim(),memberRole);setMemberUserId("");await load();}catch(e){setError(e instanceof Error?e.message:"Unable to add member.");}finally{setBusy(false);}
   };
+  const createExportSchedule=async()=>{try{setBusy(true);await createInfrastructureExportSchedule({name:exportName,resource_type:exportResource,format:exportFormat,interval_minutes:exportInterval});setExportName("");await load();}catch(e){setError(e instanceof Error?e.message:"Unable to create export schedule.");}finally{setBusy(false);}};
   const share=async()=>{
     if(!org||!shareId.trim())return;
     try{setBusy(true);await shareInfrastructureResource(org.id,{resource_type:shareType,resource_id:shareId.trim(),permission:sharePermission});setShareId("");await load();}catch(e){setError(e instanceof Error?e.message:"Unable to share resource.");}finally{setBusy(false);}
@@ -102,6 +103,11 @@ export default function InfrastructurePage() {
       <div className="phase9-subgrid"><div><h4>Shared resources</h4>{!shares.length?<p className="muted">No shared resources yet.</p>:shares.map(s=><div className="phase9-mini" key={s.id}><strong>{s.resource_type}</strong><span>{s.resource_id} · {s.permission}</span></div>)}</div><div><h4>Audit trail</h4>{!audit.length?<p className="muted">No organization actions yet.</p>:audit.slice(0,8).map(a=><div className="phase9-mini" key={a.id}><strong>{a.action}</strong><span>{a.actor_user_id??"system"} · {new Date(a.created_at).toLocaleString()}</span></div>)}</div></div></>}
     </section>
 
+
+    <section className="panel"><div className="panel-head"><div><h3><Download size={17}/> Scheduled exports</h3><span>Recurring JSON/CSV snapshots are persisted with dataset, feature, engine and model versions.</span></div></div>
+      <div className="phase9-form"><label>Name<input value={exportName} onChange={e=>setExportName(e.target.value)} placeholder="Daily export"/></label><label>Dataset<select value={exportResource} onChange={e=>setExportResource(e.target.value)}><option>RUNS</option><option>SNAPSHOTS</option><option>OUTCOMES</option></select></label><label>Format<select value={exportFormat} onChange={e=>setExportFormat(e.target.value)}><option>JSON</option><option>CSV</option></select></label><label>Interval<select value={exportInterval} onChange={e=>setExportInterval(Number(e.target.value))}><option value={60}>Hourly</option><option value={360}>Every 6 hours</option><option value={1440}>Daily</option><option value={10080}>Weekly</option></select></label><button onClick={()=>void createExportSchedule()} disabled={busy||!exportName.trim()}><Plus size={15}/>Schedule export</button></div>
+      {!exportSchedules.length?<div className="settings-health-empty">No scheduled exports.</div>:<div className="phase9-list">{exportSchedules.map(s=><article key={s.id}><div><strong>{s.name}</strong><span>{s.resource_type} · {s.format} · next {new Date(s.next_run_at).toLocaleString()}</span></div><button className="icon-button danger" onClick={()=>void deleteInfrastructureExportSchedule(s.id)}><Trash2 size={14}/></button></article>)}</div>}
+    </section>
     <section className="panel"><div className="panel-head"><div><h3><Download size={17}/> Machine-readable exports & reproducibility</h3><span>JSON/CSV datasets preserve version metadata alongside research state.</span></div></div>
       <div className="phase9-export-grid">{[["RUNS","Research runs"],["SNAPSHOTS","Research snapshots"],["OUTCOMES","Signal outcomes"]].map(([id,label])=><article key={id}><strong>{label}</strong><span>JSON and CSV</span><div><button onClick={()=>window.open(`/api/infrastructure/export/${id.toLowerCase()}?format=json`,"_blank")}>JSON</button><button onClick={()=>window.open(`/api/infrastructure/export/${id.toLowerCase()}?format=csv`,"_blank")}>CSV</button></div></article>)}</div>
       <div className="phase9-contract"><strong>External contracts</strong><code>GET /api/v1/market/quote/:symbol</code><code>GET /api/v1/research/runs</code><code>GET /api/v1/research/snapshots</code><code>GET /api/v1/signals</code><code>GET /api/v1/regimes/:symbol</code><code>GET /api/v1/outcomes</code><code>GET /api/v1/portfolio/analytics</code><code>GET /api/v1/exports/:resource?format=csv</code><code>POST /api/mcp</code></div>
