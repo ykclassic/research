@@ -1,580 +1,77 @@
-from __future__ import annotations
+"""Compatibility facade for the deterministic signal engine."""
+from dataclasses import replace
+from app.services import signal_engine_v2 as _v2
 
-from dataclasses import dataclass
-from datetime import datetime, timezone
-from math import isfinite
-from typing import Any
-
-from app.models.market import OHLCVDataset, Timeframe
-from app.models.mtf import MTFBias
-from app.models.risk import RiskPolicy
-from app.models.signal import CryptoSignal, RiskRewardStatus, SignalComponent, SignalDirection
-from app.services.market_structure import analyze_market_structure
-from app.services.mtf_analysis import analyze_multi_timeframe
-from app.services.technical_analysis import calculate_indicators
-from app.services.regime_detection import detect_regime
-from app.services.market_session import build_session_state
-from app.services.system_status import APPLICATION_VERSION
-
-TIMEFRAME_WEIGHTS = {
-    Timeframe.DAY_1: 0.35,
-    Timeframe.HOUR_4: 0.30,
-    Timeframe.HOUR_1: 0.20,
-    Timeframe.MINUTE_15: 0.15,
-}
-
-SIGNAL_LEVEL_LOOKBACK = 50
-SIGNAL_STOP_ATR_MULTIPLIER = RiskPolicy().stop_atr_multiplier
-CONFIDENCE_BASE = 0.50
-CONFIDENCE_SCORE_SCALE = 0.50
+CONFIDENCE_BASE = _v2.CONFIDENCE_BASE
+CONFIDENCE_SCORE_SCALE = _v2.CONFIDENCE_SCORE_SCALE
+SIGNAL_LEVEL_LOOKBACK = _v2.SIGNAL_LEVEL_LOOKBACK
+SIGNAL_STOP_ATR_MULTIPLIER = _v2.SIGNAL_STOP_ATR_MULTIPLIER
+TIMEFRAME_WEIGHTS = _v2.TIMEFRAME_WEIGHTS
+CandidateTradeLevels = _v2.CandidateTradeLevels
 
 
-@dataclass(frozen=True)
-class CandidateTradeLevels:
-    entry_price: float
-    atr: float | None
-    stop_distance: float | None
-    stop_loss: float | None
-    structural_target: float | None
-    atr_minimum_target: float | None
-    take_profit: float | None
-    risk_reward: float | None
-    risk_reward_reason: str | None
-    reasons: tuple[str, ...] = ()
+def _signal_for_score(score):
+    return _v2._signal_for_score(score)
 
 
-def _sign(value: float | None, threshold: float = 0.0) -> float:
-    if value is None:
-        return 0.0
-    if value > threshold:
-        return 1.0
-    if value < -threshold:
-        return -1.0
-    return 0.0
+def _confidence_from_score(score):
+    return _v2._confidence_from_score(score)
 
 
-def _indicator_score(indicators: dict[str, float | str | None]) -> tuple[float, tuple[str, ...]]:
-    contributions: list[tuple[float, float]] = []
-    evidence: list[str] = []
-    trend = indicators.get("trend")
-    if trend == "BULLISH":
-        contributions.append((1.0, 0.30))
-        evidence.append("EMA trend stack is bullish.")
-    elif trend == "BEARISH":
-        contributions.append((-1.0, 0.30))
-        evidence.append("EMA trend stack is bearish.")
-
-    price = indicators.get("price")
-    ema50 = indicators.get("ema50")
-    ema200 = indicators.get("ema200")
-    if isinstance(price, (int, float)) and isinstance(ema50, (int, float)):
-        contributions.append((1.0 if price > ema50 else -1.0 if price < ema50 else 0.0, 0.15))
-    if isinstance(price, (int, float)) and isinstance(ema200, (int, float)):
-        contributions.append((1.0 if price > ema200 else -1.0 if price < ema200 else 0.0, 0.15))
-
-    macd_hist = indicators.get("macd_histogram")
-    if isinstance(macd_hist, (int, float)):
-        direction = _sign(macd_hist)
-        contributions.append((direction, 0.20))
-        if direction:
-            evidence.append("MACD histogram supports the directional move.")
-
-    rsi = indicators.get("rsi14")
-    if isinstance(rsi, (int, float)):
-        if rsi >= 55:
-            contributions.append((1.0, 0.10))
-            evidence.append(f"RSI14 is constructive at {rsi:.1f}.")
-        elif rsi <= 45:
-            contributions.append((-1.0, 0.10))
-            evidence.append(f"RSI14 is weak at {rsi:.1f}.")
-
-    vwap = indicators.get("vwap")
-    if isinstance(price, (int, float)) and isinstance(vwap, (int, float)):
-        contributions.append((_sign(price - vwap), 0.10))
-
-    total_weight = sum(weight for _, weight in contributions)
-    if total_weight <= 0:
-        return 0.0, ("Insufficient indicator evidence for a directional score.",)
-    return max(-1.0, min(1.0, sum(value * weight for value, weight in contributions) / total_weight)), tuple(evidence)
+def _structural_levels(candles, price):
+    return _v2._structural_levels(candles, price)
 
 
-def _smc_score(events) -> tuple[float, tuple[str, ...]]:
-    directional: list[tuple[float, float]] = []
-    evidence: list[str] = []
-    latest_break = max(
-        (event for event in events if event.type in {"BOS_BULLISH", "BOS_BEARISH", "CHOCH_BULLISH", "CHOCH_BEARISH"}),
-        key=lambda event: event.time,
-        default=None,
-    )
-    if latest_break is not None:
-        bullish = latest_break.type.endswith("BULLISH")
-        directional.append((1.0 if bullish else -1.0, 0.45 * max(latest_break.strength, 0.5)))
-        evidence.append(f"Latest structure event is {latest_break.type}.")
-
-    active_demand = [event for event in events if event.type in {"ORDER_BLOCK_BULLISH", "FVG_BULLISH"} and event.status.value == "ACTIVE"]
-    active_supply = [event for event in events if event.type in {"ORDER_BLOCK_BEARISH", "FVG_BEARISH"} and event.status.value == "ACTIVE"]
-    if active_demand and not active_supply:
-        directional.append((1.0, 0.25))
-        evidence.append("Active bullish OB/FVG demand is present.")
-    elif active_supply and not active_demand:
-        directional.append((-1.0, 0.25))
-        evidence.append("Active bearish OB/FVG supply is present.")
-
-    latest_sweep = max(
-        (event for event in events if event.type in {"LIQUIDITY_SWEEP_HIGH", "LIQUIDITY_SWEEP_LOW"}),
-        key=lambda event: event.time,
-        default=None,
-    )
-    if latest_sweep is not None:
-        bullish = latest_sweep.type == "LIQUIDITY_SWEEP_LOW"
-        directional.append((1.0 if bullish else -1.0, 0.20 * max(latest_sweep.strength, 0.5)))
-        evidence.append(f"Latest liquidity sweep is {latest_sweep.type}.")
-
-    latest_inducement = max(
-        (event for event in events if event.type in {"INDUCEMENT_BULLISH", "INDUCEMENT_BEARISH"}),
-        key=lambda event: event.time,
-        default=None,
-    )
-    if latest_inducement is not None:
-        bullish = latest_inducement.type == "INDUCEMENT_BULLISH"
-        directional.append((1.0 if bullish else -1.0, 0.10 * max(latest_inducement.strength, 0.5)))
-
-    zone = max((event for event in events if event.type in {"PREMIUM", "DISCOUNT"}), key=lambda event: event.time, default=None)
-    if zone is not None:
-        directional.append((1.0 if zone.type == "DISCOUNT" else -1.0, 0.10))
-        evidence.append(f"Price is in {zone.type.lower()} relative to the latest structure range.")
-
-    total_weight = sum(weight for _, weight in directional)
-    if total_weight <= 0:
-        return 0.0, ("No directional SMC event is currently confirmed.",)
-    return max(-1.0, min(1.0, sum(value * weight for value, weight in directional) / total_weight)), tuple(evidence)
-
-
-def _signal_for_score(score: float) -> SignalDirection:
-    if score >= 0.65:
-        return SignalDirection.STRONG_BUY
-    if score >= 0.25:
-        return SignalDirection.BUY
-    if score <= -0.65:
-        return SignalDirection.STRONG_SELL
-    if score <= -0.25:
-        return SignalDirection.SELL
-    return SignalDirection.NEUTRAL
-
-
-def _structural_levels(candles: list[Any], price: float) -> tuple[list[float], list[float]]:
-    window = candles[-SIGNAL_LEVEL_LOOKBACK:]
-    swing_length = 2
-    supports: list[float] = []
-    resistances: list[float] = []
-
-    for index in range(swing_length, len(window) - swing_length):
-        current = window[index]
-        current_low = float(current.low)
-        current_high = float(current.high)
-
-        is_swing_low = all(
-            float(window[index - offset].low) > current_low
-            and float(window[index + offset].low) > current_low
-            for offset in range(1, swing_length + 1)
+def _candidate_trade_levels(*args, **kwargs):
+    result = _v2._candidate_trade_levels(*args, **kwargs)
+    reasons = list(result.reasons)
+    signal = args[0] if args else kwargs.get("signal")
+    buy = getattr(signal, "value", str(signal)).upper() in {"BUY", "STRONG_BUY"}
+    if result.risk_reward is not None and result.take_profit is None:
+        minimum = kwargs.get("minimum_risk_reward", args[4] if len(args) > 4 else 0.0)
+        if not any("minimum risk/reward" in reason for reason in reasons):
+            reasons.append(f"No structural target satisfies the {float(minimum):.2f}:1 minimum risk/reward.")
+        if result.structural_target is not None and result.atr_minimum_target is not None:
+            conflict = result.structural_target < result.atr_minimum_target if buy else result.structural_target > result.atr_minimum_target
+            if conflict and not any("conflicts with the ATR-derived minimum target" in reason for reason in reasons):
+                reasons.append(f"Structural target {result.structural_target:.8f} conflicts with the ATR-derived minimum target {result.atr_minimum_target:.8f}.")
+        result = replace(result, risk_reward_reason=None, reasons=tuple(reasons))
+    elif result.risk_reward is None and result.risk_reward_reason:
+        direction = "resistance" if buy else "support"
+        result = replace(
+            result,
+            risk_reward_reason=f"risk/reward is unavailable because no validated structural {direction} exists beyond entry.",
+            reasons=tuple(reasons + [f"No validated structural {direction} beyond entry."]),
         )
-        if is_swing_low and current_low < price:
-            supports.append(current_low)
-
-        is_swing_high = all(
-            float(window[index - offset].high) < current_high
-            and float(window[index + offset].high) < current_high
-            for offset in range(1, swing_length + 1)
-        )
-        if is_swing_high and current_high > price:
-            resistances.append(current_high)
-
-    return (
-        sorted(set(supports), reverse=True),
-        sorted(set(resistances)),
-    )
+    return result
 
 
-def _candidate_trade_levels(
-    signal: SignalDirection,
-    entry_price: float,
-    atr: float | None,
-    candles: list[Any],
-    minimum_risk_reward: float,
-    stop_atr_multiplier: float = SIGNAL_STOP_ATR_MULTIPLIER,
-) -> CandidateTradeLevels:
-    if signal == SignalDirection.NEUTRAL:
-        return CandidateTradeLevels(
-            entry_price=entry_price, atr=atr, stop_distance=None, stop_loss=None,
-            structural_target=None, atr_minimum_target=None, take_profit=None,
-            risk_reward=None,
-            risk_reward_reason="Directional bias is neutral; no directional risk/reward setup is available.",
-            reasons=("Directional bias is neutral; no trade levels are generated.",),
-        )
-
-    if not isfinite(entry_price) or entry_price <= 0 or atr is None or not isfinite(float(atr)) or float(atr) <= 0:
-        return CandidateTradeLevels(
-            entry_price=entry_price, atr=atr, stop_distance=None, stop_loss=None,
-            structural_target=None, atr_minimum_target=None, take_profit=None,
-            risk_reward=None,
-            risk_reward_reason="A positive finite ATR14 is required before risk/reward can be calculated.",
-            reasons=("A positive finite ATR14 is required for candidate trade levels.",),
-        )
-
-    atr_value = float(atr)
-    stop_distance = atr_value * stop_atr_multiplier
-    if stop_distance <= 0 or not isfinite(stop_distance):
-        return CandidateTradeLevels(
-            entry_price=entry_price, atr=atr_value, stop_distance=None, stop_loss=None,
-            structural_target=None, atr_minimum_target=None, take_profit=None,
-            risk_reward=None,
-            risk_reward_reason="ATR-based stop distance is invalid; risk/reward is unavailable.",
-            reasons=("ATR-based stop distance is invalid.",),
-        )
-
-    supports, resistances = _structural_levels(candles, entry_price)
-    direction_is_buy = signal in {SignalDirection.BUY, SignalDirection.STRONG_BUY}
-    stop_loss = entry_price - stop_distance if direction_is_buy else entry_price + stop_distance
-    atr_minimum_target = (
-        entry_price + stop_distance * minimum_risk_reward
-        if direction_is_buy
-        else entry_price - stop_distance * minimum_risk_reward
-    )
-    reasons: list[str] = []
-
-    if stop_loss <= 0:
-        reasons.append("ATR-based candidate stop is non-positive.")
-        return CandidateTradeLevels(
-            entry_price=entry_price, atr=atr_value, stop_distance=stop_distance,
-            stop_loss=stop_loss, structural_target=None,
-            atr_minimum_target=atr_minimum_target, take_profit=None,
-            risk_reward=None,
-            risk_reward_reason="ATR-based candidate stop is non-positive; risk/reward is unavailable.",
-            reasons=tuple(reasons),
-        )
-
-    candidate_targets = resistances if direction_is_buy else supports
-    side = "resistance" if direction_is_buy else "support"
-
-    if not candidate_targets:
-        reason = f"No validated structural {side} target exists beyond the entry; risk/reward is unavailable."
-        reasons.append(reason)
-        return CandidateTradeLevels(
-            entry_price=entry_price, atr=atr_value, stop_distance=stop_distance,
-            stop_loss=stop_loss, structural_target=None,
-            atr_minimum_target=atr_minimum_target, take_profit=None,
-            risk_reward=None,
-            risk_reward_reason=reason,
-            reasons=tuple(reasons),
-        )
-
-    valid_target = None
-    valid_risk_reward = 0.0
-    risk = abs(entry_price - stop_loss)
-
-    for target in candidate_targets:
-        if direction_is_buy and target <= entry_price:
-            continue
-        if not direction_is_buy and target >= entry_price:
-            continue
-
-        reward = abs(target - entry_price)
-        risk_reward = reward / risk if risk > 0 else 0.0
-        if risk_reward >= minimum_risk_reward:
-            valid_target = target
-            valid_risk_reward = risk_reward
-            break
-
-    if valid_target is None:
-        nearest_target = candidate_targets[0]
-        nearest_risk_reward = (
-            abs(nearest_target - entry_price) / risk if risk > 0 else 0.0
-        )
-        reasons.append(
-            f"No structural {side} level satisfies the "
-            f"{minimum_risk_reward:.2f}:1 minimum risk/reward."
-        )
-        if nearest_risk_reward < minimum_risk_reward:
-            reasons.append(
-                f"Nearest structural target {nearest_target:.8f} provides "
-                f"{nearest_risk_reward:.2f}:1 risk/reward."
-            )
-        if direction_is_buy:
-            if nearest_target > entry_price and nearest_target < atr_minimum_target:
-                reasons.append(
-                    f"Structural target {nearest_target:.8f} conflicts with the "
-                    f"ATR-derived minimum target {atr_minimum_target:.8f}."
-                )
-        elif nearest_target < entry_price and nearest_target > atr_minimum_target:
-            reasons.append(
-                f"Structural target {nearest_target:.8f} conflicts with the "
-                f"ATR-derived minimum target {atr_minimum_target:.8f}."
-            )
-        return CandidateTradeLevels(
-            entry_price=entry_price, atr=atr_value, stop_distance=stop_distance,
-            stop_loss=stop_loss, structural_target=nearest_target,
-            atr_minimum_target=atr_minimum_target, take_profit=None,
-            risk_reward=max(0.0, nearest_risk_reward),
-            risk_reward_reason=None,
-            reasons=tuple(reasons),
-        )
-
-    take_profit = valid_target
-    risk_reward = valid_risk_reward
-
-    if direction_is_buy and take_profit < atr_minimum_target:
-        reasons.append(
-            f"Structural target {take_profit:.8f} is below the "
-            f"ATR-derived minimum target {atr_minimum_target:.8f}."
-        )
-    elif not direction_is_buy and take_profit > atr_minimum_target:
-        reasons.append(
-            f"Structural target {take_profit:.8f} is above the "
-            f"ATR-derived minimum target {atr_minimum_target:.8f}."
-        )
-
-    return CandidateTradeLevels(
-        entry_price=entry_price, atr=atr_value, stop_distance=stop_distance,
-        stop_loss=stop_loss, structural_target=take_profit,
-        atr_minimum_target=atr_minimum_target, take_profit=take_profit,
-        risk_reward=max(0.0, risk_reward),
-        risk_reward_reason=None,
-        reasons=tuple(reasons),
-    )
-
-
-def _confidence_from_score(score: float) -> float:
-    """Convert deterministic score magnitude to the existing heuristic strength value.
-
-    This is intentionally a fixed, monotonic mapping. It is not a probability
-    calibration and must not be tuned against the same observations used to
-    evaluate future performance.
-    """
-    return min(1.0, CONFIDENCE_BASE + CONFIDENCE_SCORE_SCALE * abs(score))
-
-
-def _preferred_direction(signal: SignalDirection) -> str:
-    if signal in {SignalDirection.BUY, SignalDirection.STRONG_BUY}:
-        return "BUY"
-    if signal in {SignalDirection.SELL, SignalDirection.STRONG_SELL}:
-        return "SELL"
-    return "NEUTRAL"
-
-
-def _qualify(
-    signal: SignalDirection,
-    confidence: float,
-    risk_reward: float | None,
-    mtf_bias: MTFBias,
-    mtf_alignment: int,
-    structure_score: float,
-    preferences: dict[str, Any],
-) -> tuple[bool, tuple[str, ...]]:
-    minimum_confidence = float(preferences.get("minimum_confidence", 0.0))
-    minimum_rr = float(preferences.get("minimum_risk_reward", 0.0))
-    preferred = set(preferences.get("preferred_signal_types") or ["BUY", "SELL", "NEUTRAL"])
-    direction = _preferred_direction(signal)
-    reasons: list[str] = []
-    if confidence < minimum_confidence:
-        reasons.append(f"Confidence {confidence:.1%} is below the {minimum_confidence:.1%} minimum.")
-    if direction not in preferred:
-        reasons.append(f"{direction} is not an enabled preferred signal type.")
-    if direction != "NEUTRAL":
-        if risk_reward is None:
-            reasons.append(
-                f"Risk/reward is unavailable because no validated target exists; "
-                f"{minimum_rr:.2f}:1 minimum is required."
-            )
-        elif risk_reward < minimum_rr:
-            reasons.append(f"Risk/reward {risk_reward:.2f} is below the {minimum_rr:.2f} minimum.")
-    if preferences.get("require_multi_timeframe_confirmation") and direction != "NEUTRAL":
-        aligned = (direction == "BUY" and mtf_bias == MTFBias.BULLISH) or (direction == "SELL" and mtf_bias == MTFBias.BEARISH)
-        if not aligned or mtf_alignment < 3:
-            reasons.append("Multi-timeframe confirmation is required but is not sufficiently aligned.")
-    if preferences.get("require_market_structure_confirmation") and direction != "NEUTRAL":
-        structure_aligned = (direction == "BUY" and structure_score > 0) or (direction == "SELL" and structure_score < 0)
-        if not structure_aligned:
-            reasons.append("Market-structure confirmation is required but is not aligned with the signal.")
-    return not reasons, tuple(reasons)
-
-
-def generate_crypto_signal(
-    datasets: dict[Timeframe, OHLCVDataset],
-    signal_preferences: dict[str, Any] | None = None,
-    *,
-    selected_timeframes: tuple[Timeframe, ...] | None = None,
-    asset_class: str = "crypto",
-) -> CryptoSignal:
-    preferences = signal_preferences or {
-        "minimum_confidence": 0.0,
-        "preferred_signal_types": ["BUY", "SELL", "NEUTRAL"],
-        "minimum_risk_reward": 0.0,
-        "require_multi_timeframe_confirmation": False,
-        "require_market_structure_confirmation": False,
-    }
-    required = tuple(TIMEFRAME_WEIGHTS)
-    selected = tuple(selected_timeframes or required)
-    invalid_selected = [timeframe.value for timeframe in selected if timeframe not in TIMEFRAME_WEIGHTS]
-    if invalid_selected:
-        raise ValueError("Unsupported signal timeframe(s): " + ", ".join(invalid_selected))
-    missing = [timeframe.value for timeframe in required if timeframe not in datasets]
-    if missing:
-        raise ValueError(f"Missing required signal timeframe(s): {', '.join(missing)}")
-
-    components: list[SignalComponent] = []
-    weighted_score = 0.0
-    selected_weight_total = sum(TIMEFRAME_WEIGHTS[timeframe] for timeframe in selected)
-    evidence: list[str] = []
-    structures = {}
-    smc_scores: list[float] = []
-
-    for timeframe in required:
-        dataset = datasets[timeframe]
-        candles = list(dataset.completed_candles)
-        if len(candles) < 30:
-            raise ValueError(f"At least 30 completed candles are required for {timeframe.value} signal research.")
-        indicators = calculate_indicators(candles)
-        indicators["price"] = candles[-1].close
-        structure = analyze_market_structure(dataset)
-        structures[timeframe] = tuple(structure.events)
-        indicator_score, indicator_evidence = _indicator_score(indicators)
-        smc_score, smc_evidence = _smc_score(structure.events)
-        smc_scores.append(smc_score)
-        combined = max(-1.0, min(1.0, 0.60 * indicator_score + 0.40 * smc_score))
-        components.append(
-            SignalComponent(
-                timeframe=timeframe.value,
-                indicator_score=indicator_score,
-                smc_score=smc_score,
-                combined_score=combined,
-                evidence=indicator_evidence + smc_evidence,
-            )
-        )
-        if timeframe in selected:
-            weighted_score += (TIMEFRAME_WEIGHTS[timeframe] / selected_weight_total) * combined
-        evidence.extend(f"{timeframe.value}: {item}" for item in (indicator_evidence + smc_evidence))
-
-    mtf = analyze_multi_timeframe(datasets, structures)
-    if mtf.research.bias == MTFBias.BULLISH:
-        weighted_score = 0.85 * weighted_score + 0.15 * mtf.research.confidence
-        evidence.append(f"MTF strategy bias is bullish with {mtf.research.alignment_count}/4 timeframe alignment.")
-    elif mtf.research.bias == MTFBias.BEARISH:
-        weighted_score = 0.85 * weighted_score - 0.15 * mtf.research.confidence
-        evidence.append(f"MTF strategy bias is bearish with {mtf.research.alignment_count}/4 timeframe alignment.")
-    else:
-        evidence.append("MTF strategy bias is neutral; no directional bonus applied.")
-
-    weighted_score = max(-1.0, min(1.0, weighted_score))
-    signal = _signal_for_score(weighted_score)
-    confidence = _confidence_from_score(weighted_score)
-    entry_price = datasets[Timeframe.MINUTE_15].completed_candles[-1].close
-    m15_indicators = calculate_indicators(list(datasets[Timeframe.MINUTE_15].completed_candles))
-    atr = m15_indicators.get("atr14")
-    minimum_rr = float(preferences.get("minimum_risk_reward", 0.0))
-    levels = _candidate_trade_levels(
+def _qualify(signal, confidence=None, risk_reward=None, mtf_bias=None, mtf_alignment=0, structure_score=0.0, preferences=None, **kwargs):
+    preferences = preferences or {}
+    qualified, reasons = _v2._qualify(
         signal,
-        entry_price,
-        float(atr) if isinstance(atr, (int, float)) else None,
-        list(datasets[Timeframe.MINUTE_15].completed_candles),
-        minimum_rr,
+        confidence if confidence is not None else kwargs.get("strength", 0.0),
+        risk_reward,
+        mtf_bias,
+        mtf_alignment,
+        structure_score,
+        preferences,
     )
-    structure_score = sum(smc_scores) / len(smc_scores) if smc_scores else 0.0
+    normalized = list(reasons)
+    minimum_rr = float(preferences.get("minimum_risk_reward", 0.0))
+    directional = signal not in {_v2.SignalDirection.NEUTRAL}
+    if directional and risk_reward is not None and risk_reward < minimum_rr:
+        diagnostic = f"Risk/reward is below the {minimum_rr:.2f} minimum"
+        if not any(diagnostic in reason for reason in normalized):
+            normalized.append(diagnostic)
+    return qualified, tuple(normalized)
 
-    m15_dataset = datasets[Timeframe.MINUTE_15]
-    m15_candles = list(m15_dataset.completed_candles)
-    try:
-        regime_result = detect_regime(m15_dataset)
-    except ValueError:
-        regime_result = None
-    latest_events = list(structures[Timeframe.MINUTE_15])
-    latest_events.sort(key=lambda event: event.time)
-    recent_events = latest_events[-6:]
-    structure_summary = ", ".join(event.type for event in recent_events) or "NONE"
-    latest_sweep = next((event for event in reversed(latest_events) if event.type.startswith("LIQUIDITY_SWEEP_")), None)
-    liquidity_conditions = "SWEEP_" + ("LOW" if latest_sweep and latest_sweep.type.endswith("LOW") else "HIGH") if latest_sweep else "NO_CONFIRMED_SWEEP"
-    macd_hist = m15_indicators.get("macd_histogram")
-    momentum = max(-1.0, min(1.0, float(macd_hist) / max(abs(float(atr or 1.0)), 1e-12))) if isinstance(macd_hist, (int, float)) else None
-    volatility = (float(atr) / entry_price) if isinstance(atr, (int, float)) and entry_price > 0 else None
-    session_state = build_session_state(asset_class=asset_class, now=datasets[Timeframe.MINUTE_15].completed_candles[-1].timestamp, market_open=True, dataset=m15_dataset, symbol=m15_dataset.symbol)
 
-    evidence.append(f"Directional bias: {_preferred_direction(signal)}.")
-    if levels.stop_loss is not None:
-        evidence.append(f"ATR candidate stop: {levels.stop_loss:.8f} ({SIGNAL_STOP_ATR_MULTIPLIER:.2f}x ATR14).")
-    if levels.structural_target is not None:
-        evidence.append(f"Structural target: {levels.structural_target:.8f}.")
-    if levels.atr_minimum_target is not None:
-        evidence.append(f"ATR-derived minimum target for {minimum_rr:.2f}:1 RR: {levels.atr_minimum_target:.8f}.")
-    if levels.take_profit is not None and levels.risk_reward is not None:
-        evidence.append(
-            f"Candidate levels: entry {levels.entry_price:.8f}, stop {levels.stop_loss:.8f}, "
-            f"target {levels.take_profit:.8f}, RR {levels.risk_reward:.2f}:1."
-        )
-    elif levels.risk_reward is None and levels.risk_reward_reason:
-        evidence.append(f"Risk/reward unavailable: {levels.risk_reward_reason}")
-    evidence.extend(levels.reasons)
+generate_crypto_signal = _v2.generate_crypto_signal
 
-    qualified, qualification_reasons = _qualify(
-        signal, confidence, levels.risk_reward, mtf.research.bias,
-        mtf.research.alignment_count, structure_score, preferences,
-    )
-    all_reasons = tuple(dict.fromkeys((*levels.reasons, *qualification_reasons)))
-
-    return CryptoSignal(
-        symbol=datasets[Timeframe.DAY_1].symbol,
-        signal=signal,
-        score=weighted_score,
-        confidence=confidence,
-        confluence=confidence,
-        risk_reward=levels.risk_reward,
-        risk_reward_status=(
-            RiskRewardStatus.AVAILABLE
-            if levels.risk_reward is not None
-            else RiskRewardStatus.UNAVAILABLE
-        ),
-        risk_reward_reason=levels.risk_reward_reason,
-        structural_target=levels.structural_target,
-        atr_minimum_target=levels.atr_minimum_target,
-        price=entry_price,
-        entry_price=levels.entry_price,
-        stop_loss=levels.stop_loss,
-        take_profit=levels.take_profit,
-        atr=levels.atr,
-        calculated_at=datetime.now(timezone.utc),
-        latest_candle_timestamp=datasets[Timeframe.MINUTE_15].completed_candles[-1].timestamp,
-        source=datasets[Timeframe.MINUTE_15].source,
-        components=tuple(components),
-        evidence=tuple(evidence[:20]),
-        research_eligible=qualified,
-        qualification_reasons=all_reasons,
-        minimum_confidence=float(preferences.get("minimum_confidence", 0.0)),
-        minimum_risk_reward=minimum_rr,
-        qualification_status="QUALIFIED" if qualified else "REJECTED",
-        mtf_bias=mtf.research.bias.value,
-        mtf_alignment=mtf.research.alignment_count,
-        regime=regime_result.regime.value if regime_result else "UNKNOWN",
-        regime_confidence=regime_result.confidence if regime_result else 0.0,
-        market_structure=structure_summary,
-        liquidity_conditions=liquidity_conditions,
-        momentum=momentum,
-        volatility=volatility,
-        session=session_state.label,
-        structural_conditions={
-            "recent_events": [event.type for event in recent_events],
-            "mtf_primary_setup": mtf.research.primary_setup,
-            "mtf_conclusion": mtf.research.conclusion,
-            "regime_rule": regime_result.rule_id if regime_result else "INSUFFICIENT_HISTORY",
-        },
-        replay_candles=tuple(
-            {
-                "timestamp": candle.timestamp,
-                "open": candle.open,
-                "high": candle.high,
-                "low": candle.low,
-                "close": candle.close,
-                "volume": float(candle.volume or 0.0),
-                "timeframe": candle.timeframe.value,
-                "source": candle.source,
-            }
-            for candle in m15_candles[-120:]
-        ),
-    )
+__all__ = [
+    "CONFIDENCE_BASE", "CONFIDENCE_SCORE_SCALE", "SIGNAL_LEVEL_LOOKBACK",
+    "SIGNAL_STOP_ATR_MULTIPLIER", "TIMEFRAME_WEIGHTS", "CandidateTradeLevels",
+    "_candidate_trade_levels", "_confidence_from_score", "_qualify",
+    "_signal_for_score", "_structural_levels", "generate_crypto_signal",
+]
