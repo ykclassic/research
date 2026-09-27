@@ -99,7 +99,7 @@ class Settings(BaseSettings):
         if self.twelve_data_quote_minute_budget < 1 or self.twelve_data_quote_minute_budget > 8:
             raise ValueError("Twelve Data quote minute budget must be between 1 and 8 credits.")
         if self.twelve_data_candle_minute_reserve < 1 or self.twelve_data_candle_minute_reserve > 8:
-            raise ValueError("Twelve Data candle reserve must be between 1 and 8 credits.")
+            raise ValueError("Twelve Data candle minute reserve must be between 1 and 8 credits.")
         if self.twelve_data_quote_minute_budget + self.twelve_data_candle_minute_reserve > 8:
             raise ValueError("Twelve Data quote budget plus candle reserve cannot exceed the Basic 8-credit limit.")
         if self.twelve_data_quote_daily_budget < self.twelve_data_quote_minute_budget + self.twelve_data_candle_minute_reserve:
