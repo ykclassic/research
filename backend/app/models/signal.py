@@ -52,10 +52,12 @@ class CryptoSignal(BaseModel):
     symbol: str
     signal: SignalDirection
     score: float = Field(ge=-1, le=1)
-    confidence: float = Field(ge=0, le=1)
+    signal_strength: float = Field(ge=0, le=1)
+    confidence: float = Field(ge=0, le=1)  # backward-compatible alias for signal_strength; not a probability.
+    calibrated_probability: float | None = Field(default=None, ge=0, le=1)
     confluence: float = Field(ge=0, le=1)
-    # None means a risk/reward ratio cannot be calculated because there is no
-    # validated target. Zero is a real ratio and must not be used as a sentinel.
+    confluence_families: tuple[str, ...] = ()
+    expected_value_r: float | None = None
     risk_reward: float | None = Field(default=None, ge=0)
     risk_reward_status: RiskRewardStatus = RiskRewardStatus.UNAVAILABLE
     risk_reward_reason: str | None = None
@@ -66,6 +68,11 @@ class CryptoSignal(BaseModel):
     stop_loss: float | None = Field(default=None, gt=0)
     take_profit: float | None = Field(default=None, gt=0)
     atr: float | None = Field(default=None, gt=0)
+    stop_distance: float | None = Field(default=None, gt=0)
+    position_size: float | None = Field(default=None, gt=0)
+    expected_cost: float = Field(default=0.0, ge=0)
+    expected_slippage: float = Field(default=0.0, ge=0)
+    expected_spread: float = Field(default=0.0, ge=0)
     calculated_at: datetime
     latest_candle_timestamp: datetime
     source: str
@@ -87,7 +94,12 @@ class CryptoSignal(BaseModel):
     session: str | None = None
     strategy: str = "signal_engine"
     signal_engine_version: str = "unknown"
+    feature_version: str = "signal-features-v2"
+    scoring_policy_version: str = "family-weighted-v2"
+    risk_policy_version: str = "risk-v2"
+    execution_model_version: str = "execution-v1"
     structural_conditions: dict[str, object] = Field(default_factory=dict)
+    feature_families: dict[str, float] = Field(default_factory=dict)
     replay_candles: tuple[SignalReplayCandle, ...] = ()
 
 
