@@ -38,8 +38,11 @@ def _candidate_trade_levels(*args, **kwargs):
         result = replace(result, risk_reward_reason=None, reasons=tuple(reasons))
     elif result.risk_reward is None and result.risk_reward_reason:
         direction = "resistance" if buy else "support"
-        reason = f"risk/reward is unavailable because no validated structural {direction} exists beyond entry."
-        result = replace(result, risk_reward_reason=reason, reasons=tuple(reasons + [f"No validated structural {direction} beyond entry."]))
+        result = replace(
+            result,
+            risk_reward_reason=f"risk/reward is unavailable because no validated structural {direction} exists beyond entry.",
+            reasons=tuple(reasons + [f"No validated structural {direction} beyond entry."]),
+        )
     return result
 
 
@@ -55,8 +58,9 @@ def _qualify(signal, confidence=None, risk_reward=None, mtf_bias=None, mtf_align
     )
     normalized = []
     for reason in reasons:
-        if reason.startswith("Risk/reward does not meet ") and reason.endswith(" minimum RR."):
-            threshold = reason.removeprefix("Risk/reward does not meet ").removesuffix(" minimum RR.").removesuffix(":1")
+        if reason.startswith("Risk/reward does not meet "):
+            detail = reason[len("Risk/reward does not meet "):]
+            threshold = detail.split(" ", 1)[0].replace(":1", "")
             normalized.append(f"Risk/reward is below the {threshold} minimum")
         else:
             normalized.append(reason)
