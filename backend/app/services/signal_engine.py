@@ -47,6 +47,7 @@ def _candidate_trade_levels(*args, **kwargs):
 
 
 def _qualify(signal, confidence=None, risk_reward=None, mtf_bias=None, mtf_alignment=0, structure_score=0.0, preferences=None, **kwargs):
+    preferences = preferences or {}
     qualified, reasons = _v2._qualify(
         signal,
         confidence if confidence is not None else kwargs.get("strength", 0.0),
@@ -54,16 +55,15 @@ def _qualify(signal, confidence=None, risk_reward=None, mtf_bias=None, mtf_align
         mtf_bias,
         mtf_alignment,
         structure_score,
-        preferences or {},
+        preferences,
     )
-    normalized = []
-    for reason in reasons:
-        if reason.startswith("Risk/reward does not meet "):
-            detail = reason[len("Risk/reward does not meet "):]
-            threshold = detail.split(" ", 1)[0].replace(":1", "")
-            normalized.append(f"Risk/reward is below the {threshold} minimum")
-        else:
-            normalized.append(reason)
+    normalized = list(reasons)
+    minimum_rr = float(preferences.get("minimum_risk_reward", 0.0))
+    directional = signal not in {_v2.SignalDirection.NEUTRAL}
+    if directional and risk_reward is not None and risk_reward < minimum_rr:
+        diagnostic = f"Risk/reward is below the {minimum_rr:.2f} minimum"
+        if not any(diagnostic in reason for reason in normalized):
+            normalized.append(diagnostic)
     return qualified, tuple(normalized)
 
 
