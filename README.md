@@ -28,12 +28,12 @@ The Twelve Data integration uses the `/price` endpoint for latest price retrieva
 cd backend
 python -m venv .venv
 # Windows:
-.venv\Scripts\activate
+.venv\\Scripts\\activate
 # macOS/Linux:
 # source .venv/bin/activate
 
 pip install -r requirements.txt
-copy ..\.env.example .env
+copy ..\\.env.example .env
 # Edit .env and add TWELVE_DATA_API_KEY
 
 uvicorn app.main:app --reload --port 8000
@@ -66,3 +66,5 @@ Set `VITE_API_BASE_URL=http://localhost:8000` in `frontend/.env.local` if needed
 4. Add caching before increasing polling frequency.
 5. Add Alpha Vantage/Finnhub adapters only behind the same `MarketDataProvider` interface.
 6. Keep research/scoring dependent on validated canonical market snapshots.
+
+<!-- Phase 10 production redeploy trigger: keep Vercel production synchronized with main. -->
