@@ -17,7 +17,7 @@ def production_oidc_settings(monkeypatch):
     monkeypatch.setattr(
         auth.settings,
         "github_oidc_workflows",
-        ".github/workflows/production-regime-verification.yml,.github/workflows/production-market-data-verification.yml",
+        ".github/workflows/production-regime-verification.yml,.github/workflows/production-market-data-verification.yml,.github/workflows/research-copilot-scheduler.yml",
     )
     monkeypatch.setattr(auth.settings, "github_oidc_ref", "refs/heads/main")
     monkeypatch.setattr(auth.settings, "github_oidc_audience", "research-production-verifier")
@@ -46,6 +46,19 @@ def test_github_oidc_claims_accept_trusted_regime_push(production_oidc_settings)
         ".github/workflows/production-regime-verification.yml@refs/heads/main"
     )
     claims["event_name"] = "push"
+
+    auth._validate_github_oidc_claims(claims)
+
+
+def test_github_oidc_claims_accept_research_copilot_scheduler(
+    production_oidc_settings,
+):
+    claims = valid_claims()
+    claims["workflow_ref"] = (
+        "ykclassic/research/"
+        ".github/workflows/research-copilot-scheduler.yml@refs/heads/main"
+    )
+    claims["event_name"] = "schedule"
 
     auth._validate_github_oidc_claims(claims)
 
