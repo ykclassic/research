@@ -53,6 +53,13 @@ def _map_error(exc: DataServiceError) -> HTTPException:
     )
 
 
+def _needs_provenance_refresh(record: SignalOutcomeAuditRecord) -> bool:
+    return (
+        record.provider in {"kraken_public", "kraken_public_cross"}
+        and record.observation_source != record.provider
+    )
+
+
 async def _historical_candles(
     record: SignalOutcomeAuditRecord,
 ) -> OHLCVDataset:
@@ -152,7 +159,14 @@ async def outcome(
     token = _token(access_token)
     try:
         record = get_signal_audit(token, user.id, signal_id)
-        if record.outcome != SignalOutcomeStatus.PENDING or not refresh:
+        needs_provenance_refresh = _needs_provenance_refresh(record)
+        if (
+            not refresh
+            or (
+                record.outcome != SignalOutcomeStatus.PENDING
+                and not needs_provenance_refresh
+            )
+        ):
             return record
 
         dataset = await _historical_candles(record)

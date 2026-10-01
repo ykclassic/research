@@ -17,6 +17,7 @@ from app.services.supabase_data import (
 
 AUDIT_TIMEFRAME = Timeframe.MINUTE_15
 AUDIT_TIMEFRAME_LABEL = AUDIT_TIMEFRAME.value
+PROVENANCE_BOUND_PROVIDERS = frozenset({"kraken_public", "kraken_public_cross"})
 
 SELECT_COLUMNS = (
     "id,user_id,signal_id,revision,symbol,signal,score,confidence,"
@@ -339,7 +340,14 @@ def append_outcome_snapshot(
     snapshot: SignalOutcomeAuditRecord,
     result: dict[str, Any],
 ) -> SignalOutcomeAuditRecord:
-    if snapshot.outcome != SignalOutcomeStatus.PENDING:
+    is_pending = snapshot.outcome == SignalOutcomeStatus.PENDING
+    is_provenance_repair = (
+        not is_pending
+        and snapshot.provider in PROVENANCE_BOUND_PROVIDERS
+        and snapshot.observation_source != snapshot.provider
+        and result.get("observation_source") == snapshot.provider
+    )
+    if not is_pending and not is_provenance_repair:
         return snapshot
 
     payload = snapshot.model_dump(mode="json")
