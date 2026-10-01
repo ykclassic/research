@@ -105,3 +105,97 @@ def test_dispatch_candle_is_excluded():
         snap,
         (candle(snap.dispatched_at, 111, 94),),
     ) is None
+
+
+def test_terminal_cross_outcome_can_append_provenance_repair(monkeypatch):
+    from app.services import signal_outcomes
+
+    snap = snapshot()
+    snap = snap.model_copy(
+        update={
+            "provider": "kraken_public_cross",
+            "observation_source": "twelve_data",
+            "outcome": SignalOutcomeStatus.STOP_LOSS_HIT,
+            "stop_tagged_at": snap.dispatched_at + timedelta(minutes=15),
+            "stop_tag_latency_seconds": 900,
+            "first_touch_price": 94,
+            "first_touch_timestamp": snap.dispatched_at + timedelta(minutes=15),
+        }
+    )
+
+    observed_at = snap.dispatched_at + timedelta(minutes=30)
+    result = {
+        "target_tagged_at": None,
+        "stop_tagged_at": (snap.dispatched_at + timedelta(minutes=15)).isoformat(),
+        "target_tag_latency_seconds": None,
+        "stop_tag_latency_seconds": 900,
+        "first_touch_price": 94,
+        "first_touch_timestamp": (
+            snap.dispatched_at + timedelta(minutes=15)
+        ).isoformat(),
+        "outcome": SignalOutcomeStatus.STOP_LOSS_HIT.value,
+        "observed_at": observed_at.isoformat(),
+        "observation_candle_timestamp": (
+            snap.dispatched_at + timedelta(minutes=15)
+        ).isoformat(),
+        "observation_source": "kraken_public_cross",
+        "coverage_warning": None,
+    }
+
+    captured: dict[str, object] = {}
+
+    class FakeResponse:
+        def json(self):
+            row = snap.model_dump(mode="json")
+            row["id"] = snap.record_id
+            row["user_id"] = "00000000-0000-0000-0000-000000000003"
+            row["revision"] = 2
+            row.update(result)
+            row["created_at"] = observed_at.isoformat()
+            return [row]
+
+    def fake_request(method, resource, access_token, **kwargs):
+        captured.update(kwargs.get("json", {}))
+        return FakeResponse()
+
+    monkeypatch.setattr(signal_outcomes, "_request", fake_request)
+
+    repaired = signal_outcomes.append_outcome_snapshot(
+        "token",
+        "00000000-0000-0000-0000-000000000003",
+        snap,
+        result,
+    )
+
+    assert repaired.revision == 2
+    assert repaired.observation_source == "kraken_public_cross"
+    assert captured["revision"] == 2
+
+
+def test_terminal_native_outcome_without_provenance_mismatch_is_not_reappended(monkeypatch):
+    from app.services import signal_outcomes
+
+    snap = snapshot().model_copy(
+        update={
+            "provider": "kraken_public",
+            "observation_source": "kraken_public",
+            "outcome": SignalOutcomeStatus.STOP_LOSS_HIT,
+        }
+    )
+
+    def fail_request(*args, **kwargs):
+        raise AssertionError("A correctly sourced terminal outcome must not be reappended.")
+
+    monkeypatch.setattr(signal_outcomes, "_request", fail_request)
+
+    result = {
+        "observation_source": "kraken_public",
+    }
+
+    assert signal_outcomes.append_outcome_snapshot(
+        "token",
+        "user",
+        snap,
+        result,
+    ) is snap
+\n
