@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from typing import Annotated
 
 from fastapi import APIRouter, Cookie, Depends, HTTPException, Query, status
@@ -9,6 +10,7 @@ from app.api.auth import UserResponse, _require_csrf, get_current_user
 from app.models.market import OHLCVDataset, Timeframe
 from app.models.signal import CryptoSignal
 from app.models.signal_outcome import SignalOutcomeAuditRecord, SignalOutcomeStatus
+from app.providers.kraken_public import KrakenPublicProvider
 from app.services.signal_outcomes import (
     append_outcome_snapshot,
     create_signal_audit,
@@ -22,9 +24,7 @@ from app.services.supabase_data import (
     DataServiceError,
 )
 from app.services.system_status import APPLICATION_VERSION
-from app.providers.kraken_public import KrakenPublicProvider
 from app.services.quote_service import QuoteService
-from datetime import datetime, timezone
 
 router = APIRouter(prefix="/api/signal-outcomes", tags=["signal-outcomes"])
 
