@@ -88,3 +88,18 @@ async def test_cross_provider_rejects_mismatched_observation_source(monkeypatch)
         await signal_outcomes._historical_candles(
             _record("kraken_public_cross")
         )
+
+
+def test_terminal_cross_outcome_requires_refresh_when_observation_source_is_legacy():
+    record = _record("kraken_public_cross")
+    record.observation_source = "twelve_data"
+
+    assert signal_outcomes._needs_provenance_refresh(record) is True
+
+
+def test_terminal_cross_outcome_does_not_refresh_when_source_matches_provider():
+    record = _record("kraken_public_cross")
+    record.observation_source = "kraken_public_cross"
+
+    assert signal_outcomes._needs_provenance_refresh(record) is False
+\n
