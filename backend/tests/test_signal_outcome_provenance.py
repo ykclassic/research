@@ -102,4 +102,4 @@ def test_terminal_cross_outcome_does_not_refresh_when_source_matches_provider():
     record.observation_source = "kraken_public_cross"
 
     assert signal_outcomes._needs_provenance_refresh(record) is False
-\n
+

@@ -78,11 +78,11 @@ jobs:
           update_render_env FINNHUB_API_KEY "${FINNHUB_API_KEY}"
           update_render_env ALPHA_VANTAGE_API_KEY "${ALPHA_VANTAGE_API_KEY}"
 
-      - name: Trigger and wait for matching Render deployment on push
+      - name: Wait for matching Render deployment on push
         if: github.event_name == 'push'
         env:
           RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
-        run: python backend/scripts/wait_for_render_deployment.py --commit "${GITHUB_SHA}" --trigger
+        run: python backend/scripts/wait_for_render_deployment.py --commit "${GITHUB_SHA}"
 
       - name: Set expected deployment commit for push verification
         if: github.event_name == 'push'
