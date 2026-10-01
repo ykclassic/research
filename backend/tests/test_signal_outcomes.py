@@ -198,4 +198,4 @@ def test_terminal_native_outcome_without_provenance_mismatch_is_not_reappended(m
         snap,
         result,
     ) is snap
-\n
+
