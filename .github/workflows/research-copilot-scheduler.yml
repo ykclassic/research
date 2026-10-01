@@ -7,6 +7,7 @@ on:
 
 permissions:
   contents: read
+  id-token: write
 
 jobs:
   run:
@@ -17,10 +18,31 @@ jobs:
         env:
           RESEARCH_URL: ${{ vars.RESEARCH_API_URL }}
           RESEARCH_SECRET: ${{ secrets.SCANNER_SCHEDULER_SECRET }}
+          OIDC_REQUEST_URL: ${{ env.ACTIONS_ID_TOKEN_REQUEST_URL }}
+          OIDC_REQUEST_TOKEN: ${{ env.ACTIONS_ID_TOKEN_REQUEST_TOKEN }}
         run: |
           set -euo pipefail
+
           test -n "$RESEARCH_URL"
           test -n "$RESEARCH_SECRET"
-          response="$(curl --fail --silent --show-error --max-time 840             -X POST             -H "X-Research-Copilot-Secret: $RESEARCH_SECRET"             -H "Accept: application/json"             "$RESEARCH_URL/api/research-copilot/scheduler/run")"
+          test -n "$OIDC_REQUEST_URL"
+          test -n "$OIDC_REQUEST_TOKEN"
+
+          oidc_response="$(
+            curl --fail --silent --show-error --retry 3 --retry-delay 2 --max-time 30               -H "Authorization: bearer $OIDC_REQUEST_TOKEN"               "$OIDC_REQUEST_URL&audience=research-production-verifier"
+          )"
+          oidc_token="$(echo "$oidc_response" | jq -er '.value')"
+          test -n "$oidc_token"
+
+          api_url="${RESEARCH_URL%/}/api/research-copilot/scheduler/run"
+          response="$(
+            curl --fail --silent --show-error --retry 2 --retry-delay 2 --max-time 840               -X POST               -H "Authorization: Bearer $oidc_token"               -H "X-Research-Copilot-Secret: $RESEARCH_SECRET"               -H "Accept: application/json"               "$api_url"
+          )"
+
           echo "$response" | jq .
-          echo "$response" | jq -e '(.scheduled | type == "number") and (.completed | type == "number") and (.failed | type == "number") and (.failed == 0)'
+          echo "$response" | jq -e '
+            (.scheduled | type == "number") and
+            (.completed | type == "number") and
+            (.failed | type == "number") and
+            (.failed == 0)
+          '
