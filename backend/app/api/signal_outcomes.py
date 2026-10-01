@@ -1,14 +1,16 @@
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from typing import Annotated
 
 from fastapi import APIRouter, Cookie, Depends, HTTPException, Query, status
 from pydantic import BaseModel
 
 from app.api.auth import UserResponse, _require_csrf, get_current_user
-from app.models.market import Timeframe
+from app.models.market import OHLCVDataset, Timeframe
 from app.models.signal import CryptoSignal
 from app.models.signal_outcome import SignalOutcomeAuditRecord, SignalOutcomeStatus
+from app.providers.kraken_public import KrakenPublicProvider
 from app.services.signal_outcomes import (
     append_outcome_snapshot,
     create_signal_audit,
@@ -22,9 +24,7 @@ from app.services.supabase_data import (
     DataServiceError,
 )
 from app.services.system_status import APPLICATION_VERSION
-from app.providers.kraken_public import KrakenPublicProvider
 from app.services.quote_service import QuoteService
-from datetime import datetime, timezone
 
 router = APIRouter(prefix="/api/signal-outcomes", tags=["signal-outcomes"])
 
@@ -53,27 +53,57 @@ def _map_error(exc: DataServiceError) -> HTTPException:
     )
 
 
-async def _historical_candles(record: SignalOutcomeAuditRecord):
+async def _historical_candles(
+    record: SignalOutcomeAuditRecord,
+) -> OHLCVDataset:
+    """Load outcome candles from the same source that produced the signal.
+
+    Outcome audits are provenance-sensitive: using a different market-data
+    provider can change whether a stop/target was touched. In particular,
+    ``kraken_public_cross`` is a synthetic SUI/USDT route built from Kraken
+    SUI/USD and USDT/USD candles, so it must never be silently replaced by the
+    generic canonical-provider orchestrator.
+    """
+
     start = record.dispatched_at.astimezone(timezone.utc)
     end = datetime.now(timezone.utc)
-    mapping = record.symbol
 
-    if record.provider == "kraken_public":
-        return await kraken_public.get_candles(
-            mapping,
+    if record.provider == "kraken_public_cross":
+        dataset = await kraken_public.get_cross_candles(
+            record.symbol,
             Timeframe.MINUTE_15,
             5000,
             start_date=start,
             end_date=end,
         )
+        expected_source = "kraken_public_cross"
+    elif record.provider == "kraken_public":
+        dataset = await kraken_public.get_candles(
+            record.symbol,
+            Timeframe.MINUTE_15,
+            5000,
+            start_date=start,
+            end_date=end,
+        )
+        expected_source = "kraken_public"
+    else:
+        dataset = await quote_service.orchestrator.get_candles(
+            record.symbol,
+            Timeframe.MINUTE_15,
+            5000,
+            start_date=start,
+            end_date=end,
+        )
+        expected_source = None
 
-    return await quote_service.orchestrator.get_candles(
-        mapping,
-        Timeframe.MINUTE_15,
-        5000,
-        start_date=start,
-        end_date=end,
-    )
+    if expected_source is not None and dataset.source != expected_source:
+        raise RuntimeError(
+            "Outcome audit provenance mismatch: "
+            f"signal provider={record.provider!r}, "
+            f"observation source={dataset.source!r}."
+        )
+
+    return dataset
 
 
 @router.post(
