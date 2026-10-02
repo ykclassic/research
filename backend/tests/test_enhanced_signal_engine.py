@@ -65,6 +65,6 @@ def test_news_gate_passes_when_configured_and_no_blackout(monkeypatch):
     now = datetime.now(timezone.utc)
     event = SimpleNamespace(importance="low", event_timestamp=now + timedelta(hours=4))
     news = SimpleNamespace(fundamental_events=(event,), news=())
-    monkeypatch.setattr(enhanced_signals.news_research, "configured", True)
+    monkeypatch.setattr(type(enhanced_signals.news_research), "configured", property(lambda self: True))
 
     assert enhanced_signals._news_gate_passed(news) is True
