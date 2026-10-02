@@ -13,8 +13,6 @@ from app.services.market_session import build_session_state
 from app.services.market_structure import analyze_market_structure
 from app.services.mtf_analysis import analyze_multi_timeframe
 from app.services.regime_detection import detect_regime
-from app.services.signal_engine_v2 import _structural_levels
-from app.services.signal_feature_engine import build_feature_families, family_score
 from app.services.system_status import APPLICATION_VERSION
 from app.services.trade_contract import build_trade_contract
 from app.symbols import normalize_symbol
@@ -284,6 +282,7 @@ def generate_enhanced_signal(
     news_filter_passed = True
 
     checks = {
+        "htf_bias": htf_direction or "UNKNOWN",
         "htf_aligned": htf_aligned,
         "setup_structure_aligned": setup_structure_aligned,
         "valid_poi": valid_poi,
@@ -345,8 +344,7 @@ def generate_enhanced_signal(
         )
 
     regime = detect_regime(m15)
-    feature_families = build_feature_families({"price": price}, price=price)
-    family_values = {f.name: f.value for f in feature_families}
+    family_values: dict[str, float] = {}
     expected_value = None
     probability = None
 
