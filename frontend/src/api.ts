@@ -55,6 +55,27 @@ export type RiskRewardStatus = "AVAILABLE" | "UNAVAILABLE";
 export interface SignalComponent { timeframe: string; indicator_score: number; smc_score: number; combined_score: number; evidence: string[]; }
 export interface CryptoSignal { signal_id: string; symbol: string; signal: SignalDirection; score: number; confidence: number; confluence: number; risk_reward: number | null; risk_reward_status: RiskRewardStatus; risk_reward_reason: string | null; structural_target: number | null; atr_minimum_target: number | null; price: number; entry_price: number; stop_loss: number | null; take_profit: number | null; atr: number | null; calculated_at: string; latest_candle_timestamp: string; source: string; components: SignalComponent[]; evidence: string[]; research_eligible: boolean; qualification_reasons: string[]; minimum_confidence: number; minimum_risk_reward: number; qualification_status: SignalQualificationStatus; }
 export interface CryptoSignalList { calculated_at: string; signals: CryptoSignal[]; }
+export interface EnhancedSignalChecks {
+  htf_bias: string; htf_aligned: boolean; setup_structure_aligned: boolean; valid_poi: boolean;
+  premium_discount_valid: boolean; liquidity_sweep_confirmed: boolean; displacement_confirmed: boolean;
+  micro_structure_confirmed: boolean; entry_location_valid: boolean; structural_stop_valid: boolean;
+  opposing_liquidity_target: boolean; path_to_target_clear: boolean; minimum_rr_met: boolean;
+  session_valid: boolean; volatility_valid: boolean; news_filter_passed: boolean; hard_gate_passed: boolean;
+  quality_score: number; failed_gates: string[];
+}
+export interface EnhancedSignalResponse {
+  signal: CryptoSignal & {
+    calibrated_probability?: number | null; mtf_bias?: string | null; mtf_alignment?: number | null;
+    regime?: string | null; regime_confidence?: number | null; market_structure?: string | null;
+    liquidity_conditions?: string | null; session?: string | null; strategy?: string;
+    feature_version?: string; structural_conditions?: Record<string, unknown>;
+  };
+  checks: EnhancedSignalChecks;
+  strategy: string;
+  methodology_version: string;
+  risk_policy: Record<string, unknown>;
+  research_note: string;
+}
 export type SignalOutcomeStatus = "PENDING" | "TARGET_HIT" | "STOP_LOSS_HIT" | "AMBIGUOUS";
 export interface SignalOutcomeRecord {
   record_id: string;
@@ -185,6 +206,10 @@ export async function getMarketStructure(symbol: string, timeframe = "1h", limit
 export async function getMultiTimeframeAnalysis(symbol: string, limit = 250): Promise<MultiTimeframeResult> { const params = new URLSearchParams({ limit: String(limit) }); return request<MultiTimeframeResult>(`/api/mtf/${encodeURIComponent(symbol)}?${params}`); }
 export async function getCryptoSignals(limit = 250): Promise<CryptoSignalList> { const params = new URLSearchParams({ limit: String(limit) }); return request<CryptoSignalList>(`/api/signals?${params}`); }
 export async function getSignal(symbol: string, limit = 250): Promise<CryptoSignal> { const params = new URLSearchParams({ limit: String(limit) }); return request<CryptoSignal>(`/api/signals/${encodeURIComponent(symbol)}?${params}`); }
+export async function getEnhancedSignal(symbol: string, limit = 250): Promise<EnhancedSignalResponse> {
+  const params = new URLSearchParams({ limit: String(limit) });
+  return request<EnhancedSignalResponse>("/api/enhanced-signals/" + encodeURIComponent(symbol) + "?" + params);
+}
 export async function createAIResearchReport(symbol: string, timeframe = "1h", limit = 250, question?: string): Promise<AIResearchResponse> { return authenticatedMutation<AIResearchResponse>("/api/ai-research/report", { method: "POST", body: JSON.stringify({ symbol, timeframe, limit, question }) }); }
 export async function getPortfolioSummary(): Promise<PortfolioSummary> { return request<PortfolioSummary>("/api/portfolio/summary"); }
 export async function createPortfolioPosition(payload: { symbol: string; side: PositionSide; quantity: number; average_entry_price: number; asset_class?: string; sector?: string; category?: string; notes?: string }): Promise<PortfolioPosition> { return authenticatedMutation<PortfolioPosition>("/api/portfolio/positions", { method: "POST", body: JSON.stringify(payload) }); }
