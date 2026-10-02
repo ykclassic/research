@@ -31,6 +31,7 @@ const GROUPS: readonly NavGroup[] = [
   { label: "System", items: [{ label: "Infrastructure", page: "infrastructure", route: "/infrastructure", icon: ShieldCheck }, { label: "Settings", page: "settings", route: "/settings", icon: Settings }] },
 ];
 const pageByPath = new Map(GROUPS.flatMap(group => group.items.map(item => [item.route, item.page] as const)));
+pageByPath.set("/analysis/signals/enhanced", "enhanced-signal");
 function currentPage(): string { return pageByPath.get(window.location.pathname) ?? "market"; }
 function enhancedSignalAccess(entitlements: EntitlementSnapshot | null): boolean { return entitlements?.plan_id === "pro" || entitlements?.plan_id === "premium"; }
 function applyDisplayPreferences(display: DisplayPreferences): void { const root=document.documentElement; root.dataset.theme=display.theme; root.dataset.density=display.density; root.dataset.accessibleContrast=String(display.accessible_contrast); root.dataset.reducedMotion=String(display.reduce_animations||display.reduced_motion); document.body.classList.toggle("sidebar-collapsed",display.sidebar_collapsed&&window.innerWidth>900); try{window.localStorage.setItem("research-display-preferences",JSON.stringify(display));window.localStorage.setItem("research-sidebar-collapsed",String(display.sidebar_collapsed));}catch{} }
