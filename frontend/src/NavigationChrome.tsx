@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { Activity, BarChart3, Bell, BrainCircuit, BriefcaseBusiness, FlaskConical, ChevronRight, FileText, History, LayoutDashboard, List, Menu, Network, Settings, ShieldCheck, X, LogOut, Newspaper, PanelLeftClose, PanelLeftOpen, type LucideIcon } from "lucide-react";
 import { getCurrentUser, logout, User } from "./api";
 import { getPreferences, type DisplayPreferences } from "./settingsApi";
-import { getEntitlements, type EntitlementSnapshot } from "./billingApi";
+import { getEntitlements, hasEnhancedSignalEntitlement, type EntitlementSnapshot } from "./billingApi";
 
 type NavItem = { label: string; page: string; route: string; icon: LucideIcon };
 type NavGroup = { label: string; items: readonly NavItem[] };
@@ -33,12 +33,12 @@ const GROUPS: readonly NavGroup[] = [
 const pageByPath = new Map(GROUPS.flatMap(group => group.items.map(item => [item.route, item.page] as const)));
 pageByPath.set("/analysis/signals/enhanced", "enhanced-signal");
 function currentPage(): string { return pageByPath.get(window.location.pathname) ?? "market"; }
-function enhancedSignalAccess(entitlements: EntitlementSnapshot | null): boolean { return entitlements?.plan_id === "pro" || entitlements?.plan_id === "premium"; }
+function enhancedSignalAccess(entitlements: EntitlementSnapshot | null): boolean { return hasEnhancedSignalEntitlement(entitlements); }
 function applyDisplayPreferences(display: DisplayPreferences): void { const root=document.documentElement; root.dataset.theme=display.theme; root.dataset.density=display.density; root.dataset.accessibleContrast=String(display.accessible_contrast); root.dataset.reducedMotion=String(display.reduce_animations||display.reduced_motion); document.body.classList.toggle("sidebar-collapsed",display.sidebar_collapsed&&window.innerWidth>900); try{window.localStorage.setItem("research-display-preferences",JSON.stringify(display));window.localStorage.setItem("research-sidebar-collapsed",String(display.sidebar_collapsed));}catch{} }
 export default function NavigationChrome(){
  const[user,setUser]=useState<User|null>(null); const[entitlements,setEntitlements]=useState<EntitlementSnapshot|null>(null); const[mobileOpen,setMobileOpen]=useState(false); const[isMobile,setIsMobile]=useState(()=>window.innerWidth<=900); const[collapsed,setCollapsed]=useState(()=>{try{return window.localStorage.getItem("research-sidebar-collapsed")==="true"}catch{return false}}); const[page,setPage]=useState(currentPage); const didApplyLanding=useRef(false);
  useEffect(()=>{let active=true;const check=()=>getCurrentUser().then(next=>{if(active)setUser(next)}).catch(()=>{if(active){setUser(null);setEntitlements(null)}});check();const timer=window.setInterval(check,5000);return()=>{active=false;window.clearInterval(timer)}},[]);
- useEffect(()=>{if(!user){setEntitlements(null);return}let active=true;getEntitlements().then(next=>{if(active)setEntitlements(next)}).catch(()=>{if(active)setEntitlements(null)});return()=>{active=false}},[user]);
+ useEffect(()=>{if(!user){setEntitlements(null);return}let active=true;let attempts=0;let timer:ReturnType<typeof window.setTimeout>|undefined;const load=async()=>{try{const next=await getEntitlements();if(!active)return;setEntitlements(next);}catch{}if(!active||attempts>=4)return;attempts+=1;timer=window.setTimeout(load,1500)};void load();return()=>{active=false;if(timer)window.clearTimeout(timer)}},[user]);
  useEffect(()=>{if(!user)return;let active=true;getPreferences().then(preferences=>{if(!active)return;applyDisplayPreferences(preferences.display_preferences);setCollapsed(preferences.display_preferences.sidebar_collapsed);if(!didApplyLanding.current&&window.location.pathname==="/dashboard"&&preferences.display_preferences.default_landing_page!=="/dashboard"){didApplyLanding.current=true;window.history.replaceState({},"",preferences.display_preferences.default_landing_page);setPage(currentPage());window.dispatchEvent(new PopStateEvent("popstate"))}else didApplyLanding.current=true}).catch(()=>{});return()=>{active=false}},[user]);
  useEffect(()=>{const sync=()=>setPage(currentPage());const handleResize=()=>{setIsMobile(window.innerWidth<=900);document.body.classList.toggle("sidebar-collapsed",collapsed&&window.innerWidth>900)};window.addEventListener("popstate",sync);window.addEventListener("resize",handleResize);sync();return()=>{window.removeEventListener("popstate",sync);window.removeEventListener("resize",handleResize)}},[collapsed]);
  useEffect(()=>{try{window.localStorage.setItem("research-sidebar-collapsed",String(collapsed))}catch{}document.body.classList.toggle("sidebar-collapsed",collapsed&&!isMobile);return()=>document.body.classList.remove("sidebar-collapsed")},[collapsed,isMobile]);
