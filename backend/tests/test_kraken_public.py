@@ -27,6 +27,7 @@ def test_kraken_public_is_credential_free_and_supports_expanded_crypto_universe(
     with pytest.raises(ValueError, match="native spot market"):
         provider._provider_pair("SUI/USDT")
     assert provider._intervals == {
+        Timeframe.MINUTE_5: 5,
         Timeframe.MINUTE_15: 15,
         Timeframe.HOUR_1: 60,
         Timeframe.HOUR_4: 240,
