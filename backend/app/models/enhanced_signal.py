@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from app.models.signal import CryptoSignal
+
 
 class EnhancedSignalChecks(BaseModel):
     model_config = ConfigDict(frozen=True)
@@ -30,7 +32,7 @@ class EnhancedSignalChecks(BaseModel):
 class EnhancedSignalResponse(BaseModel):
     model_config = ConfigDict(frozen=True)
 
-    signal: object
+    signal: CryptoSignal
     checks: EnhancedSignalChecks
     strategy: str = "enhanced_smc"
     methodology_version: str
