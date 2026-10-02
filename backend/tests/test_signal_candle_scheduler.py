@@ -152,3 +152,17 @@ async def test_sui_routes_through_kraken_cross_market() -> None:
     assert provider.calls == []
     assert provider.cross_calls == 1
     assert service.calls == 0
+
+
+@pytest.mark.asyncio
+async def test_native_crypto_5m_routes_to_kraken_primary() -> None:
+    provider = FakeCryptoProvider()
+    service = FakeQuoteService()
+    scheduler = SignalCandleScheduler(service, provider)
+
+    dataset = await scheduler.get_dataset("SOL/USDT", Timeframe.MINUTE_5, 250)
+
+    assert dataset.symbol == "SOL/USDT"
+    assert provider.calls == [("SOL/USDT", Timeframe.MINUTE_5, 250)]
+    assert provider.cross_calls == 0
+    assert service.calls == 0
