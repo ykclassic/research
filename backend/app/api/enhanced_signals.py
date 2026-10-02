@@ -15,6 +15,8 @@ from app.providers.kraken_public import KrakenPublicProvider
 from app.services.quote_service import QuoteService
 from app.services.signal_candle_scheduler import SignalCandleScheduler
 from app.services.enhanced_signal_engine import generate_enhanced_signal
+from app.services.news_research_resilient import news_research
+from datetime import datetime, timedelta, timezone
 from app.symbols import normalize_symbol
 
 router = APIRouter(prefix="/api/enhanced-signals", tags=["enhanced-signals"])
@@ -30,7 +32,22 @@ REQUIRED = (
     Timeframe.MINUTE_15,
     Timeframe.MINUTE_5,
 )
-TIMEOUT_SECONDS = 30.0
+TIMEOUT_SECONDS = 40.0
+
+
+def _news_gate_passed(news) -> bool:
+    if not news_research.configured:
+        return False
+    now = datetime.now(timezone.utc)
+    for event in news.fundamental_events:
+        importance = (event.importance or '').strip().lower()
+        high = importance in {'high', 'very high', 'critical', '3', '3.0'}
+        if high and now - timedelta(minutes=30) <= event.event_timestamp <= now + timedelta(minutes=60):
+            return False
+    for item in news.news:
+        if item.event_type.value == 'REGULATORY' and item.published_at >= now - timedelta(hours=2):
+            return False
+    return True
 
 
 @router.get("/{symbol:path}", response_model=EnhancedSignalResponse)
@@ -58,7 +75,13 @@ async def get_enhanced_signal(
             timeout=TIMEOUT_SECONDS,
         )
         asset_class = normalize_symbol(normalized).asset_class
-        signal, checks = generate_enhanced_signal(datasets, asset_class=asset_class)
+        news = await news_research.research(symbol=normalized, days=1, limit=50)
+        news_filter_passed = _news_gate_passed(news)
+        signal, checks = generate_enhanced_signal(
+            datasets,
+            asset_class=asset_class,
+            news_filter_passed=news_filter_passed,
+        )
         return EnhancedSignalResponse(
             signal=signal,
             checks=checks,
