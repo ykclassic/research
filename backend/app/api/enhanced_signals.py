@@ -36,8 +36,8 @@ TIMEOUT_SECONDS = 30.0
 @router.get("/{symbol:path}", response_model=EnhancedSignalResponse)
 async def get_enhanced_signal(
     symbol: str,
-    limit: int = Query(250, ge=60, le=5000),
     user: Annotated[UserResponse, Depends(get_current_user)],
+    limit: int = Query(250, ge=60, le=5000),
     access_token: Annotated[str | None, Cookie(alias="mr_access_token")] = None,
 ) -> EnhancedSignalResponse:
     if not access_token:
