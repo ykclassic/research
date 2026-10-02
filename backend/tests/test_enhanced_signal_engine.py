@@ -44,3 +44,27 @@ def test_minimum_rr_is_two():
 
 def test_direction_returns_none_without_structure_evidence():
     assert _direction_from_structure([event("FVG_BULLISH", 100.0)]) is None
+
+
+def test_news_gate_blocks_high_impact_window(monkeypatch):
+    from datetime import datetime, timedelta, timezone
+    from app.api import enhanced_signals
+
+    now = datetime.now(timezone.utc)
+    event = SimpleNamespace(importance="high", event_timestamp=now + timedelta(minutes=15))
+    news = SimpleNamespace(fundamental_events=(event,), news=())
+    monkeypatch.setattr(enhanced_signals.news_research, "configured", True)
+
+    assert enhanced_signals._news_gate_passed(news) is False
+
+
+def test_news_gate_passes_when_configured_and_no_blackout(monkeypatch):
+    from datetime import datetime, timedelta, timezone
+    from app.api import enhanced_signals
+
+    now = datetime.now(timezone.utc)
+    event = SimpleNamespace(importance="low", event_timestamp=now + timedelta(hours=4))
+    news = SimpleNamespace(fundamental_events=(event,), news=())
+    monkeypatch.setattr(enhanced_signals.news_research, "configured", True)
+
+    assert enhanced_signals._news_gate_passed(news) is True
