@@ -30,6 +30,7 @@ class KrakenPublicProvider(MarketDataProvider):
     _candle_cache: dict[tuple[str, str, int, str | None, str | None], tuple[float, OHLCVDataset]] = {}
 
     _intervals = {
+        Timeframe.MINUTE_5: 5,
         Timeframe.MINUTE_15: 15,
         Timeframe.HOUR_1: 60,
         Timeframe.HOUR_4: 240,
