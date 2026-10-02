@@ -53,7 +53,7 @@ def test_news_gate_blocks_high_impact_window(monkeypatch):
     now = datetime.now(timezone.utc)
     event = SimpleNamespace(importance="high", event_timestamp=now + timedelta(minutes=15))
     news = SimpleNamespace(fundamental_events=(event,), news=())
-    monkeypatch.setattr(enhanced_signals.news_research, "configured", True)
+    monkeypatch.setattr(type(enhanced_signals.news_research), "configured", property(lambda self: True))
 
     assert enhanced_signals._news_gate_passed(news) is False
 
