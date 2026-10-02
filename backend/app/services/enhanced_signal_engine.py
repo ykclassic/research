@@ -227,6 +227,7 @@ def generate_enhanced_signal(
     *,
     asset_class: str,
     account_risk_per_trade: float | None = None,
+    news_filter_passed: bool = False,
 ) -> tuple[CryptoSignal, EnhancedSignalChecks]:
     required = (*HTF_TIMEFRAMES, *ENTRY_TIMEFRAMES)
     missing = [tf.value for tf in required if tf not in datasets]
@@ -279,7 +280,6 @@ def generate_enhanced_signal(
     structural_stop_valid = setup.stop_loss is not None and setup.stop_loss > 0
     opposing_liquidity_target = setup.opposing_target is not None
     minimum_rr_met = setup.risk_reward is not None and setup.risk_reward >= MINIMUM_RR
-    news_filter_passed = True
 
     checks = {
         "htf_bias": htf_direction or "UNKNOWN",
@@ -420,7 +420,7 @@ def generate_enhanced_signal(
             "max_daily_loss": 0.02,
             "max_correlated_positions": 2,
             "breakeven_rule": "not automated; requires empirical validation",
-            "news_filter": "provider/news integration required before production hard gate",
+            "news_filter": "existing news/calendar provider hard gate",
         },
         feature_families={k: round(v, 6) for k, v in family_values.items()},
         replay_candles=tuple(
