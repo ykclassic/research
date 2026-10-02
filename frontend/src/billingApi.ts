@@ -26,3 +26,7 @@ export const cancelSubscription=(at_period_end=true)=>billingRequest<Record<stri
 export const resumeSubscription=()=>billingRequest<Record<string,unknown>>("/billing/resume",{method:"POST"});
 
 export const reconcileCheckout=(session_id:string)=>billingRequest<{status:string;plan_id:string;subscription:BillingSubscription}>("/billing/reconcile",{method:"POST",body:JSON.stringify({session_id})});
+
+export function hasEnhancedSignalEntitlement(snapshot: EntitlementSnapshot | null): boolean {
+  return snapshot?.features?.enhanced_signal === true;
+}
