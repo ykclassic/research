@@ -486,11 +486,48 @@ def generate_enhanced_signal(
             for c in m5.completed_candles[-120:]
         ),
     )
+    evidence = tuple(
+        EnhancedSignalEvidence(
+            key=key,
+            label=label,
+            category=category,
+            passed=checks[key],
+            value=value,
+            detail=detail,
+        )
+        for key, label, category, value, detail in (
+            ("htf_aligned", "HTF Daily / 4H / 1H alignment", "hard_gate", checks["htf_bias"], "All required higher-timeframe structures must agree."),
+            ("setup_structure_aligned", "1H setup structure", "hard_gate", "ALIGNED" if checks["setup_structure_aligned"] else "NOT ALIGNED", "The 1H setup direction must agree with the HTF bias."),
+            ("valid_poi", "Valid 15M OB / FVG POI", "hard_gate", setup.poi.type if setup.poi else "NONE", "Price must be interacting with an active directional point of interest."),
+            ("premium_discount_valid", "Premium / discount quadrant", "hard_gate", "VALID" if checks["premium_discount_valid"] else "INVALID", "Longs require discount; shorts require premium."),
+            ("structural_stop_valid", "Structural invalidation stop", "hard_gate", format_price_value(setup.stop_loss), "Stop must sit beyond structural invalidation with the volatility buffer."),
+            ("opposing_liquidity_target", "Opposing liquidity target", "hard_gate", format_price_value(setup.opposing_target), "Target must provide at least the required 2R."),
+            ("path_to_target_clear", "Path to target clear", "hard_gate", "CLEAR" if setup.path_clear else "BLOCKED", "No active opposing structure may block the target path."),
+            ("minimum_rr_met", "Minimum 2.00R", "hard_gate", f"{setup.risk_reward:.2f}:1" if setup.risk_reward is not None else "UNAVAILABLE", "Enhanced Signal requires a minimum 2R target."),
+            ("session_valid", "Session validity", "hard_gate", "VALID" if checks["session_valid"] else "INVALID", "The market must be inside an allowed execution session."),
+            ("volatility_valid", "Volatility validity", "hard_gate", "VALID" if checks["volatility_valid"] else "INVALID", "Very-low or unknown volatility is rejected."),
+            ("news_filter_passed", "News filter", "hard_gate", "PASS" if checks["news_filter_passed"] else "BLOCK", "Configured high-impact news blackout must pass."),
+            ("liquidity_sweep_confirmed", "Liquidity sweep", "quality_factor", setup.sweep.type if setup.sweep else "NONE", "A recent opposing liquidity sweep is preferred execution confirmation."),
+            ("displacement_confirmed", "Directional displacement", "quality_factor", setup.displacement.type if setup.displacement else "NONE", "Displacement must follow the sweep in the intended direction."),
+            ("micro_structure_confirmed", "5M micro structure confirmation", "quality_factor", setup.micro_break.type if setup.micro_break else "NONE", "A post-displacement 5M structure break confirms execution intent."),
+            ("entry_location_valid", "Entry location", "quality_factor", "VALID" if checks["entry_location_valid"] else "INVALID", "Entry requires a valid POI in the correct premium/discount location."),
+        )
+    )
     check_model = EnhancedSignalChecks(
         **checks,
+        decision_status=decision_status,
         hard_gate_passed=hard_pass,
+        hard_gate_failures=hard_failures,
+        quality_factor_failures=quality_failures,
+        failed_gates=(*hard_failures, *quality_failures),
+        next_confirmation=_next_confirmation(decision_status, hard_failures, quality_failures, checks, setup),
+        evidence=evidence,
         quality_score=quality,
-        failed_gates=failed,
+        calibration_sample_size=0,
+        calibration_minimum_sample_size=20,
+        calibrated_probability_available=False,
+        calibrated_probability=None,
+        expected_value_r=None,
     )
     return signal, check_model
 
