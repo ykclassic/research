@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 from math import isfinite
 from typing import Any
 
-from app.models.enhanced_signal import EnhancedSignalChecks
+from app.models.enhanced_signal import EnhancedSignalChecks, EnhancedSignalEvidence
 from app.models.market import OHLCVDataset, Timeframe
 from app.models.risk import RiskPolicy
 from app.models.signal import CryptoSignal, RiskRewardStatus, SignalComponent, SignalDirection
@@ -172,11 +172,11 @@ def _build_setup(
     if not _premium_discount_valid(events_15m, htf_direction):
         reasons.append("Price is not in the required premium/discount quadrant.")
 
-    if poi is None or sweep is None or displacement is None or micro_break is None:
+    if poi is None:
         return _Setup(direction, poi, sweep, displacement, micro_break, None, None, None, False, tuple(reasons))
 
     poi_invalidation = float(poi.invalidation) if poi.invalidation is not None else float(poi.price)
-    sweep_extreme = float(sweep.invalidation) if sweep.invalidation is not None else float(sweep.price)
+    sweep_extreme = float(sweep.invalidation) if sweep is not None and sweep.invalidation is not None else float(sweep.price) if sweep is not None else poi_invalidation
     if htf_direction == "BULLISH":
         stop = min(poi_invalidation, sweep_extreme) - STOP_ATR_BUFFER * atr
     else:
@@ -220,6 +220,47 @@ def _quality_score(checks: dict[str, bool], sweep: Any | None, displacement: Any
     if micro_break is not None:
         strength_bonus += 0.025 * float(micro_break.strength)
     return min(1.0, base + strength_bonus)
+
+
+def format_price_value(value: float | None) -> str:
+    if value is None:
+        return "UNAVAILABLE"
+    return f"{value:.8g}"
+
+
+def _next_confirmation(
+    status: str,
+    hard_failures: tuple[str, ...],
+    quality_failures: tuple[str, ...],
+    checks: dict[str, bool],
+    setup: _Setup,
+) -> str:
+    if status == "QUALIFIED":
+        return "No additional confirmation required. Setup has passed all hard gates and execution quality factors."
+    if status == "NO_TRADE":
+        labels = {
+            "htf_aligned": "HTF alignment",
+            "setup_structure_aligned": "1H setup structure alignment",
+            "valid_poi": "a valid 15M OB/FVG POI",
+            "premium_discount_valid": "the correct premium/discount quadrant",
+            "structural_stop_valid": "a valid structural invalidation stop",
+            "opposing_liquidity_target": "an opposing liquidity target",
+            "path_to_target_clear": "a clear path to target",
+            "minimum_rr_met": "minimum 2R",
+            "session_valid": "an allowed execution session",
+            "volatility_valid": "acceptable volatility",
+            "news_filter_passed": "a passed news filter",
+            "risk_per_trade_policy": "a valid risk policy configuration",
+        }
+        return "Resolve hard invalidation: " + ", ".join(labels.get(key, key.replace("_", " ")) for key in hard_failures) + "."
+    labels = {
+        "liquidity_sweep_confirmed": "a confirmed liquidity sweep",
+        "displacement_confirmed": "directional displacement after the sweep",
+        "micro_structure_confirmed": "a 5M post-displacement structure break",
+        "entry_location_valid": "price to remain in a valid POI entry location",
+    }
+    first = quality_failures[0] if quality_failures else None
+    return "Wait for " + labels.get(first, "the remaining execution confirmation") + "."
 
 
 def generate_enhanced_signal(
@@ -299,25 +340,33 @@ def generate_enhanced_signal(
         "news_filter_passed": news_filter_passed,
         "structural_stop_valid": structural_stop_valid,
     }
-    hard_gates = (
+    hard_gate_keys = (
         "htf_aligned", "setup_structure_aligned", "valid_poi",
-        "premium_discount_valid", "liquidity_sweep_confirmed",
-        "displacement_confirmed", "micro_structure_confirmed",
-        "entry_location_valid", "structural_stop_valid",
+        "premium_discount_valid", "structural_stop_valid",
         "opposing_liquidity_target", "path_to_target_clear",
         "minimum_rr_met", "session_valid", "volatility_valid", "news_filter_passed",
     )
-    failed = tuple(key for key in hard_gates if not checks[key])
+    quality_factor_keys = (
+        "liquidity_sweep_confirmed", "displacement_confirmed",
+        "micro_structure_confirmed", "entry_location_valid",
+    )
+    hard_failures = tuple(key for key in hard_gate_keys if not checks[key])
+    quality_failures = tuple(key for key in quality_factor_keys if not checks[key])
     quality = _quality_score(checks, setup.sweep, setup.displacement, setup.micro_break)
-    hard_pass = not failed and htf_direction is not None
+    hard_pass = not hard_failures and htf_direction is not None
     risk_policy = RiskPolicy()
     risk_per_trade = account_risk_per_trade if account_risk_per_trade is not None else risk_policy.risk_per_trade
     if not 0.005 <= risk_per_trade <= 0.01:
         hard_pass = False
-        failed = (*failed, "risk_per_trade_policy")
-    direction = setup.direction if htf_direction else SignalDirection.NEUTRAL
-    if not hard_pass:
-        direction = SignalDirection.NEUTRAL
+        hard_failures = (*hard_failures, "risk_per_trade_policy")
+    qualified = hard_pass and not quality_failures
+    if hard_failures:
+        decision_status = "NO_TRADE"
+    elif quality_failures:
+        decision_status = "WAIT"
+    else:
+        decision_status = "QUALIFIED"
+    direction = setup.direction if qualified else SignalDirection.NEUTRAL
     score = quality if setup.direction in {SignalDirection.STRONG_BUY, SignalDirection.BUY} else -quality
     components: list[SignalComponent] = []
     for tf in required:
@@ -332,7 +381,7 @@ def generate_enhanced_signal(
         ))
 
     contract = None
-    if hard_pass and setup.stop_loss is not None and setup.opposing_target is not None:
+    if qualified and setup.stop_loss is not None and setup.opposing_target is not None:
         contract = build_trade_contract(
             direction="BUY" if direction in {SignalDirection.BUY, SignalDirection.STRONG_BUY} else "SELL",
             entry_price=price,
@@ -385,8 +434,8 @@ def generate_enhanced_signal(
             f"5m micro structure: {setup.micro_break.type if setup.micro_break else 'NONE'}.",
             *setup.reasons,
         ][:30]),
-        research_eligible=hard_pass,
-        qualification_reasons=failed,
+        research_eligible=qualified,
+        qualification_reasons=(*hard_failures, *quality_failures),
         minimum_confidence=0.0,
         minimum_risk_reward=MINIMUM_RR,
         qualification_status="QUALIFIED" if hard_pass else "REJECTED",
