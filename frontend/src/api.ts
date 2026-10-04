@@ -55,13 +55,22 @@ export type RiskRewardStatus = "AVAILABLE" | "UNAVAILABLE";
 export interface SignalComponent { timeframe: string; indicator_score: number; smc_score: number; combined_score: number; evidence: string[]; }
 export interface CryptoSignal { signal_id: string; symbol: string; signal: SignalDirection; score: number; confidence: number; confluence: number; risk_reward: number | null; risk_reward_status: RiskRewardStatus; risk_reward_reason: string | null; structural_target: number | null; atr_minimum_target: number | null; price: number; entry_price: number; stop_loss: number | null; take_profit: number | null; atr: number | null; calculated_at: string; latest_candle_timestamp: string; source: string; components: SignalComponent[]; evidence: string[]; research_eligible: boolean; qualification_reasons: string[]; minimum_confidence: number; minimum_risk_reward: number; qualification_status: SignalQualificationStatus; }
 export interface CryptoSignalList { calculated_at: string; signals: CryptoSignal[]; }
+export type EnhancedDecisionStatus = "NO_TRADE" | "WAIT" | "QUALIFIED";
+export interface EnhancedSignalEvidence {
+  key: string; label: string; category: "hard_gate" | "quality_factor"; passed: boolean;
+  value: string; detail: string;
+}
 export interface EnhancedSignalChecks {
   htf_bias: string; htf_aligned: boolean; setup_structure_aligned: boolean; valid_poi: boolean;
   premium_discount_valid: boolean; liquidity_sweep_confirmed: boolean; displacement_confirmed: boolean;
   micro_structure_confirmed: boolean; entry_location_valid: boolean; structural_stop_valid: boolean;
   opposing_liquidity_target: boolean; path_to_target_clear: boolean; minimum_rr_met: boolean;
   session_valid: boolean; volatility_valid: boolean; news_filter_passed: boolean; hard_gate_passed: boolean;
-  quality_score: number; failed_gates: string[];
+  decision_status: EnhancedDecisionStatus; hard_gate_failures: string[]; quality_factor_failures: string[];
+  quality_score: number; failed_gates: string[]; next_confirmation: string; evidence: EnhancedSignalEvidence[];
+  calibration_sample_size: number; calibration_minimum_sample_size: number;
+  calibrated_probability_available: boolean; calibrated_probability: number | null;
+  expected_value_r: number | null; calibration_note: string;
 }
 export interface EnhancedSignalResponse {
   signal: CryptoSignal & {

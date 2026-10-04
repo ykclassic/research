@@ -7,7 +7,8 @@ import "./enhanced-signal.css";
 
 const FALLBACK_SYMBOLS = ["BTC/USDT", "ETH/USDT", "SOL/USDT", "SUI/USDT"];
 function formatPrice(value: number | null | undefined): string { if (value == null) return "—"; return value >= 1000 ? value.toLocaleString(undefined, { maximumFractionDigits: 2 }) : value.toLocaleString(undefined, { maximumFractionDigits: 6 }); }
-function CheckRow({ label, passed }: { label: string; passed: boolean }) { return <div className={passed ? "enhanced-check passed" : "enhanced-check failed"}>{passed ? <CheckCircle2 size={15} /> : <XCircle size={15} />}<span>{label}</span><strong>{passed ? "PASS" : "FAIL"}</strong></div>; }
+function CheckRow({ label, passed, value }: { label: string; passed: boolean; value?: string }) { return <div className={passed ? "enhanced-check passed" : "enhanced-check failed"}>{passed ? <CheckCircle2 size={15} /> : <XCircle size={15} />}<span>{label}</span><strong>{value ?? (passed ? "PASS" : "FAIL")}</strong></div>; }
+function EvidenceRow({ item }: { item: { label: string; passed: boolean; value: string; detail: string } }) { return <details className={item.passed ? "enhanced-evidence-row passed" : "enhanced-evidence-row failed"}><summary>{item.passed ? <CheckCircle2 size={15}/> : <XCircle size={15}/>}<span>{item.label}</span><strong>{item.value}</strong></summary><p>{item.detail}</p></details>; }
 
 export default function EnhancedSignalPage({ user, onLogout, setPage }: { user: User; onLogout: () => void; setPage: (p: AppPage) => void }) {
   const [universe, setUniverse] = useState<MarketUniverse | null>(null);
@@ -30,15 +31,57 @@ export default function EnhancedSignalPage({ user, onLogout, setPage }: { user: 
       {!data && !busy && !error && <section className="panel enhanced-empty"><Lock size={22}/><div><strong>Enhanced Signal is selective by design.</strong><p>Calculate a configured market to evaluate the complete hard-gate checklist.</p></div></section>}
       {busy && <section className="panel enhanced-empty"><RefreshCw className="spin" size={22}/><div><strong>Evaluating completed candles…</strong><p>Validating HTF structure, entry conditions, risk and target path.</p></div></section>}
       {data && signal && checks && <section className="enhanced-result">
-        <section className={"panel enhanced-signal-card " + (signal.research_eligible ? "qualified" : "rejected")}><div className="enhanced-signal-head"><div><div className="eyebrow">Decision</div><div className={"enhanced-direction " + (bullish ? "bullish" : directional ? "bearish" : "neutral")}>{bullish ? <ArrowUp size={22}/> : signal.signal === "SELL" || signal.signal === "STRONG_SELL" ? <ArrowDown size={22}/> : <XCircle size={22}/>}<strong>{signal.signal.replace("_", " ")}</strong></div><span>{signal.research_eligible ? "QUALIFIED — setup passed every production hard gate." : "NO TRADE — one or more hard gates failed."}</span></div><div className="enhanced-quality"><strong>{Math.round(checks.quality_score * 100)}%</strong><span>setup quality</span></div></div>
+        <section className={"panel enhanced-signal-card " + checks.decision_status.toLowerCase().replace("_","-")}>
+          <div className="enhanced-signal-head">
+            <div>
+              <div className="eyebrow">Decision</div>
+              <div className={"enhanced-decision-status " + checks.decision_status.toLowerCase().replace("_","-")}>
+                {checks.decision_status === "QUALIFIED" ? <CheckCircle2 size={22}/> : checks.decision_status === "WAIT" ? <RefreshCw size={22}/> : <XCircle size={22}/>}
+                <strong>{checks.decision_status.replace("_"," ")}</strong>
+              </div>
+              <span>{checks.decision_status === "QUALIFIED" ? "All hard gates and execution quality factors passed." : checks.decision_status === "WAIT" ? "Context is viable, but execution confirmation is still incomplete." : "A hard invalidation condition failed. No trade is permitted."}</span>
+            </div>
+            <div className="enhanced-quality"><strong>{Math.round(checks.quality_score * 100)}/100</strong><span>setup quality</span></div>
+          </div>
           <div className="enhanced-levels"><div><span>Entry</span><strong>{formatPrice(signal.entry_price)}</strong></div><div><span>Stop</span><strong>{formatPrice(signal.stop_loss)}</strong></div><div><span>Target</span><strong>{formatPrice(signal.take_profit)}</strong></div><div><span>RR</span><strong>{signal.risk_reward == null ? "—" : signal.risk_reward.toFixed(2) + ":1"}</strong></div></div>
-          <div className="enhanced-notice"><ShieldCheck size={15}/><span>Setup quality is not a calibrated probability. Calibration requires a materially larger resolved outcome sample.</span></div></section>
-        <section className="panel"><div className="panel-head"><div><h3>Hard-gate audit</h3><span>Every required condition is explicit and machine-evaluable.</span></div></div><div className="enhanced-check-grid">
-          <CheckRow label="HTF Daily / 4H / 1H alignment" passed={checks.htf_aligned && checks.setup_structure_aligned}/><CheckRow label="Valid 15M OB / FVG POI" passed={checks.valid_poi}/><CheckRow label="Premium / discount quadrant" passed={checks.premium_discount_valid}/><CheckRow label="Liquidity sweep" passed={checks.liquidity_sweep_confirmed}/><CheckRow label="Directional displacement" passed={checks.displacement_confirmed}/><CheckRow label="5M micro structure confirmation" passed={checks.micro_structure_confirmed}/><CheckRow label="Entry location" passed={checks.entry_location_valid}/><CheckRow label="Structural invalidation stop" passed={checks.structural_stop_valid}/><CheckRow label="Opposing liquidity target" passed={checks.opposing_liquidity_target}/><CheckRow label="Path to target clear" passed={checks.path_to_target_clear}/><CheckRow label="Minimum 2.00R" passed={checks.minimum_rr_met}/><CheckRow label="Session / volatility" passed={checks.session_valid && checks.volatility_valid}/><CheckRow label="News filter" passed={checks.news_filter_passed}/>
-        </div></section>
-        <section className="workspace-grid"><section className="panel"><div className="panel-head"><div><h3>Setup evidence</h3><span>{signal.symbol} · {signal.session ?? "Session unavailable"} · {signal.regime ?? "Regime unavailable"}</span></div></div><ul className="enhanced-evidence">{signal.evidence.map((item, index) => <li key={String(index) + "-" + item}>{item}</li>)}</ul></section>
-          <section className="panel"><div className="panel-head"><div><h3>Risk contract</h3><span>Guardrails are documented, not discretionary.</span></div></div><div className="enhanced-risk-grid"><div><span>Risk / trade</span><strong>0.75%</strong></div><div><span>Max daily loss</span><strong>2.00%</strong></div><div><span>Correlated positions</span><strong>2 max</strong></div><div><span>Stop widening</span><strong>Never</strong></div><div><span>Averaging down</span><strong>Never</strong></div><div><span>Breakeven</span><strong>Not automated</strong></div></div></section></section>
-        {checks.failed_gates.length > 0 && <section className="panel enhanced-failures"><h3>Why this is not a trade</h3>{checks.failed_gates.map(reason => <div key={reason}><XCircle size={15}/><span>{reason.replaceAll("_", " ")}</span></div>)}</section>}
+          <div className="enhanced-next-confirmation"><strong>Next confirmation required</strong><span>{checks.next_confirmation}</span></div>
+          <div className="enhanced-calibration">
+            {checks.calibrated_probability_available && checks.calibrated_probability != null
+              ? <><div><span>Calibrated TP probability</span><strong>{(checks.calibrated_probability * 100).toFixed(1)}%</strong></div><div><span>Expected value</span><strong>{checks.expected_value_r == null ? "—" : checks.expected_value_r.toFixed(2) + "R"}</strong></div></>
+              : <div><span>{checks.calibration_note} Current sample: {checks.calibration_sample_size}/{checks.calibration_minimum_sample_size}.</span></div>}
+          </div>
+        </section>
+
+        <section className="panel">
+          <div className="panel-head"><div><h3>Hard invalidation gates</h3><span>Any failure here produces NO TRADE. These controls remain fail-closed.</span></div></div>
+          <div className="enhanced-check-grid">
+            {checks.evidence.filter(item => item.category === "hard_gate").map(item => <EvidenceRow key={item.key} item={item}/>)}
+          </div>
+        </section>
+
+        <section className="panel">
+          <div className="panel-head"><div><h3>Execution quality factors</h3><span>These determine whether a valid context is ready now or remains in WAIT.</span></div></div>
+          <div className="enhanced-check-grid">
+            {checks.evidence.filter(item => item.category === "quality_factor").map(item => <EvidenceRow key={item.key} item={item}/>)}
+          </div>
+        </section>
+
+        <section className="workspace-grid">
+          <section className="panel">
+            <div className="panel-head"><div><h3>Setup evidence</h3><span>{signal.symbol} · {signal.session ?? "Session unavailable"} · {signal.regime ?? "Regime unavailable"}</span></div></div>
+            <div className="enhanced-evidence-list">{signal.evidence.map((item, index) => <details key={String(index) + "-" + item} className="enhanced-evidence-row"><summary><span>{item}</span></summary></details>)}</div>
+          </section>
+          <section className="panel">
+            <div className="panel-head"><div><h3>Risk contract</h3><span>Guardrails are documented, not discretionary.</span></div></div>
+            <div className="enhanced-risk-grid"><div><span>Risk / trade</span><strong>0.75%</strong></div><div><span>Max daily loss</span><strong>2.00%</strong></div><div><span>Correlated positions</span><strong>2 max</strong></div><div><span>Stop widening</span><strong>Never</strong></div><div><span>Averaging down</span><strong>Never</strong></div><div><span>Breakeven</span><strong>Not automated</strong></div></div>
+          </section>
+        </section>
+
+        {(checks.hard_gate_failures.length > 0 || checks.quality_factor_failures.length > 0) && <section className="panel enhanced-failures">
+          <h3>{checks.decision_status === "WAIT" ? "Why this setup is not ready" : "Why this is not a trade"}</h3>
+          {checks.hard_gate_failures.map(reason => <div key={"hard-"+reason}><XCircle size={15}/><span>Hard gate: {reason.replaceAll("_", " ")}</span></div>)}
+          {checks.quality_factor_failures.map(reason => <div key={"quality-"+reason}><XCircle size={15}/><span>Quality factor: {reason.replaceAll("_", " ")}</span></div>)}
+        </section>}
         <footer>Research and decision support only. Enhanced Signal does not execute trades. Validate all market-data provenance and outcome records independently.</footer>
       </section>}
     </main></div>;
