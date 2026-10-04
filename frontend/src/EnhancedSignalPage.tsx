@@ -83,6 +83,6 @@ export default function EnhancedSignalPage({ user, onLogout, setPage }: { user: 
           {checks.quality_factor_failures.map(reason => <div key={"quality-"+reason}><XCircle size={15}/><span>Quality factor: {reason.replaceAll("_", " ")}</span></div>)}
         </section>}
         <footer>Research and decision support only. Enhanced Signal does not execute trades. Validate all market-data provenance and outcome records independently.</footer>
-}
+      </section>}
     </main></div>;
 }
