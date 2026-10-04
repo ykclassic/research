@@ -76,8 +76,6 @@ def test_quality_only_failure_produces_wait_confirmation():
         "WAIT",
         (),
         ("displacement_confirmed", "micro_structure_confirmed"),
-        {},
-        None,
     ) == "Wait for directional displacement after the sweep."
 
 
@@ -86,11 +84,9 @@ def test_hard_failure_produces_no_trade_confirmation():
         "NO_TRADE",
         ("minimum_rr_met",),
         (),
-        {},
-        None,
     )
     assert "minimum 2R" in message
 
 
 def test_qualified_requires_no_remaining_confirmation():
-    assert _next_confirmation("QUALIFIED", (), (), {}, None).startswith("No additional confirmation")
+    assert _next_confirmation("QUALIFIED", (), ()).startswith("No additional confirmation")
