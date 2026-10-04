@@ -2,9 +2,22 @@ from __future__ import annotations
 
 from typing import Literal
 
+from typing import Literal
+
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.models.signal import CryptoSignal
+
+
+class EnhancedSignalEvidence(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    key: str
+    label: str
+    category: Literal["hard_gate", "quality_factor"]
+    passed: bool
+    value: str
+    detail: str
 
 
 class EnhancedSignalEvidence(BaseModel):
@@ -43,7 +56,19 @@ class EnhancedSignalChecks(BaseModel):
     hard_gate_passed: bool
     hard_gate_failures: tuple[str, ...] = ()
     quality_factor_failures: tuple[str, ...] = ()
+    decision_status: Literal["NO_TRADE", "WAIT", "QUALIFIED"]
+    hard_gate_passed: bool
+    hard_gate_failures: tuple[str, ...] = ()
+    quality_factor_failures: tuple[str, ...] = ()
     failed_gates: tuple[str, ...] = ()
+    next_confirmation: str
+    evidence: tuple[EnhancedSignalEvidence, ...] = ()
+    calibration_sample_size: int = 0
+    calibration_minimum_sample_size: int = 20
+    calibrated_probability_available: bool = False
+    calibrated_probability: float | None = Field(default=None, ge=0, le=1)
+    expected_value_r: float | None = None
+    calibration_note: str = "Calibration is unavailable until at least 20 resolved, chronologically aligned outcomes are available."
     next_confirmation: str
     evidence: tuple[EnhancedSignalEvidence, ...] = ()
     calibration_sample_size: int = 0
