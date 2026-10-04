@@ -5,6 +5,7 @@ import pytest
 from app.services.enhanced_signal_engine import (
     MINIMUM_RR,
     _direction_from_structure,
+    _next_confirmation,
     _path_clear,
 )
 
@@ -68,3 +69,28 @@ def test_news_gate_passes_when_configured_and_no_blackout(monkeypatch):
     monkeypatch.setattr(type(enhanced_signals.news_research), "configured", property(lambda self: True))
 
     assert enhanced_signals._news_gate_passed(news) is True
+
+
+def test_quality_only_failure_produces_wait_confirmation():
+    assert _next_confirmation(
+        "WAIT",
+        (),
+        ("displacement_confirmed", "micro_structure_confirmed"),
+        {},
+        None,
+    ) == "Wait for directional displacement after the sweep."
+
+
+def test_hard_failure_produces_no_trade_confirmation():
+    message = _next_confirmation(
+        "NO_TRADE",
+        ("minimum_rr_met",),
+        (),
+        {},
+        None,
+    )
+    assert "minimum 2R" in message
+
+
+def test_qualified_requires_no_remaining_confirmation():
+    assert _next_confirmation("QUALIFIED", (), (), {}, None).startswith("No additional confirmation")
