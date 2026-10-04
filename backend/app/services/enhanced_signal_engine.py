@@ -232,8 +232,6 @@ def _next_confirmation(
     status: str,
     hard_failures: tuple[str, ...],
     quality_failures: tuple[str, ...],
-    checks: dict[str, bool],
-    setup: _Setup,
 ) -> str:
     if status == "QUALIFIED":
         return "No additional confirmation required. Setup has passed all hard gates and execution quality factors."
@@ -520,7 +518,7 @@ def generate_enhanced_signal(
         hard_gate_failures=hard_failures,
         quality_factor_failures=quality_failures,
         failed_gates=(*hard_failures, *quality_failures),
-        next_confirmation=_next_confirmation(decision_status, hard_failures, quality_failures, checks, setup),
+        next_confirmation=_next_confirmation(decision_status, hard_failures, quality_failures),
         evidence=evidence,
         quality_score=quality,
         calibration_sample_size=0,
