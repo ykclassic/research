@@ -7,7 +7,7 @@ import pytest
 
 from scripts.verify_production_market_data import (
     MAX_REQUEST_ATTEMPTS,
-    DEFAULT_SYMBOL,
+    APPROVED_PRIMARY_QUOTE_PROVIDERS,
     RETRY_BACKOFF_BASE_SECONDS,
     VerificationTransportError,
     request,
@@ -82,12 +82,4 @@ def test_fallback_symbol_defaults_to_secondary_provider_supported_24_7_pair(monk
 
 
 def test_production_verifier_accepts_kraken_public_as_primary_provider() -> None:
-    from scripts.verify_production_market_data import DEFAULT_SYMBOL
-
-    assert DEFAULT_SYMBOL == "BTC/USD"
-
-
-def test_production_verifier_has_kraken_public_primary_route() -> None:
-    import scripts.verify_production_market_data as verifier
-
-    assert "kraken_public" in verifier.__dict__.get("PRIMARY_CRYPTO_PROVIDER", {"kraken_public"})
+    assert "kraken_public" in APPROVED_PRIMARY_QUOTE_PROVIDERS
