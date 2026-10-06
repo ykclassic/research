@@ -111,6 +111,10 @@ def test_checkout_session_completed_syncs_authoritative_subscription(monkeypatch
     }
     provider = Mock()
     provider.get_subscription.return_value = subscription
+    provider.cancel_subscription.return_value = {
+        **subscription,
+        "cancel_at_period_end": True,
+    }
     monkeypatch.setattr(billing_service, "get_billing_provider", lambda: provider)
     monkeypatch.setattr(billing_service, "_service_live_subscription", lambda *_: {"id": "sub-row"})
     patch = Mock(return_value=Mock(json=lambda: [{"id": "sub-row"}]))
