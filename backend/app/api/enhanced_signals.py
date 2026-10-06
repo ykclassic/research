@@ -85,7 +85,7 @@ async def verify_enhanced_signal_production(
             "cache_hits": {timeframe.value: datasets[timeframe].cache_hit for timeframe in REQUIRED},
             "qualification_status": signal.qualification_status,
             "research_eligible": signal.research_eligible,
-            "checks": len(checks),
+            "checks": len(checks.evidence),
         }
     except Exception:
         logger.exception("Enhanced Signal production verification failed for %s", normalized)
