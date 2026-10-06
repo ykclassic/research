@@ -45,7 +45,7 @@ jobs:
         run: |
           set -euo pipefail
           test -n "${RENDER_API_KEY}"
-          python backend/scripts/wait_for_render_deployment.py --commit "${GITHUB_SHA}"
+          python backend/scripts/wait_for_render_deployment.py --commit "${GITHUB_SHA}" --trigger
 
       - name: Run authenticated production Portfolio E2E
         run: python backend/scripts/verify_production_portfolio_e2e.py
