@@ -86,6 +86,7 @@ def main() -> None:
         "notes": "production E2E verification - safe test position",
     }
     position_id: str | None = None
+    advanced_entitled = False
     try:
         response = session.post(f"{API_URL}/api/portfolio/positions", json=payload, timeout=TIMEOUT)
         expect(response, 403, "create portfolio position without CSRF")
@@ -134,32 +135,51 @@ def main() -> None:
             fail("list portfolio positions: updated position was not returned")
 
         response = get_with_retry(session, f"{API_URL}/api/portfolio/summary")
-        summary = expect(response, 200, "portfolio summary")
-        if summary.get("position_count", 0) < 1:
-            fail("portfolio summary: expected at least one position")
-        if not isinstance(summary.get("positions"), list):
-            fail("portfolio summary: positions snapshot missing")
-        snapshot = next((p for p in summary["positions"] if p.get("position", {}).get("id") == position_id), None)
-        if snapshot is None:
-            fail("portfolio summary: created position missing from snapshots")
-        if snapshot.get("current_price") is None:
-            fail("portfolio summary: current provider-backed price was unavailable")
-        if snapshot.get("quote_status") not in {"LIVE", "DELAYED"}:
-            fail(f"portfolio summary: unexpected quote status {snapshot.get('quote_status')!r}")
-        if not snapshot.get("quote_timestamp"):
-            fail("portfolio summary: provider quote timestamp missing")
+        if response.status_code == 200:
+            summary = expect(response, 200, "portfolio summary")
+            if summary.get("position_count", 0) < 1:
+                fail("portfolio summary: expected at least one position")
+            if not isinstance(summary.get("positions"), list):
+                fail("portfolio summary: positions snapshot missing")
+            snapshot = next((p for p in summary["positions"] if p.get("position", {}).get("id") == position_id), None)
+            if snapshot is None:
+                fail("portfolio summary: created position missing from snapshots")
+            if snapshot.get("current_price") is None:
+                fail("portfolio summary: current provider-backed price was unavailable")
+            if snapshot.get("quote_status") not in {"LIVE", "DELAYED"}:
+                fail(f"portfolio summary: unexpected quote status {snapshot.get('quote_status')!r}")
+            if not snapshot.get("quote_timestamp"):
+                fail("portfolio summary: provider quote timestamp missing")
+            advanced_entitled = True
+            print("portfolio analytics entitlement: advanced analytics available")
+        elif response.status_code == 403 and "advanced_portfolio_analytics" in response.text:
+            advanced_entitled = False
+            print("portfolio analytics entitlement: correctly gated for current test account")
+        else:
+            expect(response, 200, "portfolio summary")
+            advanced_entitled = False
 
         response = session.post(f"{API_URL}/api/portfolio/scenario", json={"price_change_percent": 10}, headers=headers, timeout=TIMEOUT)
-        scenario = expect(response, 200, "portfolio scenario")
-        if scenario.get("affected_positions", 0) < 1:
-            fail("portfolio scenario: created position was not affected")
-        if scenario.get("price_change_percent") != 10:
-            fail("portfolio scenario: requested shock was not preserved")
+        if advanced_entitled:
+            scenario = expect(response, 200, "portfolio scenario")
+            if scenario.get("affected_positions", 0) < 1:
+                fail("portfolio scenario: created position was not affected")
+            if scenario.get("price_change_percent") != 10:
+                fail("portfolio scenario: requested shock was not preserved")
+        else:
+            expect(response, 403, "portfolio scenario entitlement gate")
+            if "advanced_portfolio_analytics" not in response.text:
+                fail("portfolio scenario: unexpected feature-gate response")
 
         response = session.post(f"{API_URL}/api/portfolio/risk-reward", json={"entry_price": 100000, "stop_loss": 99000, "take_profit": 102000, "side": "LONG"}, headers=headers, timeout=TIMEOUT)
-        rr = expect(response, 200, "portfolio risk-reward")
-        if rr.get("reward_risk_ratio") != 2 or rr.get("valid") is not True:
-            fail("portfolio risk-reward: expected valid 2:1 setup")
+        if advanced_entitled:
+            rr = expect(response, 200, "portfolio risk-reward")
+            if rr.get("reward_risk_ratio") != 2 or rr.get("valid") is not True:
+                fail("portfolio risk-reward: expected valid 2:1 setup")
+        else:
+            expect(response, 403, "portfolio risk-reward entitlement gate")
+            if "advanced_portfolio_analytics" not in response.text:
+                fail("portfolio risk-reward: unexpected feature-gate response")
 
     finally:
         if position_id:
