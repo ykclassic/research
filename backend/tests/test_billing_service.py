@@ -137,3 +137,4 @@ def test_checkout_session_completed_syncs_authoritative_subscription(monkeypatch
         for call in patch.call_args_list
     )
     record.assert_called_once()
+    provider.cancel_subscription.assert_called_once_with("sub_premium", at_period_end=True)
