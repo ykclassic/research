@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Callable
 
+from app.config import settings
 from app.models.market import OHLCVDataset, Timeframe
 from app.providers.kraken_public import KrakenPublicProvider
 from app.services.candle_freshness import require_current_completed_candles
@@ -24,8 +25,33 @@ class _CachedDataset:
 class SignalCandleScheduler:
     """Acquire one selected signal's timeframes without provider stampedes."""
 
-    PRIMARY_TIMEOUT_SECONDS = 4.5
-    FALLBACK_TIMEOUT_SECONDS = 6.0
+    # Kraken performs its own serialized request/retry cycle. With the
+    # production provider timeout and current retry/backoff policy, one full
+    # cycle needs materially more than the old 4.5s scheduler ceiling.
+    KRAKEN_TIMEOUT_SECONDS = (
+        settings.provider_timeout_seconds * (KrakenPublicProvider.MAX_RETRIES + 1)
+        + KrakenPublicProvider.REQUEST_INTERVAL_SECONDS * (KrakenPublicProvider.MAX_RETRIES + 1)
+        + sum(
+            min(2.0 * (attempt + 1), 5.0)
+            for attempt in range(KrakenPublicProvider.MAX_RETRIES)
+        )
+        + 2.0
+    )
+    PRIMARY_TIMEOUT_SECONDS = KRAKEN_TIMEOUT_SECONDS
+    FALLBACK_PROVIDER_TIMEOUT_SECONDS = settings.provider_timeout_seconds
+    FALLBACK_TIMEOUT_SECONDS: float | None = None
+    FALLBACK_BUDGET_MARGIN_SECONDS = 2.0
+    OVERALL_TIMEOUT_SECONDS = 210.0
+
+    @property
+    def fallback_timeout_seconds(self) -> float:
+        if self.FALLBACK_TIMEOUT_SECONDS is not None:
+            return self.FALLBACK_TIMEOUT_SECONDS
+        provider_count = len(getattr(self.quote_service.orchestrator, "providers", (None, None, None))) or 1
+        return (
+            self.FALLBACK_PROVIDER_TIMEOUT_SECONDS * provider_count
+            + self.FALLBACK_BUDGET_MARGIN_SECONDS
+        )
 
     def __init__(
         self,
@@ -94,9 +120,29 @@ class SignalCandleScheduler:
         policy: MarketDataPolicy | None,
     ) -> OHLCVDataset:
         mapping = normalize_symbol(symbol)
+        fallback_timeout = self.fallback_timeout_seconds
+
+        async def fallback() -> OHLCVDataset:
+            fallback_kwargs = {}
+            if mapping.unsupported_providers:
+                fallback_kwargs["excluded_providers"] = set(mapping.unsupported_providers)
+            return await asyncio.wait_for(
+                self.quote_service.orchestrator.get_candles(
+                    mapping.internal,
+                    timeframe,
+                    limit,
+                    **fallback_kwargs,
+                    provider_timeout_seconds=self.FALLBACK_PROVIDER_TIMEOUT_SECONDS,
+                ),
+                timeout=fallback_timeout,
+            )
 
         if mapping.asset_class == "crypto" and mapping.kraken is not None:
             try:
+                # Do not give the scheduler a shorter deadline than Kraken's
+                # own controlled retry cycle. Kraken also has a shared 90s
+                # candle cache, so cache hits return immediately before this
+                # path is reached.
                 dataset = await asyncio.wait_for(
                     self.crypto_provider.get_candles(
                         mapping.internal, timeframe, limit
@@ -105,37 +151,23 @@ class SignalCandleScheduler:
                 )
             except asyncio.TimeoutError as primary_exc:
                 try:
-                    fallback_kwargs = {}
-                    if mapping.unsupported_providers:
-                        fallback_kwargs["excluded_providers"] = set(mapping.unsupported_providers)
-                    dataset = await asyncio.wait_for(
-                        self.quote_service.orchestrator.get_candles(
-                            mapping.internal, timeframe, limit, **fallback_kwargs
-                        ),
-                        timeout=self.FALLBACK_TIMEOUT_SECONDS,
-                    )
+                    dataset = await fallback()
                 except Exception as fallback_exc:
                     raise RuntimeError(
-                        f"{mapping.internal} {timeframe.value}: primary crypto "
-                        f"provider timed out after {self.PRIMARY_TIMEOUT_SECONDS:.1f}s; "
-                        f"fallback failed ({type(fallback_exc).__name__}: "
-                        f"{fallback_exc or 'no diagnostic message'})"
+                        f"{mapping.internal} {timeframe.value}: Kraken primary "
+                        f"timed out after {self.PRIMARY_TIMEOUT_SECONDS:.1f}s; "
+                        f"fallback budget {fallback_timeout:.1f}s exhausted "
+                        f"({type(fallback_exc).__name__})"
                     ) from fallback_exc
             except Exception as primary_exc:
                 try:
-                    dataset = await asyncio.wait_for(
-                        self.quote_service.orchestrator.get_candles(
-                            mapping.internal, timeframe, limit
-                        ),
-                        timeout=self.FALLBACK_TIMEOUT_SECONDS,
-                    )
+                    dataset = await fallback()
                 except Exception as fallback_exc:
                     raise RuntimeError(
-                        f"{mapping.internal} {timeframe.value}: primary crypto "
-                        f"provider failed ({type(primary_exc).__name__}: "
-                        f"{primary_exc or 'no diagnostic message'}); fallback failed "
-                        f"({type(fallback_exc).__name__}: "
-                        f"{fallback_exc or 'no diagnostic message'})"
+                        f"{mapping.internal} {timeframe.value}: Kraken primary "
+                        f"failed ({type(primary_exc).__name__}); fallback budget "
+                        f"{fallback_timeout:.1f}s exhausted "
+                        f"({type(fallback_exc).__name__})"
                     ) from fallback_exc
         elif mapping.asset_class == "crypto" and mapping.kraken_cross is not None:
             try:
@@ -143,40 +175,25 @@ class SignalCandleScheduler:
                     self.crypto_provider.get_cross_candles(
                         mapping.internal, timeframe, limit
                     ),
-                    timeout=self.FALLBACK_TIMEOUT_SECONDS,
+                    timeout=self.KRAKEN_TIMEOUT_SECONDS,
                 )
             except Exception as cross_exc:
                 try:
-                    fallback_kwargs = {}
-                    if mapping.unsupported_providers:
-                        fallback_kwargs["excluded_providers"] = set(mapping.unsupported_providers)
-                    dataset = await asyncio.wait_for(
-                        self.quote_service.orchestrator.get_candles(
-                            mapping.internal, timeframe, limit, **fallback_kwargs
-                        ),
-                        timeout=self.FALLBACK_TIMEOUT_SECONDS,
-                    )
+                    dataset = await fallback()
                 except Exception as fallback_exc:
                     raise RuntimeError(
-                        f"{mapping.internal} {timeframe.value}: Kraken cross-provider "
-                        f"failed ({type(cross_exc).__name__}: {cross_exc}); fallback failed "
-                        f"({type(fallback_exc).__name__}: {fallback_exc})"
+                        f"{mapping.internal} {timeframe.value}: Kraken cross route "
+                        f"failed ({type(cross_exc).__name__}); fallback budget "
+                        f"{fallback_timeout:.1f}s exhausted "
+                        f"({type(fallback_exc).__name__})"
                     ) from fallback_exc
         else:
             try:
-                fallback_kwargs = {}
-                if mapping.unsupported_providers:
-                    fallback_kwargs["excluded_providers"] = set(mapping.unsupported_providers)
-                dataset = await asyncio.wait_for(
-                    self.quote_service.orchestrator.get_candles(
-                        mapping.internal, timeframe, limit, **fallback_kwargs
-                    ),
-                    timeout=self.FALLBACK_TIMEOUT_SECONDS,
-                )
+                dataset = await fallback()
             except asyncio.TimeoutError as exc:
                 raise RuntimeError(
-                    f"{mapping.internal} {timeframe.value}: candle provider exceeded "
-                    f"the {self.FALLBACK_TIMEOUT_SECONDS:.1f}s signal acquisition budget"
+                    f"{mapping.internal} {timeframe.value}: fallback provider chain "
+                    f"exceeded its cumulative {fallback_timeout:.1f}s budget"
                 ) from exc
 
         if policy is not None:

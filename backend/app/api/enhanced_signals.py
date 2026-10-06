@@ -1,12 +1,13 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from datetime import datetime, timedelta, timezone
 from typing import Annotated
 
 from fastapi import APIRouter, Cookie, Depends, HTTPException, Query
 
-from app.api.auth import UserResponse, get_current_user
+from app.api.auth import UserResponse, get_current_user, require_github_actions
 from app.models.enhanced_signal import EnhancedSignalResponse
 from app.models.market import Timeframe
 from app.services.entitlement import EntitlementError, require_feature
@@ -20,6 +21,7 @@ from app.services.news_research_resilient import news_research
 from app.symbols import normalize_symbol
 
 router = APIRouter(prefix="/api/enhanced-signals", tags=["enhanced-signals"])
+logger = logging.getLogger(__name__)
 
 quote_service = QuoteService()
 kraken_public = KrakenPublicProvider()
@@ -32,7 +34,7 @@ REQUIRED = (
     Timeframe.MINUTE_15,
     Timeframe.MINUTE_5,
 )
-TIMEOUT_SECONDS = 40.0
+TIMEOUT_SECONDS = SignalCandleScheduler.OVERALL_TIMEOUT_SECONDS
 
 
 def _news_gate_passed(news) -> bool:
@@ -48,6 +50,49 @@ def _news_gate_passed(news) -> bool:
         if item.event_type.value == 'REGULATORY' and item.published_at >= now - timedelta(hours=2):
             return False
     return True
+
+
+@router.get("/verification/{symbol:path}")
+async def verify_enhanced_signal_production(
+    symbol: str,
+    _: Annotated[None, Depends(require_github_actions)],
+    limit: int = Query(250, ge=60, le=5000),
+) -> dict[str, object]:
+    """Protected production health probe for the complete Enhanced Signal path."""
+    normalized = normalize_symbol(symbol).internal
+    try:
+        datasets = await asyncio.wait_for(
+            scheduler.get_required_datasets(
+                normalized,
+                REQUIRED,
+                limit,
+                None,
+            ),
+            timeout=TIMEOUT_SECONDS,
+        )
+        news = await news_research.research(symbol=normalized, days=1, limit=50)
+        news_filter_passed = _news_gate_passed(news)
+        signal, checks = generate_enhanced_signal(
+            datasets,
+            asset_class=normalize_symbol(normalized).asset_class,
+            news_filter_passed=news_filter_passed,
+        )
+        return {
+            "status": "ok",
+            "symbol": normalized,
+            "timeframes": [timeframe.value for timeframe in REQUIRED],
+            "sources": {timeframe.value: datasets[timeframe].source for timeframe in REQUIRED},
+            "cache_hits": {timeframe.value: datasets[timeframe].cache_hit for timeframe in REQUIRED},
+            "qualification_status": signal.qualification_status,
+            "research_eligible": signal.research_eligible,
+            "checks": len(checks),
+        }
+    except Exception:
+        logger.exception("Enhanced Signal production verification failed for %s", normalized)
+        raise HTTPException(
+            status_code=503,
+            detail="Enhanced Signal production verification is temporarily unavailable.",
+        )
 
 
 @router.get("/{symbol:path}", response_model=EnhancedSignalResponse)
@@ -100,8 +145,16 @@ async def get_enhanced_signal(
     except EntitlementError as exc:
         raise HTTPException(status_code=403, detail=str(exc)) from exc
     except asyncio.TimeoutError as exc:
-        raise HTTPException(status_code=503, detail="Enhanced Signal market-data acquisition timed out.") from exc
+        logger.exception("Enhanced Signal market-data acquisition timed out for %s", normalized)
+        raise HTTPException(
+            status_code=503,
+            detail="Enhanced Signal market-data acquisition is temporarily unavailable. Please retry shortly.",
+        ) from exc
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     except Exception as exc:
-        raise HTTPException(status_code=503, detail=f"Enhanced Signal is temporarily unavailable: {exc}") from exc
+        logger.exception("Enhanced Signal request failed for %s", normalized)
+        raise HTTPException(
+            status_code=503,
+            detail="Enhanced Signal is temporarily unavailable. Please retry shortly.",
+        ) from exc

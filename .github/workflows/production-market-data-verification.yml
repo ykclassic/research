@@ -28,6 +28,8 @@ jobs:
       MARKET_FALLBACK_TIMEFRAME: 1d
       MARKET_TIMEFRAME: 1h
       MARKET_ANALYSIS_LIMIT: 250
+      ENHANCED_SIGNAL_SYMBOL: BTC/USDT
+      ENHANCED_SIGNAL_LIMIT: 250
       MARKET_MAX_PROVIDER_AGE: 180
       MTF_MAX_EXTRA_AGE_SECONDS: 180
       GITHUB_OIDC_AUDIENCE: research-production-verifier
@@ -132,6 +134,13 @@ jobs:
       - name: Verify deployed market-data path and fallback path
         run: python backend/scripts/verify_production_market_data.py
 
+      - name: Verify production Enhanced Signal end-to-end
+        run: |
+          python backend/scripts/verify_production_enhanced_signal.py \
+            --base-url "${MARKET_API_BASE}" \
+            --symbol "${ENHANCED_SIGNAL_SYMBOL}" \
+            --limit "${ENHANCED_SIGNAL_LIMIT}" \
+            --oidc-token "${GITHUB_OIDC_TOKEN}"
       - name: Diagnose live crypto signal pipeline
         run: |
           python backend/scripts/diagnose_live_signals.py \
