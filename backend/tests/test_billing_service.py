@@ -74,7 +74,6 @@ def test_change_subscription_from_expired_paid_subscription_starts_checkout(monk
         user_id="user",
         email="user@example.com",
         plan_id="premium",
-        previous_subscription_id=None,
     )
 
 
@@ -118,6 +117,7 @@ def test_checkout_session_completed_syncs_authoritative_subscription(monkeypatch
     record = Mock()
     monkeypatch.setattr(billing_service, "service_request", patch)
     monkeypatch.setattr(billing_service, "_record_event", record)
+    monkeypatch.setattr(billing_service, "_event_already_recorded", lambda *_: False)
 
     result = billing_service.process_webhook({
         "id": "evt_checkout",
