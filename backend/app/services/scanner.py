@@ -496,13 +496,18 @@ async def run_scan(
             "billing_subscriptions",
             access_token,
             params={
-                "select": "plan_id,status,trial_ends_at",
+                "select": "plan_id,status,trial_ends_at,current_period_end",
                 "user_id": f"eq.{user_id}",
                 "order": "updated_at.desc",
                 "limit": "1",
             },
         ).json()
-        plan_id = subscriptions[0]["plan_id"] if subscriptions and subscriptions[0].get("status") in {"trialing", "active", "past_due", "unpaid", "paused"} else "free"
+        plan_id = "free"
+        if subscriptions:
+            row = subscriptions[0]
+            expiry = row.get("trial_ends_at") if row.get("status") == "trialing" else row.get("current_period_end")
+            if row.get("status") in {"trialing", "active", "past_due", "unpaid", "paused"} and (not expiry or expiry > datetime.now(timezone.utc).isoformat()):
+                plan_id = row.get("plan_id") or "free"
         entitled = any(row["plan_id"] == plan_id for row in feature_rows)
         if not entitled:
             raise PermissionError("Scanner is not entitled for this account.")
