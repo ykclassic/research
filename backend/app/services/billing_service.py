@@ -154,6 +154,34 @@ def change_subscription(access_token: str, user_id: str, email: str, plan_id: st
     }
 
 
+def ensure_paid_subscription_lifecycle(access_token: str, user_id: str) -> dict[str, Any] | None:
+    """Repair legacy paid subscriptions and enforce one-period expiry.
+
+    This is intentionally idempotent. Existing Stripe-backed paid rows are
+    reconciled only when their period metadata is missing or the Stripe
+    subscription is not yet configured to cancel at period end.
+    """
+    current = _active_subscription(access_token, user_id)
+    if not current or current.get("plan_id") not in {"pro", "premium"}:
+        return current
+    if current.get("provider") != "stripe" or not current.get("provider_subscription_id"):
+        return current
+
+    provider = get_billing_provider()
+    provider_id = str(current["provider_subscription_id"])
+    if current.get("current_period_end") and current.get("cancel_at_period_end"):
+        return current
+
+    subscription = provider.get_subscription(provider_id)
+    if str(subscription.get("status") or "") in {"canceled", "incomplete_expired"}:
+        return _sync_subscription(subscription) or current
+
+    if not subscription.get("cancel_at_period_end"):
+        subscription = provider.cancel_subscription(provider_id, at_period_end=True)
+    synced = _sync_subscription(subscription)
+    return synced or current
+
+
 def cancel_subscription(access_token: str, user_id: str, at_period_end: bool = True) -> dict[str, Any]:
     current = _active_subscription(access_token, user_id)
     if not current:
