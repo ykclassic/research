@@ -82,6 +82,16 @@ class Settings(BaseSettings):
             raise ValueError("Production requires TWELVE_DATA_API_KEY.")
         if not self.supabase_url.strip() or not self.supabase_publishable_key.strip():
             raise ValueError("Production requires Supabase URL and publishable key.")
+        if not self.stripe_secret_key.strip():
+            raise ValueError("Production requires STRIPE_SECRET_KEY.")
+        if not self.stripe_webhook_secret.strip():
+            raise ValueError("Production requires STRIPE_WEBHOOK_SECRET.")
+        if not self.stripe_price_pro.strip() or not self.stripe_price_premium.strip():
+            raise ValueError("Production requires Stripe price IDs for all paid plans.")
+        if not self.stripe_success_url.startswith("https://") or "{CHECKOUT_SESSION_ID}" not in self.stripe_success_url:
+            raise ValueError("Production Stripe success URL must use HTTPS and include {CHECKOUT_SESSION_ID}.")
+        if not self.stripe_cancel_url.startswith("https://"):
+            raise ValueError("Production Stripe cancel URL must use HTTPS.")
         reset_redirect = self.auth_password_reset_redirect_url.strip()
         if not reset_redirect:
             raise ValueError("Production requires AUTH_PASSWORD_RESET_REDIRECT_URL.")
