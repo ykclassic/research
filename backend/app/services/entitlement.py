@@ -4,6 +4,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 from app.services.supabase_data import DataRequestError, _request
+from app.services.billing_service import ensure_paid_subscription_lifecycle
 
 
 FEATURE_KEYS = {
@@ -49,10 +50,12 @@ def get_entitlement_snapshot(access_token: str, user_id: str) -> dict[str, Any]:
         params={"select": "*", "user_id": f"eq.{user_id}", "order": "updated_at.desc", "limit": "1"},
     ).json()
     subscription = subscriptions[0] if subscriptions else None
+    if subscription and subscription.get("provider") == "stripe" and subscription.get("plan_id") in {"pro", "premium"}:
+        subscription = ensure_paid_subscription_lifecycle(access_token, user_id) or subscription
     plan_id = "free"
     if subscription and subscription.get("status") in {"trialing", "active", "past_due", "unpaid", "paused"}:
-        trial_ends = subscription.get("trial_ends_at")
-        if not trial_ends or trial_ends > _now_iso():
+        expiry = subscription.get("trial_ends_at") if subscription.get("status") == "trialing" else subscription.get("current_period_end")
+        if not expiry or expiry > _now_iso():
             plan_id = subscription.get("plan_id") or "free"
 
     plans = _request(

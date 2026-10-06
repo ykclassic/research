@@ -29,7 +29,7 @@ def test_change_subscription_from_internal_trial_starts_checkout(monkeypatch):
     )
 
 
-def test_change_subscription_updates_stripe_subscription(monkeypatch):
+def test_change_subscription_from_existing_stripe_subscription_starts_checkout(monkeypatch):
     current = {
         "id": "sub-row",
         "plan_id": "premium",
@@ -37,34 +37,45 @@ def test_change_subscription_updates_stripe_subscription(monkeypatch):
         "provider": "stripe",
         "provider_subscription_id": "sub_stripe",
     }
+    session = Mock(id="cs_change", url="https://checkout.stripe.com/cs_change")
     provider = Mock()
-    provider.change_subscription.return_value = {"id": "sub_stripe", "status": "active", "metadata": {"plan_id": "premium"}}
+    provider.create_checkout.return_value = session
 
-    synced = {
-        "id": "sub-row",
-        "plan_id": "pro",
-        "status": "active",
-        "provider": "stripe",
-    }
-    sync = Mock(return_value=synced)
     monkeypatch.setattr(billing_service, "_active_subscription", lambda *_: current)
     monkeypatch.setattr(billing_service, "get_billing_provider", lambda: provider)
-    monkeypatch.setattr(billing_service.settings, "stripe_price_pro", "price_pro")
-    monkeypatch.setattr(billing_service, "_sync_subscription", sync)
 
     result = billing_service.change_subscription("token", "user", "user@example.com", "pro")
 
-    assert result["status"] == "active"
+    assert result["status"] == "checkout_required"
     assert result["plan_id"] == "pro"
-    assert result["subscription"] == synced
-    provider.change_subscription.assert_called_once_with(
-        "sub_stripe", price_id="price_pro"
+    assert result["checkout_url"] == session.url
+    provider.create_checkout.assert_called_once_with(
+        user_id="user",
+        email="user@example.com",
+        plan_id="pro",
+        previous_subscription_id="sub_stripe",
     )
-    sync.assert_called_once_with({
-        "id": "sub_stripe",
-        "status": "active",
-        "metadata": {"user_id": "user", "plan_id": "pro"},
-    })
+
+
+def test_change_subscription_from_expired_paid_subscription_starts_checkout(monkeypatch):
+    provider = Mock()
+    session = Mock(id="cs_expired", url="https://checkout.stripe.com/cs_expired")
+    provider.create_checkout.return_value = session
+
+    monkeypatch.setattr(billing_service, "_active_subscription", lambda *_: None)
+    monkeypatch.setattr(billing_service, "get_billing_provider", lambda: provider)
+
+    result = billing_service.change_subscription("token", "user", "user@example.com", "premium")
+
+    assert result["status"] == "checkout_required"
+    assert result["plan_id"] == "premium"
+    assert result["checkout_url"] == session.url
+    provider.create_checkout.assert_called_once_with(
+        user_id="user",
+        email="user@example.com",
+        plan_id="premium",
+    )
+
 
 
 def test_stripe_checkout_carries_identity_into_subscription_metadata(monkeypatch):
@@ -82,8 +93,10 @@ def test_stripe_checkout_carries_identity_into_subscription_metadata(monkeypatch
     payload = request.call_args.kwargs["data"]
     assert payload["metadata[user_id]"] == "user-123"
     assert payload["metadata[plan_id]"] == "premium"
+    assert payload["metadata[previous_subscription_id]"] == ""
     assert payload["subscription_data[metadata][user_id]"] == "user-123"
     assert payload["subscription_data[metadata][plan_id]"] == "premium"
+    assert payload["subscription_data[metadata][previous_subscription_id]"] == ""
 
 
 def test_checkout_session_completed_syncs_authoritative_subscription(monkeypatch):
@@ -98,12 +111,17 @@ def test_checkout_session_completed_syncs_authoritative_subscription(monkeypatch
     }
     provider = Mock()
     provider.get_subscription.return_value = subscription
+    provider.cancel_subscription.return_value = {
+        **subscription,
+        "cancel_at_period_end": True,
+    }
     monkeypatch.setattr(billing_service, "get_billing_provider", lambda: provider)
     monkeypatch.setattr(billing_service, "_service_live_subscription", lambda *_: {"id": "sub-row"})
     patch = Mock(return_value=Mock(json=lambda: [{"id": "sub-row"}]))
     record = Mock()
     monkeypatch.setattr(billing_service, "service_request", patch)
     monkeypatch.setattr(billing_service, "_record_event", record)
+    monkeypatch.setattr(billing_service, "_event_already_recorded", lambda *_: False)
 
     result = billing_service.process_webhook({
         "id": "evt_checkout",
@@ -123,3 +141,4 @@ def test_checkout_session_completed_syncs_authoritative_subscription(monkeypatch
         for call in patch.call_args_list
     )
     record.assert_called_once()
+    provider.cancel_subscription.assert_called_once_with("sub_premium", at_period_end=True)
