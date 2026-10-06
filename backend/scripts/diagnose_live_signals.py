@@ -52,6 +52,11 @@ PROVIDER_FAILURE_MARKERS = (
     "candle provider exceeded the",
 )
 
+OBSERVATIONAL_NO_SIGNAL_MARKERS = (
+    "no crypto signals currently meet your signal preferences",
+    "no crypto signals currently meet",
+)
+
 
 def _is_provider_failure(result: dict) -> bool:
     """Return True only for a signal endpoint failure caused by market providers.
@@ -69,7 +74,9 @@ def _is_provider_failure(result: dict) -> bool:
     if not isinstance(payload, dict):
         return False
     detail = str(payload.get("detail", "")).lower()
-    return any(marker in detail for marker in PROVIDER_FAILURE_MARKERS)
+    return any(marker in detail for marker in PROVIDER_FAILURE_MARKERS) or any(
+        marker in detail for marker in OBSERVATIONAL_NO_SIGNAL_MARKERS
+    )
 
 
 def _bucket(value: float, boundaries: tuple[float, ...]) -> str:
@@ -188,7 +195,13 @@ def main() -> int:
                     "symbol": symbol,
                     "http_status": result["http_status"],
                     "status": "DEGRADED" if provider_failure else "FATAL",
-                    "failure_class": "provider_unavailable" if provider_failure else "endpoint_failure",
+                    "failure_class": (
+                        "provider_unavailable"
+                        if any(marker in str(payload.get("detail", "")).lower() for marker in PROVIDER_FAILURE_MARKERS)
+                        else "no_qualifying_signal"
+                        if any(marker in str(payload.get("detail", "")).lower() for marker in OBSERVATIONAL_NO_SIGNAL_MARKERS)
+                        else "endpoint_failure"
+                    ),
                     "error": payload,
                 }
                 report["signals"].append(row)
