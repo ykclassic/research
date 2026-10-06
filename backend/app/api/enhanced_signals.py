@@ -88,7 +88,7 @@ async def verify_enhanced_signal_production(
             "checks": len(checks),
         }
     except Exception:
-        logger.exception("Enhanced Signal production verification failed for {}", normalized)
+        logger.exception("Enhanced Signal production verification failed for %s", normalized)
         raise HTTPException(
             status_code=503,
             detail="Enhanced Signal production verification is temporarily unavailable.",
@@ -145,7 +145,7 @@ async def get_enhanced_signal(
     except EntitlementError as exc:
         raise HTTPException(status_code=403, detail=str(exc)) from exc
     except asyncio.TimeoutError as exc:
-        logger.exception("Enhanced Signal market-data acquisition timed out for {}", normalized)
+        logger.exception("Enhanced Signal market-data acquisition timed out for %s", normalized)
         raise HTTPException(
             status_code=503,
             detail="Enhanced Signal market-data acquisition is temporarily unavailable. Please retry shortly.",
@@ -153,7 +153,7 @@ async def get_enhanced_signal(
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     except Exception as exc:
-        logger.exception("Enhanced Signal request failed for {}", normalized)
+        logger.exception("Enhanced Signal request failed for %s", normalized)
         raise HTTPException(
             status_code=503,
             detail="Enhanced Signal is temporarily unavailable. Please retry shortly.",
