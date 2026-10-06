@@ -355,6 +355,11 @@ def reconcile_checkout_session(user_id: str, checkout_session_id: str) -> dict[s
     subscription_id = session.get("subscription")
     if not subscription_id:
         raise DataRequestError("Checkout session has no subscription.")
+    previous_subscription_id = str(metadata.get("previous_subscription_id") or "")
+    current = _service_live_subscription(user_id)
+    if current and not previous_subscription_id:
+        previous_subscription_id = str(current.get("provider_subscription_id") or "")
+
     subscription = provider.get_subscription(str(subscription_id))
     subscription_metadata = subscription.setdefault("metadata", {})
     subscription_metadata.setdefault("user_id", str(user_id))
@@ -362,6 +367,13 @@ def reconcile_checkout_session(user_id: str, checkout_session_id: str) -> dict[s
     synced = _sync_subscription(subscription)
     if not synced:
         raise DataRequestError("Stripe subscription could not be synchronized.")
+
+    expiring = provider.cancel_subscription(str(subscription_id), at_period_end=True)
+    synced = _sync_subscription(expiring) or synced
+
+    if previous_subscription_id and previous_subscription_id != str(subscription_id):
+        provider.cancel_subscription(previous_subscription_id, at_period_end=False)
+
     _record_event({"id": f"checkout-reconcile-{checkout_session_id}", "type": "checkout.session.reconciled", "data": {"object": session}}, str(user_id))
     return {"status": "synchronized", "plan_id": synced.get("plan_id"), "subscription": synced}
 
@@ -399,10 +411,7 @@ def process_webhook(payload: dict[str, Any]) -> dict[str, Any]:
             _sync_subscription(expiring)
 
             if previous_subscription_id and previous_subscription_id != str(subscription_id):
-                retired = provider.cancel_subscription(previous_subscription_id, at_period_end=False)
-                retired_metadata = retired.setdefault("metadata", {})
-                retired_metadata.setdefault("user_id", user_id)
-                _sync_subscription(retired)
+                provider.cancel_subscription(previous_subscription_id, at_period_end=False)
     elif event_type.startswith("customer.subscription."):
         user_id = _subscription_user_id(obj)
         _sync_subscription(obj)
