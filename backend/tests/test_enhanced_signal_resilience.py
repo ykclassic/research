@@ -232,3 +232,55 @@ async def test_enhanced_signal_503_does_not_expose_provider_diagnostics(monkeypa
     assert exc.value.status_code == 503
     assert exc.value.detail == "Enhanced Signal is temporarily unavailable. Please retry shortly."
     assert "Kraken secret" not in exc.value.detail
+
+
+@pytest.mark.asyncio
+async def test_production_verification_serializes_enhanced_signal_check_count(monkeypatch):
+    from types import SimpleNamespace
+
+    from app.api import enhanced_signals
+
+    datasets = {
+        timeframe: SimpleNamespace(source="kraken_public", cache_hit=False)
+        for timeframe in enhanced_signals.REQUIRED
+    }
+
+    async def get_required_datasets(*args, **kwargs):
+        return datasets
+
+    class News:
+        fundamental_events = ()
+        news = ()
+
+    monkeypatch.setattr(
+        enhanced_signals.scheduler,
+        "get_required_datasets",
+        get_required_datasets,
+    )
+    monkeypatch.setattr(
+        enhanced_signals.news_research,
+        "research",
+        lambda **kwargs: News(),
+    )
+    monkeypatch.setattr(
+        enhanced_signals,
+        "generate_enhanced_signal",
+        lambda *args, **kwargs: (
+            SimpleNamespace(
+                qualification_status="WAIT",
+                research_eligible=False,
+            ),
+            SimpleNamespace(
+                evidence=(object(), object(), object()),
+            ),
+        ),
+    )
+
+    payload = await enhanced_signals.verify_enhanced_signal_production(
+        "BTC/USDT",
+        None,
+        limit=250,
+    )
+
+    assert payload["status"] == "ok"
+    assert payload["checks"] == 3
