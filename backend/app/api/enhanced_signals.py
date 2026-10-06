@@ -1,11 +1,11 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from datetime import datetime, timedelta, timezone
 from typing import Annotated
 
 from fastapi import APIRouter, Cookie, Depends, HTTPException, Query
-from loguru import logger
 
 from app.api.auth import UserResponse, get_current_user, require_github_actions
 from app.models.enhanced_signal import EnhancedSignalResponse
@@ -21,6 +21,7 @@ from app.services.news_research_resilient import news_research
 from app.symbols import normalize_symbol
 
 router = APIRouter(prefix="/api/enhanced-signals", tags=["enhanced-signals"])
+logger = logging.getLogger(__name__)
 
 quote_service = QuoteService()
 kraken_public = KrakenPublicProvider()
