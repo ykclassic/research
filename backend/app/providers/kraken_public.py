@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 
 import httpx
 
+from app.config import settings
 from app.models import Quote, QuoteStatus
 from app.models.market import Candle, CompletenessStatus, FreshnessStatus, OHLCVDataset, Timeframe
 from app.providers.base import MarketDataProvider, dataset_completeness
@@ -365,7 +366,9 @@ class KrakenPublicProvider(MarketDataProvider):
         if start_date is not None:
             params["since"] = str(int(start_date.timestamp()))
 
-        payload = await self._request_json("OHLC", params, timeout_seconds=10.0)
+        payload = await self._request_json(
+            "OHLC", params, timeout_seconds=settings.provider_timeout_seconds
+        )
         result = payload.get("result")
         if not isinstance(result, dict):
             raise ValueError("Kraken returned an invalid OHLC response.")
