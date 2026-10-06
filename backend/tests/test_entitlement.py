@@ -116,3 +116,37 @@ def test_get_usage_loads_threshold_notifications(monkeypatch):
 
     assert result["notifications"][0]["threshold_percent"] == 80
     assert result["metrics"]["ai_research_runs"]["used"] == 2
+
+
+def test_expired_paid_subscription_resolves_to_free(monkeypatch):
+    subscription = {
+        "id": "sub-expired",
+        "plan_id": "premium",
+        "status": "active",
+        "current_period_end": "2026-10-01T00:00:00+00:00",
+        "trial_ends_at": None,
+    }
+    free_plan = {
+        "id": "free",
+        "name": "Free",
+        "description": "",
+        "monthly_price_minor": 0,
+        "currency": "USD",
+        "display_order": 10,
+        "active": True,
+    }
+    premium_plan = {**free_plan, "id": "premium", "name": "Premium / Professional"}
+    response = Mock()
+    response.json.side_effect = [
+        [subscription],
+        [premium_plan, free_plan],
+        [],
+        [],
+    ]
+
+    monkeypatch.setattr(entitlement, "_request", lambda *args, **kwargs: response)
+
+    snapshot = entitlement.get_entitlement_snapshot("token", "user")
+
+    assert snapshot["plan_id"] == "free"
+    assert snapshot["plan"]["id"] == "free"
