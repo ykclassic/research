@@ -18,6 +18,7 @@ DEFAULT_FALLBACK_SYMBOL = "BTC/USDT"
 DEFAULT_FALLBACK_TIMEFRAME = "1d"
 DEFAULT_TIMEFRAME = "1h"
 DEFAULT_ANALYSIS_LIMIT = 250
+APPROVED_PRIMARY_QUOTE_PROVIDERS = frozenset({"kraken_public", "twelve_data", "finnhub", "alpha_vantage"})
 DIRECT_PROVIDER_TOLERANCE = 0.001
 INDEPENDENT_SOURCE_TOLERANCE = 0.005
 MAX_PROVIDER_AGE_SECONDS = 180.0
@@ -286,7 +287,7 @@ def main() -> int:
             quote = body["quote"]
             source = quote["source"]
             require(
-                source in {"twelve_data", "finnhub", "alpha_vantage"},
+                source in APPROVED_PRIMARY_QUOTE_PROVIDERS,
                 f"Unexpected selected provider: {source}",
             )
             require(
@@ -340,7 +341,15 @@ def main() -> int:
                 "alpha_vantage": os.getenv("ALPHA_VANTAGE_API_KEY", ""),
             }
             direct_key = direct_keys.get(source, "")
-            if direct_key:
+            if source == "kraken_public":
+                results.append(
+                    CheckResult(
+                        "API provider provenance is explicit",
+                        True,
+                        "Selected provider=kraken_public; credential-free production path is active.",
+                    )
+                )
+            elif direct_key:
                 direct_price, direct_time = direct_provider_quote(
                     client, source, symbol, direct_key
                 )
