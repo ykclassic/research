@@ -128,6 +128,8 @@ def _test_change_subscription(access_token: str, user_id: str, plan_id: str) -> 
 
 
 def change_subscription(access_token: str, user_id: str, email: str, plan_id: str) -> dict[str, Any]:
+    """Create hosted Checkout for every paid-plan selection."""
+
     if settings.billing_test_mode and settings.app_env.lower() != "production":
         return _test_change_subscription(access_token, user_id, plan_id)
 
