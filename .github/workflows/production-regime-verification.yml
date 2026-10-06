@@ -45,7 +45,7 @@ jobs:
         if: github.event_name == 'push'
         env:
           RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
-        run: python backend/scripts/wait_for_render_deployment.py --commit "${GITHUB_SHA}"
+        run: python backend/scripts/wait_for_render_deployment.py --commit "${GITHUB_SHA}" --trigger
 
       - name: Request short-lived GitHub OIDC token
         shell: bash
