@@ -102,8 +102,9 @@ async def test_selected_signal_falls_back_when_primary_exceeds_signal_budget(mon
         calls.append(("primary", timeframe))
         await asyncio.sleep(1)
 
-    async def fallback(symbol, timeframe, limit):
+    async def fallback(symbol, timeframe, limit, **kwargs):
         calls.append(("fallback", timeframe))
+        assert kwargs["provider_timeout_seconds"] == scheduler_service.SignalCandleScheduler.FALLBACK_PROVIDER_TIMEOUT_SECONDS
         return _dataset(symbol, timeframe)
 
     monkeypatch.setattr(
