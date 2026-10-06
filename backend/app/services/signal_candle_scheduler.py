@@ -39,11 +39,14 @@ class SignalCandleScheduler:
     )
     PRIMARY_TIMEOUT_SECONDS = KRAKEN_TIMEOUT_SECONDS
     FALLBACK_PROVIDER_TIMEOUT_SECONDS = settings.provider_timeout_seconds
+    FALLBACK_TIMEOUT_SECONDS: float | None = None
     FALLBACK_BUDGET_MARGIN_SECONDS = 2.0
     OVERALL_TIMEOUT_SECONDS = 210.0
 
     @property
     def fallback_timeout_seconds(self) -> float:
+        if self.FALLBACK_TIMEOUT_SECONDS is not None:
+            return self.FALLBACK_TIMEOUT_SECONDS
         provider_count = len(getattr(self.quote_service.orchestrator, "providers", (None, None, None))) or 1
         return (
             self.FALLBACK_PROVIDER_TIMEOUT_SECONDS * provider_count
