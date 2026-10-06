@@ -101,7 +101,7 @@ async def test_kraken_slow_but_successful_is_not_cancelled_by_old_short_budget(m
     provider = _SlowKraken(0.03)
     service = _FakeQuoteService(_FakeOrchestrator())
     scheduler = SignalCandleScheduler(service, provider)
-    monkeypatch.setattr(scheduler, "KRAKEN_TIMEOUT_SECONDS", 0.10)
+    monkeypatch.setattr(scheduler, "PRIMARY_TIMEOUT_SECONDS", 0.10)
 
     started = asyncio.get_running_loop().time()
     dataset = await scheduler.get_dataset("BTC/USDT", Timeframe.HOUR_1, 250)
@@ -118,7 +118,7 @@ async def test_kraken_timeout_falls_back_with_cumulative_budget(monkeypatch):
     orchestrator = _FakeOrchestrator(providers=3)
     service = _FakeQuoteService(orchestrator)
     scheduler = SignalCandleScheduler(service, provider)
-    monkeypatch.setattr(scheduler, "KRAKEN_TIMEOUT_SECONDS", 0.01)
+    monkeypatch.setattr(scheduler, "PRIMARY_TIMEOUT_SECONDS", 0.01)
     monkeypatch.setattr(scheduler, "FALLBACK_PROVIDER_TIMEOUT_SECONDS", 0.02)
     monkeypatch.setattr(scheduler, "FALLBACK_BUDGET_MARGIN_SECONDS", 0.02)
 
@@ -159,7 +159,7 @@ async def test_all_candle_providers_unavailable_returns_clean_failure(monkeypatc
     orchestrator = MarketDataOrchestrator([twelve, finnhub, alpha])
     scheduler = SignalCandleScheduler(_FakeQuoteService(orchestrator), kraken)
 
-    monkeypatch.setattr(scheduler, "KRAKEN_TIMEOUT_SECONDS", 0.005)
+    monkeypatch.setattr(scheduler, "PRIMARY_TIMEOUT_SECONDS", 0.005)
     monkeypatch.setattr(scheduler, "FALLBACK_PROVIDER_TIMEOUT_SECONDS", 0.02)
     monkeypatch.setattr(scheduler, "FALLBACK_BUDGET_MARGIN_SECONDS", 0.02)
 
