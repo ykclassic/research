@@ -37,13 +37,14 @@ class SignalCandleScheduler:
         )
         + 2.0
     )
+    PRIMARY_TIMEOUT_SECONDS = KRAKEN_TIMEOUT_SECONDS
     FALLBACK_PROVIDER_TIMEOUT_SECONDS = settings.provider_timeout_seconds
     FALLBACK_BUDGET_MARGIN_SECONDS = 2.0
     OVERALL_TIMEOUT_SECONDS = 210.0
 
     @property
     def fallback_timeout_seconds(self) -> float:
-        provider_count = max(1, len(self.quote_service.orchestrator.providers))
+        provider_count = len(getattr(self.quote_service.orchestrator, "providers", (None, None, None))) or 1
         return (
             self.FALLBACK_PROVIDER_TIMEOUT_SECONDS * provider_count
             + self.FALLBACK_BUDGET_MARGIN_SECONDS
@@ -143,7 +144,7 @@ class SignalCandleScheduler:
                     self.crypto_provider.get_candles(
                         mapping.internal, timeframe, limit
                     ),
-                    timeout=self.KRAKEN_TIMEOUT_SECONDS,
+                    timeout=self.PRIMARY_TIMEOUT_SECONDS,
                 )
             except asyncio.TimeoutError as primary_exc:
                 try:
@@ -151,7 +152,7 @@ class SignalCandleScheduler:
                 except Exception as fallback_exc:
                     raise RuntimeError(
                         f"{mapping.internal} {timeframe.value}: Kraken primary "
-                        f"timed out after {self.KRAKEN_TIMEOUT_SECONDS:.1f}s; "
+                        f"timed out after {self.PRIMARY_TIMEOUT_SECONDS:.1f}s; "
                         f"fallback budget {fallback_timeout:.1f}s exhausted "
                         f"({type(fallback_exc).__name__})"
                     ) from fallback_exc
