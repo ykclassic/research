@@ -139,3 +139,14 @@ def test_live_diagnostic_summary_counts_fatal_endpoint_failures() -> None:
     assert summary["provider_failures"] == 0
     assert summary["fatal_failures"] == 1
     assert summary["http_failures"] == 1
+
+
+def test_no_qualifying_signal_503_is_observational():
+    result = {
+        "http_status": 503,
+        "payload": {
+            "detail": "No crypto signals currently meet your signal preferences. LTC/USDT: no qualifying setup."
+        },
+    }
+
+    assert _is_provider_failure(result) is True
