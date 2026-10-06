@@ -78,3 +78,9 @@ def test_fallback_symbol_defaults_to_secondary_provider_supported_24_7_pair(monk
     assert DEFAULT_FALLBACK_SYMBOL == "BTC/USDT"
     from scripts.verify_production_market_data import DEFAULT_FALLBACK_TIMEFRAME
     assert DEFAULT_FALLBACK_TIMEFRAME == "1d"
+
+
+def test_production_verifier_accepts_kraken_public_as_primary_provider() -> None:
+    from scripts.verify_production_market_data import APPROVED_PRIMARY_QUOTE_PROVIDERS
+
+    assert "kraken_public" in APPROVED_PRIMARY_QUOTE_PROVIDERS
