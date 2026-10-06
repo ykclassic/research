@@ -30,11 +30,16 @@ def _active_subscription(access_token: str, user_id: str) -> dict[str, Any] | No
     return rows[0] if rows else None
 
 
-def start_checkout(access_token: str, user_id: str, email: str, plan_id: str) -> dict[str, Any]:
+def start_checkout(access_token: str, user_id: str, email: str, plan_id: str, previous_subscription_id: str | None = None) -> dict[str, Any]:
     if plan_id not in {"pro", "premium"}:
         raise BillingProviderError("Only paid plans can be purchased.")
     provider = get_billing_provider()
-    session = provider.create_checkout(user_id=user_id, email=email, plan_id=plan_id)
+    session = provider.create_checkout(
+        user_id=user_id,
+        email=email,
+        plan_id=plan_id,
+        previous_subscription_id=previous_subscription_id,
+    )
     return {"provider": provider.name, "checkout_session_id": session.id, "checkout_url": session.url, "plan_id": plan_id}
 
 
@@ -126,45 +131,26 @@ def change_subscription(access_token: str, user_id: str, email: str, plan_id: st
     if settings.billing_test_mode and settings.app_env.lower() != "production":
         return _test_change_subscription(access_token, user_id, plan_id)
 
-    current = _active_subscription(access_token, user_id)
-    if not current:
-        raise DataRequestError("No active subscription exists.")
     if plan_id not in {"pro", "premium"}:
         raise DataRequestError("Subscription changes must target a paid plan.")
-    if current.get("plan_id") == plan_id:
-        return {"status": current.get("status", "active"), "plan_id": plan_id, "subscription": current}
+
+    current = _active_subscription(access_token, user_id)
+    previous_subscription_id = None
+    if current and current.get("provider") == "stripe":
+        previous_subscription_id = current.get("provider_subscription_id")
 
     provider = get_billing_provider()
-    provider_id = current.get("provider_subscription_id")
-
-    # A Pro trial is an internal entitlement with no Stripe subscription yet.
-    # Start hosted checkout and let the signed Stripe subscription webhook
-    # replace the trial row with the provider-backed subscription. Keeping the
-    # trial row until checkout completes avoids losing the trial on abandonment.
-    if not provider_id:
-        if current.get("provider") == "internal" and current.get("status") == "trialing":
-            session = provider.create_checkout(user_id=user_id, email=email, plan_id=plan_id)
-            return {
-                "status": "checkout_required",
-                "plan_id": plan_id,
-                "checkout_session_id": session.id,
-                "checkout_url": session.url,
-            }
-        raise BillingProviderError("Current subscription is not connected to the billing provider.")
-
-    updated = provider.change_subscription(provider_id, price_id=_stripe_price_id(plan_id))
-    subscription_metadata = updated.setdefault("metadata", {})
-    subscription_metadata["user_id"] = str(user_id)
-    # The Stripe subscription may retain metadata from the previous plan.
-    # The requested price change is authoritative for this interactive update.
-    subscription_metadata["plan_id"] = plan_id
-    synced = _sync_subscription(updated)
-    if not synced:
-        raise DataRequestError("Stripe subscription could not be synchronized after the plan change.")
+    session = provider.create_checkout(
+        user_id=user_id,
+        email=email,
+        plan_id=plan_id,
+        previous_subscription_id=previous_subscription_id,
+    )
     return {
-        "status": str(synced.get("status", updated.get("status", "updated"))),
-        "plan_id": synced.get("plan_id", plan_id),
-        "subscription": synced,
+        "status": "checkout_required",
+        "plan_id": plan_id,
+        "checkout_session_id": session.id,
+        "checkout_url": session.url,
     }
 
 
@@ -282,6 +268,22 @@ def _sync_subscription(subscription: dict[str, Any]) -> dict[str, Any] | None:
     return rows[0] if rows else None
 
 
+def _event_already_recorded(event_id: str) -> bool:
+    if not event_id:
+        raise BillingProviderError("Stripe webhook event id is missing.")
+    existing = service_request(
+        "GET",
+        "billing_events",
+        params={
+            "select": "id",
+            "provider": "eq.stripe",
+            "provider_event_id": f"eq.{event_id}",
+            "limit": "1",
+        },
+    ).json()
+    return bool(existing)
+
+
 def _record_event(event: dict[str, Any], user_id: str | None) -> None:
     event_id = str(event.get("id") or "")
     if not event_id:
@@ -337,6 +339,10 @@ def reconcile_checkout_session(user_id: str, checkout_session_id: str) -> dict[s
 
 
 def process_webhook(payload: dict[str, Any]) -> dict[str, Any]:
+    event_id = str(payload.get("id") or "")
+    if _event_already_recorded(event_id):
+        return {"status": "already_processed", "event_type": str(payload.get("type") or "")}
+
     event_type = str(payload.get("type") or "")
     obj = ((payload.get("data") or {}).get("object") or {})
     user_id: str | None = None
@@ -346,26 +352,29 @@ def process_webhook(payload: dict[str, Any]) -> dict[str, Any]:
         user_id = str(metadata.get("user_id")) if metadata.get("user_id") else None
         subscription_id = obj.get("subscription")
         customer_id = obj.get("customer")
+        previous_subscription_id = str(metadata.get("previous_subscription_id") or "")
         if user_id and subscription_id:
             current = _service_live_subscription(user_id)
-            if current:
-                service_request(
-                    "PATCH", "billing_subscriptions",
-                    params={"id":f"eq.{current['id']}"},
-                    json={
-                        "provider": "stripe",
-                        "provider_customer_id": customer_id,
-                        "provider_subscription_id": subscription_id,
-                        "updated_at": _now(),
-                    },
-                    prefer="return=minimal",
-                )
+            if current and not previous_subscription_id:
+                previous_subscription_id = str(current.get("provider_subscription_id") or "")
+
             provider = get_billing_provider()
-            stripe_subscription = provider.get_subscription(subscription_id)
-            metadata = stripe_subscription.setdefault("metadata", {})
-            metadata.setdefault("user_id", user_id)
-            metadata.setdefault("plan_id", metadata.get("plan_id") or (obj.get("metadata") or {}).get("plan_id"))
-            _sync_subscription(stripe_subscription)
+            stripe_subscription = provider.get_subscription(str(subscription_id))
+            subscription_metadata = stripe_subscription.setdefault("metadata", {})
+            subscription_metadata.setdefault("user_id", user_id)
+            subscription_metadata.setdefault("plan_id", metadata.get("plan_id"))
+            synced = _sync_subscription(stripe_subscription)
+            if not synced:
+                raise DataRequestError("Stripe subscription could not be synchronized after Checkout.")
+
+            expiring = provider.cancel_subscription(str(subscription_id), at_period_end=True)
+            _sync_subscription(expiring)
+
+            if previous_subscription_id and previous_subscription_id != str(subscription_id):
+                retired = provider.cancel_subscription(previous_subscription_id, at_period_end=False)
+                retired_metadata = retired.setdefault("metadata", {})
+                retired_metadata.setdefault("user_id", user_id)
+                _sync_subscription(retired)
     elif event_type.startswith("customer.subscription."):
         user_id = _subscription_user_id(obj)
         _sync_subscription(obj)
