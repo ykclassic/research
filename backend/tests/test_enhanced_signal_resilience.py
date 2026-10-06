@@ -257,10 +257,13 @@ async def test_production_verification_serializes_enhanced_signal_check_count(mo
         "get_required_datasets",
         get_required_datasets,
     )
+    async def research(**kwargs):
+        return News()
+
     monkeypatch.setattr(
         enhanced_signals.news_research,
         "research",
-        lambda **kwargs: News(),
+        research,
     )
     monkeypatch.setattr(
         enhanced_signals,
