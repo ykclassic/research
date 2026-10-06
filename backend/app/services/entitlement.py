@@ -51,8 +51,8 @@ def get_entitlement_snapshot(access_token: str, user_id: str) -> dict[str, Any]:
     subscription = subscriptions[0] if subscriptions else None
     plan_id = "free"
     if subscription and subscription.get("status") in {"trialing", "active", "past_due", "unpaid", "paused"}:
-        trial_ends = subscription.get("trial_ends_at")
-        if not trial_ends or trial_ends > _now_iso():
+        expiry = subscription.get("trial_ends_at") if subscription.get("status") == "trialing" else subscription.get("current_period_end")
+        if not expiry or expiry > _now_iso():
             plan_id = subscription.get("plan_id") or "free"
 
     plans = _request(
