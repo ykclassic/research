@@ -24,7 +24,7 @@ def main() -> int:
             url,
             params={"limit": args.limit},
             headers={"Authorization": f"Bearer {args.oidc_token}"},
-            timeout=240.0,
+            timeout=300.0,
         )
     except httpx.HTTPError as exc:
         raise SystemExit(f"FAIL: Enhanced Signal verification request failed: {type(exc).__name__}") from exc
