@@ -286,7 +286,7 @@ def main() -> int:
             quote = body["quote"]
             source = quote["source"]
             require(
-                source in {"twelve_data", "finnhub", "alpha_vantage"},
+                source in {"kraken_public", "twelve_data", "finnhub", "alpha_vantage"},
                 f"Unexpected selected provider: {source}",
             )
             require(
@@ -340,7 +340,19 @@ def main() -> int:
                 "alpha_vantage": os.getenv("ALPHA_VANTAGE_API_KEY", ""),
             }
             direct_key = direct_keys.get(source, "")
-            if direct_key:
+            if source == "kraken_public":
+                # Crypto production quotes intentionally use Kraken's
+                # credential-free ticker path. Do not force a legacy provider
+                # API-key check here; the independent CoinGecko comparison
+                # below is the external price-consistency check for BTC/USD.
+                results.append(
+                    CheckResult(
+                        "API provider provenance is explicit",
+                        True,
+                        "Selected provider=kraken_public; credential-free production path is active.",
+                    )
+                )
+            elif direct_key:
                 direct_price, direct_time = direct_provider_quote(
                     client, source, symbol, direct_key
                 )
