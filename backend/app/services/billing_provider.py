@@ -23,7 +23,7 @@ class CheckoutSession:
 
 class BillingProvider(Protocol):
     name: str
-    def create_checkout(self, *, user_id: str, email: str, plan_id: str) -> CheckoutSession: ...
+    def create_checkout(self, *, user_id: str, email: str, plan_id: str, previous_subscription_id: str | None = None) -> CheckoutSession: ...
     def get_subscription(self, provider_subscription_id: str) -> dict[str, Any]: ...
     def get_checkout_session(self, checkout_session_id: str) -> dict[str, Any]: ...
     def change_subscription(self, provider_subscription_id: str, *, price_id: str) -> dict[str, Any]: ...
@@ -53,7 +53,7 @@ class StripeBillingProvider:
             raise BillingProviderError(detail)
         return response.json()
 
-    def create_checkout(self, *, user_id: str, email: str, plan_id: str) -> CheckoutSession:
+    def create_checkout(self, *, user_id: str, email: str, plan_id: str, previous_subscription_id: str | None = None) -> CheckoutSession:
         price_id = {"pro": settings.stripe_price_pro, "premium": settings.stripe_price_premium}.get(plan_id)
         if not price_id:
             raise BillingProviderError(f"No Stripe price is configured for plan '{plan_id}'.")
@@ -70,8 +70,10 @@ class StripeBillingProvider:
                 "client_reference_id": user_id,
                 "metadata[user_id]": user_id,
                 "metadata[plan_id]": plan_id,
+                "metadata[previous_subscription_id]": previous_subscription_id or "",
                 "subscription_data[metadata][user_id]": user_id,
                 "subscription_data[metadata][plan_id]": plan_id,
+                "subscription_data[metadata][previous_subscription_id]": previous_subscription_id or "",
             },
         )
         return CheckoutSession(id=str(payload["id"]), url=str(payload["url"]))
