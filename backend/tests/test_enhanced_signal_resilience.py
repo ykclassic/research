@@ -137,7 +137,7 @@ async def test_kraken_timeout_twelve_data_slow_finnhub_succeeds(monkeypatch):
     orchestrator = MarketDataOrchestrator([twelve, finnhub])
     scheduler = SignalCandleScheduler(_FakeQuoteService(orchestrator), kraken)
 
-    monkeypatch.setattr(scheduler, "KRAKEN_TIMEOUT_SECONDS", 0.01)
+    monkeypatch.setattr(scheduler, "PRIMARY_TIMEOUT_SECONDS", 0.01)
     monkeypatch.setattr(scheduler, "FALLBACK_PROVIDER_TIMEOUT_SECONDS", 0.05)
     monkeypatch.setattr(scheduler, "FALLBACK_BUDGET_MARGIN_SECONDS", 0.03)
 
