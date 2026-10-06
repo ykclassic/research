@@ -301,7 +301,18 @@ class MarketDataOrchestrator:
             output[key] = Quote(symbol=key, provider_symbol=mapping.twelve_data, status=QuoteStatus.UNAVAILABLE, source=None, error=f"{self._error_text(ProviderErrorCode.ALL_PROVIDERS_UNAVAILABLE)}: {detail}", error_code=ProviderErrorCode.ALL_PROVIDERS_UNAVAILABLE, fallback_used=bool(diagnostics[key]), provider_attempts=tuple(diagnostics[key]))
         return [output[normalize_symbol(symbol).internal] for symbol in symbols]
 
-    async def get_candles(self, symbol: str, timeframe: Timeframe, outputsize: int = 250, start_date: datetime | None = None, end_date: datetime | None = None, *, excluded_providers: set[str] | None = None, allow_stale: bool = False) -> OHLCVDataset:
+    async def get_candles(
+        self,
+        symbol: str,
+        timeframe: Timeframe,
+        outputsize: int = 250,
+        start_date: datetime | None = None,
+        end_date: datetime | None = None,
+        *,
+        excluded_providers: set[str] | None = None,
+        allow_stale: bool = False,
+        provider_timeout_seconds: float | None = None,
+    ) -> OHLCVDataset:
         mapping = normalize_symbol(symbol)
         timeframe = Timeframe(timeframe)
         range_key = "recent" if start_date is None else f"{start_date.isoformat()}:{end_date.isoformat()}"
@@ -367,7 +378,11 @@ class MarketDataOrchestrator:
             try:
                 dataset = await asyncio.wait_for(
                     provider.get_candles(mapping.internal, timeframe, outputsize, start_date=start_date, end_date=end_date),
-                    timeout=max(settings.analysis_timeout_seconds, settings.provider_timeout_seconds),
+                    timeout=(
+                        provider_timeout_seconds
+                        if provider_timeout_seconds is not None
+                        else max(settings.analysis_timeout_seconds, settings.provider_timeout_seconds)
+                    ),
                 )
                 latency_ms = int((time.perf_counter() - started) * 1000)
                 stale_market_closed = allow_stale and not is_market_open(mapping.internal) and bool(dataset.completed_candles)
