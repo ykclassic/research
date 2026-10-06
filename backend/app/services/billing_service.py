@@ -34,12 +34,14 @@ def start_checkout(access_token: str, user_id: str, email: str, plan_id: str, pr
     if plan_id not in {"pro", "premium"}:
         raise BillingProviderError("Only paid plans can be purchased.")
     provider = get_billing_provider()
-    session = provider.create_checkout(
-        user_id=user_id,
-        email=email,
-        plan_id=plan_id,
-        previous_subscription_id=previous_subscription_id,
-    )
+    checkout_kwargs: dict[str, Any] = {
+        "user_id": user_id,
+        "email": email,
+        "plan_id": plan_id,
+    }
+    if previous_subscription_id:
+        checkout_kwargs["previous_subscription_id"] = previous_subscription_id
+    session = provider.create_checkout(**checkout_kwargs)
     return {"provider": provider.name, "checkout_session_id": session.id, "checkout_url": session.url, "plan_id": plan_id}
 
 
@@ -142,12 +144,14 @@ def change_subscription(access_token: str, user_id: str, email: str, plan_id: st
         previous_subscription_id = current.get("provider_subscription_id")
 
     provider = get_billing_provider()
-    session = provider.create_checkout(
-        user_id=user_id,
-        email=email,
-        plan_id=plan_id,
-        previous_subscription_id=previous_subscription_id,
-    )
+    checkout_kwargs: dict[str, Any] = {
+        "user_id": user_id,
+        "email": email,
+        "plan_id": plan_id,
+    }
+    if previous_subscription_id:
+        checkout_kwargs["previous_subscription_id"] = previous_subscription_id
+    session = provider.create_checkout(**checkout_kwargs)
     return {
         "status": "checkout_required",
         "plan_id": plan_id,
