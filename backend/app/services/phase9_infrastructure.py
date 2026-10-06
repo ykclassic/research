@@ -41,12 +41,12 @@ def _one(path: str, params: dict[str,str]) -> dict[str,Any]:
     return rows[0]
 
 def _plan(user_id: str) -> str:
-    rows = _rows("billing_subscriptions", {"select":"plan_id,status,trial_ends_at,updated_at","user_id":f"eq.{user_id}","status":"in.(trialing,active,past_due,unpaid,paused)","order":"updated_at.desc","limit":"1"})
+    rows = _rows("billing_subscriptions", {"select":"plan_id,status,trial_ends_at,current_period_end,updated_at","user_id":f"eq.{user_id}","status":"in.(trialing,active,past_due,unpaid,paused)","order":"updated_at.desc","limit":"1"})
     if not rows:
         return "free"
     row=rows[0]
-    trial=row.get("trial_ends_at")
-    if trial and trial <= _now():
+    expiry = row.get("trial_ends_at") if row.get("status") == "trialing" else row.get("current_period_end")
+    if expiry and expiry <= _now():
         return "free"
     return str(row.get("plan_id") or "free")
 
