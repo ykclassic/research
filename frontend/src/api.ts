@@ -341,7 +341,7 @@ export type ResearchCopilotResult = {
 };
 
 export async function runResearchCopilot(query: string, defaultSymbol = "BTC/USD"): Promise<ResearchCopilotResult> {
-  return request("/api/research-copilot/run", { method: "POST", body: JSON.stringify({ query, default_symbol: defaultSymbol }) });
+  return authenticatedMutation("/api/research-copilot/run", { method: "POST", body: JSON.stringify({ query, default_symbol: defaultSymbol }) });
 }
 
 export async function getResearchCopilotHistory(): Promise<Array<Record<string, unknown>>> {
