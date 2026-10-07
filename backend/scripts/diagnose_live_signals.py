@@ -50,6 +50,7 @@ PROVIDER_FAILURE_MARKERS = (
     "primary crypto provider failed",
     "kraken cross-provider failed",
     "candle provider exceeded the",
+    "signal candle acquisition exceeded the",
 )
 
 OBSERVATIONAL_NO_SIGNAL_MARKERS = (
