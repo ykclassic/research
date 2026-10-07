@@ -150,3 +150,14 @@ def test_no_qualifying_signal_503_is_observational():
     }
 
     assert _is_provider_failure(result) is True
+
+
+def test_provider_failure_classifier_accepts_signal_acquisition_budget_detail() -> None:
+    result = {
+        "http_status": 503,
+        "payload": {
+            "detail": "BNB/USDT: signal candle acquisition exceeded the 18s total budget."
+        },
+    }
+
+    assert _is_provider_failure(result) is True
