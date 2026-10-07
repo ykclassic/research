@@ -150,3 +150,38 @@ def test_expired_paid_subscription_resolves_to_free(monkeypatch):
 
     assert snapshot["plan_id"] == "free"
     assert snapshot["plan"]["id"] == "free"
+
+
+@pytest.mark.parametrize("feature", ["copilot_deep_research", "copilot_multi_step"])
+def test_research_copilot_features_are_registered(monkeypatch, feature):
+    monkeypatch.setattr(
+        entitlement,
+        "get_entitlement_snapshot",
+        lambda *_: {
+            "plan_id": "pro",
+            "features": {feature: True},
+            "plan": {"id": "pro"},
+            "limits": {},
+            "subscription": None,
+        },
+    )
+
+    result = entitlement.require_feature("token", "user", feature)
+
+    assert result["plan_id"] == "pro"
+
+
+def test_research_copilot_usage_metric_is_registered(monkeypatch):
+    response = Mock()
+    response.json.return_value = [{
+        "allowed": True,
+        "used": 1,
+        "limit_value": 100,
+        "period_start": "2026-10-01",
+        "plan_id": "pro",
+    }]
+    monkeypatch.setattr(entitlement, "_request", lambda *args, **kwargs: response)
+
+    result = entitlement.consume_usage("token", "user", "copilot_research_runs")
+
+    assert result["allowed"] is True

@@ -11,12 +11,12 @@ FEATURE_KEYS = {
     "core_research", "watchlists", "basic_portfolio", "signal_intelligence",
     "ai_research", "advanced_portfolio_analytics", "backtesting",
     "strategy_builder", "scanner", "webhooks", "scheduled_workflows",
-    "api", "mcp", "exports", "team_workspaces", "signal_intelligence_analytics", "advanced_research", "enhanced_signal",
+    "api", "mcp", "exports", "team_workspaces", "signal_intelligence_analytics", "advanced_research", "enhanced_signal", "copilot_deep_research", "copilot_multi_step",
 }
 
 METRICS = {
     "ai_research_runs", "scans", "exports", "api_requests",
-    "historical_queries", "scheduled_workflows",
+    "historical_queries", "scheduled_workflows", "copilot_research_runs",
 }
 
 
