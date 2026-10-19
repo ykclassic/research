@@ -275,7 +275,8 @@ begin
   exception when others then
     raise exception 'fresh account, market, and risk revalidation is required' using errcode = '55000';
   end;
-  if v_validated_at < v_now - interval '15 seconds'
+  if v_validated_at is null
+     or v_validated_at < v_now - interval '15 seconds'
      or v_validated_at > v_now + interval '2 seconds' then
     raise exception 'fresh account, market, and risk revalidation is required' using errcode = '55000';
   end if;
