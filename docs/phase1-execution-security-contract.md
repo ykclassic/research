@@ -107,7 +107,7 @@ Immediately before a future broker boundary, require all checks to succeed:
 
 Any missing value, timeout, stale snapshot, provider error, database error, duplicate request, version mismatch, unknown status, or ambiguous broker outcome must block new submissions. A broker timeout after a request may have reached the venue must enter an `UNKNOWN_RECONCILIATION_REQUIRED` state and must not be blindly retried.
 
-## Proposed durable record design (not yet a migration)
+## Durable record design (repository-only migration; not applied to production)
 
 Use append-only records with database-enforced immutability and a separate append-only event stream:
 
@@ -159,30 +159,29 @@ Migration source: `supabase/migrations/20261019120000_execution_approval_intent_
 
 ### Database access boundary
 
-RLS is enabled on all four tables, with no browser-role policies. Direct table grants are revoked for `anon`, `authenticated`, and `service_role`; only the narrowly scoped service-role RPCs are granted execution. The RPCs use `SECURITY DEFINER` with a fixed search path. The migration assumes the Supabase migration owner owns the objects, as it does in the intended deployment model; the disposable PostgreSQL workflow verifies SQL behavior and browser-role privilege denial.
+RLS is enabled on all four tables, with no browser-role policies. Direct table grants are revoked for `anon`, `authenticated`, and `service_role`; the restricted `execution_persistence_owner` role owns the tables and privileged RPCs. That role is `NOLOGIN`, `NOSUPERUSER`, `NOCREATEDB`, `NOCREATEROLE`, and `NOINHERIT`. Privileged functions use `SET search_path = pg_catalog` and schema-qualify application/extension objects; untrusted roles cannot create objects in `public`. The canonical SHA-256 helpers are executable only by the restricted owner and trusted `service_role`. This is verified against disposable PostgreSQL, not production.
 
 ### Atomic operations
 
 1. `create_execution_intent` creates the intent and its first audit event atomically. Repeating the same user/idempotency key and request hash returns the original intent without another event. Reusing that key with a different hash fails.
 2. `record_execution_approval` locks the intent, checks ownership/status/expiry, binds the immutable approval snapshot to the intent request hash, writes the decision, transitions intent status, and appends an event in one transaction. A rejected intent cannot be claimed.
-3. `claim_execution` atomically moves an approved intent to `EXECUTING` only when the approval is valid and a matching successful revalidation proof is no more than 15 seconds old. It binds account reference, symbol, request hash, and risk-policy version. A duplicate claim fails.
-4. `record_execution_result` writes a single immutable result and audit event and transitions the intent to a terminal state. It permits recording a result after the approval expiry if the order was already claimed; this avoids losing reconciliation evidence due to a slow broker response. It requires the original idempotency key. A transport timeout must be recorded as `UNKNOWN`, never retried automatically.
+3. `claim_execution` is deliberately hard-disabled and always raises a fail-closed error. A caller-supplied JSON object plus its own hash is not proof of authoritative provider provenance. No SQL state transition to `EXECUTING` is available in this phase.
+4. `record_execution_result` is also hard-disabled. No execution result can be persisted through this RPC until a separately reviewed server-side orchestration contract provides a verified claim. This prevents a result record from being used to simulate execution while live execution remains disabled.
 
 ### Fresh-state revalidation prototype
 
 `backend/app/services/execution_revalidation.py` implements a deterministic validation contract with injected account, market, and risk providers. Missing providers, provider exceptions, missing/malformed timestamps, stale data, clock skew, wrong account/symbol, non-tradable market, price drift, invalid stop/target structure, reward-to-risk below 2R, daily loss at/above 2%, two or more correlated positions, disabled execution, a risk policy mismatch, risk above 0.75%, or a recalculated size differing from the approved size all reject the request.
 
-Freshness limits: market 15 seconds; account and risk 30 seconds. Maximum entry drift is 0.25%. A successful proof is explicitly marked `passed=true`, includes a timestamp and snapshot bindings, and is required by the database claim RPC. These values are code defaults for the contract and require product/risk-owner review before any live feature is enabled.
+Freshness limits: market 15 seconds; account and risk 30 seconds. Maximum entry drift is 0.25%. The diagnostic result is marked `passed=true` and now includes the complete approved order fields plus account/market/risk observation timestamps. It is not an authorization token. The database claim RPC remains hard-disabled and does not accept caller-supplied proof as an execution grant. These values are code defaults for the contract and require product/risk-owner review before any live feature is enabled.
 
 The provider protocols are deliberately injected and **no live exchange provider is implemented or wired**. The public execution route still returns a fail-closed 503 even if entitlement succeeds; the new persistence/revalidation code is not reachable from an order-submission route.
 
 ### CI evidence
 
-- Backend CI: 552 passed, 1 skipped at the last completed code-bearing run; the skip is the PostgreSQL integration module in the generic runner because it has no disposable database configured.
-- Dedicated PostgreSQL 16 integration workflow: 7 passed at the last completed run. It applies the branch migration to a throwaway database and tests idempotency, payload mismatch, immutable approvals/records/events, rejected proposal isolation, single-use claims, and browser-role denial.
-- Revalidation tests are included in backend CI and exercise stale/missing snapshots, provider errors, disabled execution, account/risk limits, price drift, policy mismatch, and size changes.
-
-The latest edits that tightened claim-time revalidation and quantity matching are awaiting their own CI completion; do not infer their checks from earlier runs.
+- Backend CI and Frontend build must pass on the current head SHA; earlier green runs do not validate these security changes.
+- The dedicated PostgreSQL 16 integration workflow caught a migration/helper permission defect during remediation. That defect was corrected by granting schema usage only to the restricted non-login owner. The latest rerun must pass before this contract is accepted.
+- PostgreSQL tests now cover canonical request/approval hashes, tampered approval payloads, invalid intent mutations, restricted function ownership/search paths, and fail-closed claim/result RPCs. The separate persistence-service tests verify the backend recomputes hashes using the database canonicalization helpers.
+- The SQL claim and result RPCs intentionally remain disabled; no test should represent a successful execution claim as supported behavior.
 
 ## Phase 1 exit conditions
 
