@@ -18,6 +18,7 @@ router = APIRouter(
 )
 
 PROJECT_REF_PATTERN = re.compile(r"^[a-z0-9]{20}$")
+EXPECTED_PRODUCTION_PROJECT_REF = "rprgjfvfttxydhbekuoc"
 PROBE_KIND = "read_only_postgrest_billing_plans_limit_1"
 
 
@@ -44,7 +45,7 @@ def database_diagnostic() -> dict[str, str | bool | None]:
     project_ref = _project_ref_from_url(settings.supabase_url) if settings.supabase_url else None
     probe: Literal["ok", "failed", "not_configured"] = "not_configured"
 
-    if configured and project_ref:
+    if configured and project_ref == EXPECTED_PRODUCTION_PROJECT_REF:
         try:
             # The service-role credential remains server-side. Limit the read to
             # a harmless catalogue row and discard the response contents.
@@ -60,6 +61,7 @@ def database_diagnostic() -> dict[str, str | bool | None]:
             # Fail closed while keeping provider/connection details private.
             probe = "failed"
     elif configured:
+        # Do not send even the service-role credential to an unexpected project.
         probe = "failed"
 
     return {
