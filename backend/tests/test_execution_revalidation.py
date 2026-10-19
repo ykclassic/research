@@ -27,6 +27,7 @@ def _snapshots():
         "entry_price": 100.0,
         "stop_loss": 98.0,
         "take_profit": 104.0,
+        "quantity": 0.1,
         "risk_policy_version": "risk-v1",
         "request_hash": "a" * 64,
     }
@@ -50,6 +51,7 @@ def _snapshots():
         "request_hash": "a" * 64,
         "risk_policy_version": "risk-v1",
         "risk_pct": 0.5,
+        "recomputed_quantity": 0.1,
     }
     return intent, account, market, risk
 
@@ -79,6 +81,7 @@ def test_revalidation_passes_only_when_all_fresh_snapshots_match_approved_intent
         ("market", lambda s: s.update(observed_at=_stamp(16)), "stale"),
         ("risk", lambda s: s.update(qualified=False), "did not qualify"),
         ("risk", lambda s: s.update(risk_pct=0.76), "per-trade risk"),
+        ("risk", lambda s: s.update(recomputed_quantity=0.2), "differs from the human-approved quantity"),
         ("risk", lambda s: s.update(risk_policy_version="old-policy"), "does not match"),
         ("risk", lambda s: s.update(observed_at=_stamp(31)), "stale"),
     ],
