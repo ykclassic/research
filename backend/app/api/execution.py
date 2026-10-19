@@ -33,7 +33,12 @@ async def submit_execution(
         raise HTTPException(status_code=401, detail="Authentication required.")
 
     try:
-        require_feature(access_token, user.id, EXECUTION_FEATURE)
+        entitlement = require_feature(access_token, user.id, EXECUTION_FEATURE)
+        if entitlement.get("plan_id") != "premium":
+            raise HTTPException(
+                status_code=403,
+                detail="Live execution is available only on the Premium plan.",
+            )
     except FeatureNotEntitledError as exc:
         raise HTTPException(
             status_code=403,
