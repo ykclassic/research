@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime
+import re
 from typing import Any, Literal
 from uuid import UUID
 
@@ -46,19 +47,33 @@ def create_execution_intent(
     *,
     user_id: UUID,
     idempotency_key: str,
-    request_hash: str,
+    request_hash: str | None = None,
     signal_snapshot: dict[str, Any],
     account_snapshot: dict[str, Any],
     market_snapshot: dict[str, Any],
     risk_snapshot: dict[str, Any],
     expires_at: datetime,
 ) -> IntentReceipt:
+    canonical_request_hash = _rpc(
+        "execution_intent_request_sha256",
+        {
+            "p_signal_snapshot": signal_snapshot,
+            "p_account_snapshot": account_snapshot,
+            "p_market_snapshot": market_snapshot,
+            "p_risk_snapshot": risk_snapshot,
+        },
+    )
+    if not isinstance(canonical_request_hash, str) or not re.fullmatch(r"[a-f0-9]{64}", canonical_request_hash):
+        raise DataRequestError("Canonical execution request hash could not be verified.")
+    if request_hash is not None and request_hash != canonical_request_hash:
+        raise DataRequestError("Request hash does not match canonical execution snapshots.")
+
     rows = _rpc(
         "create_execution_intent",
         {
             "p_user_id": str(user_id),
             "p_idempotency_key": idempotency_key,
-            "p_request_hash": request_hash,
+            "p_request_hash": canonical_request_hash,
             "p_signal_snapshot": signal_snapshot,
             "p_account_snapshot": account_snapshot,
             "p_market_snapshot": market_snapshot,
@@ -79,9 +94,18 @@ def record_execution_approval(
     decision: ApprovalDecision,
     actor_user_id: UUID,
     approval_snapshot: dict[str, Any],
-    snapshot_hash: str,
+    snapshot_hash: str | None = None,
     expires_at: datetime,
 ) -> ExecutionApprovalReceipt:
+    canonical_snapshot_hash = _rpc(
+        "execution_snapshot_sha256",
+        {"p_snapshot": approval_snapshot},
+    )
+    if not isinstance(canonical_snapshot_hash, str) or not re.fullmatch(r"[a-f0-9]{64}", canonical_snapshot_hash):
+        raise DataRequestError("Canonical approval snapshot hash could not be verified.")
+    if snapshot_hash is not None and snapshot_hash != canonical_snapshot_hash:
+        raise DataRequestError("Approval snapshot hash does not match its canonical content.")
+
     approval_id = _rpc(
         "record_execution_approval",
         {
@@ -90,7 +114,7 @@ def record_execution_approval(
             "p_decision": decision,
             "p_actor_user_id": str(actor_user_id),
             "p_approval_snapshot": approval_snapshot,
-            "p_snapshot_hash": snapshot_hash,
+            "p_snapshot_hash": canonical_snapshot_hash,
             "p_expires_at": expires_at.isoformat(),
         },
     )
