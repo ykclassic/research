@@ -12,7 +12,7 @@ $role$;
 revoke create on schema public from public, anon, authenticated;
 -- Repository-only migration. Do not apply to production during Phase 1.
 -- Browser roles have no direct table grants or RLS policies; all writes use
--- narrow service-role RPCs that run atomically under the migration owner.
+-- narrow service-role RPCs that run atomically under a restricted non-login owner.
 
 create table if not exists public.execution_intents (
   id uuid primary key default gen_random_uuid(),
