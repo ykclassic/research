@@ -167,10 +167,20 @@ def revalidate_execution_snapshots(
         raise ExecutionRevalidationError("Fresh risk sizing differs from the human-approved quantity.")
 
     return {
+        # This is a diagnostic result, not an execution authorization token.
+        # SQL claim remains hard-disabled until provider provenance is integrated.
         "passed": True,
         "validated_at": checked_at.isoformat(),
+        "account_observed_at": _parse_timestamp(account, "Account").isoformat(),
+        "market_observed_at": _parse_timestamp(market, "Market").isoformat(),
+        "risk_observed_at": _parse_timestamp(risk, "Risk").isoformat(),
         "account_ref": account_ref,
         "symbol": symbol,
+        "side": side,
+        "quantity": float(quantity),
+        "entry_price": float(entry),
+        "stop_loss": float(stop),
+        "take_profit": float(target),
         "market_price": float(price),
         "entry_drift_pct": drift_pct,
         "equity": float(equity),
