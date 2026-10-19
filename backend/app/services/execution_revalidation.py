@@ -83,9 +83,10 @@ def revalidate_execution_snapshots(
     limits: RevalidationLimits = RevalidationLimits(),
 ) -> dict[str, Any]:
     """Validate fresh state against the approved intent. Never invokes an adapter."""
-    checked_at = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
-    if checked_at.tzinfo is None or checked_at.utcoffset() is None:
+    clock = now or datetime.now(timezone.utc)
+    if clock.tzinfo is None or clock.utcoffset() is None:
         raise ExecutionRevalidationError("Validation clock must be timezone-aware.")
+    checked_at = clock.astimezone(timezone.utc)
 
     for snapshot, label, max_age in (
         (account, "Account", limits.account_max_age),
