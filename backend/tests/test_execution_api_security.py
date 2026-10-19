@@ -14,7 +14,7 @@ from tests.test_risk_management import make_dataset, make_features, make_selecti
 from app.services.risk_management import qualify_position
 
 
-USER = UserResponse(id="4e8e4b1a-8a0a-4f68-8b34-18e1455a09f4", email="premium@example.test", account_status="active")
+USER = UserResponse(id="4e8e4b1a-8a0a-4f68-8b34-18e1455a09f4", email="premium@example.com", account_status="active")
 
 
 def _payload() -> dict:
