@@ -217,6 +217,14 @@ def test_execution_tables_are_not_granted_to_browser_roles(db) -> None:
     assert len(rows) == 4
     assert all(row[1] is True and row[2] is False and row[3] is False for row in rows)
 
+    rpc_privileges = db.execute(
+        """select
+          has_function_privilege('anon', 'public.create_execution_intent(uuid,text,text,jsonb,jsonb,jsonb,jsonb,timestamptz)'::regprocedure, 'execute'),
+          has_function_privilege('authenticated', 'public.create_execution_intent(uuid,text,text,jsonb,jsonb,jsonb,jsonb,timestamptz)'::regprocedure, 'execute'),
+          has_function_privilege('service_role', 'public.create_execution_intent(uuid,text,text,jsonb,jsonb,jsonb,jsonb,timestamptz)'::regprocedure, 'execute')"""
+    ).fetchone()
+    assert rpc_privileges == (False, False, True)
+
 
 
 def test_stale_revalidation_cannot_claim_an_approved_intent(db) -> None:
