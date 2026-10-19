@@ -75,6 +75,7 @@ def test_intent_creation_rejects_caller_forged_hash(monkeypatch) -> None:
 
 def test_approval_creation_uses_canonical_snapshot_hash(monkeypatch) -> None:
     approval_id = uuid4()
+    user_id = uuid4()
     calls = []
 
     def fake_service_request(method, path, **kwargs):
@@ -88,10 +89,10 @@ def test_approval_creation_uses_canonical_snapshot_hash(monkeypatch) -> None:
 
     monkeypatch.setattr(execution_persistence, "service_request", fake_service_request)
     receipt = execution_persistence.record_execution_approval(
-        user_id=uuid4(),
+        user_id=user_id,
         intent_id=uuid4(),
         decision="APPROVE",
-        actor_user_id=uuid4(),
+        actor_user_id=user_id,
         approval_snapshot={"symbol": "BTC/USDT", "quantity": 1},
         expires_at=datetime.now(timezone.utc) + timedelta(minutes=5),
     )
@@ -101,3 +102,25 @@ def test_approval_creation_uses_canonical_snapshot_hash(monkeypatch) -> None:
         "rpc/execution_snapshot_sha256",
         "rpc/record_execution_approval",
     ]
+
+
+def test_approval_rejects_caller_forged_hash(monkeypatch) -> None:
+    calls = []
+
+    def fake_service_request(method, path, **kwargs):
+        calls.append(path)
+        return _Response("c" * 64)
+
+    monkeypatch.setattr(execution_persistence, "service_request", fake_service_request)
+    with pytest.raises(DataRequestError, match="does not match its canonical content"):
+        execution_persistence.record_execution_approval(
+            user_id=uuid4(),
+            intent_id=uuid4(),
+            decision="APPROVE",
+            actor_user_id=uuid4(),
+            approval_snapshot={"symbol": "BTC/USDT", "quantity": 1},
+            snapshot_hash="b" * 64,
+            expires_at=datetime.now(timezone.utc) + timedelta(minutes=5),
+        )
+
+    assert calls == ["rpc/execution_snapshot_sha256"]
