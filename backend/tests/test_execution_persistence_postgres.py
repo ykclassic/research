@@ -141,6 +141,9 @@ def test_approval_is_immutable_and_single_use(db) -> None:
         with db.transaction():
             db.execute("update public.execution_approvals set decision='REJECT' where id=%s", (approval_id,))
 
+    with pytest.raises(psycopg.Error, match="append-only"):
+        with db.transaction():
+            db.execute("delete from public.execution_approvals where id=%s", (approval_id,))
     assert db.execute("select status from public.execution_intents where id=%s", (intent_id,)).fetchone()[0] == "APPROVED"
     with pytest.raises(psycopg.Error):
         with db.transaction():
@@ -175,6 +178,9 @@ def test_claim_is_atomic_single_use_and_execution_record_is_immutable(db) -> Non
     ).fetchone()[0]
     with pytest.raises(psycopg.Error, match="append-only"):
         with db.transaction():
+            db.execute("update public.execution_records set result_status='FAILED' where id=%s", (record_id,))
+    with pytest.raises(psycopg.Error, match="append-only"):
+        with db.transaction():
             db.execute("delete from public.execution_records where id=%s", (record_id,))
 
 
@@ -187,6 +193,9 @@ def test_event_log_is_append_only_and_rejected_approval_has_no_execution_record(
         (intent_id,),
     ).fetchone()[0]
 
+    with pytest.raises(psycopg.Error, match="append-only"):
+        with db.transaction():
+            db.execute("update public.execution_events set event_type='INTENT_CREATED' where event_seq=%s", (event_id,))
     with pytest.raises(psycopg.Error, match="append-only"):
         with db.transaction():
             db.execute("delete from public.execution_events where event_seq=%s", (event_id,))
