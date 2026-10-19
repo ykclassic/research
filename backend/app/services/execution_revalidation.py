@@ -118,10 +118,11 @@ def revalidate_execution_snapshots(
     entry = intent.get("entry_price")
     stop = intent.get("stop_loss")
     target = intent.get("take_profit")
+    quantity = intent.get("quantity")
     request_hash = intent.get("request_hash")
     policy_version = intent.get("risk_policy_version")
     account_ref = intent.get("account_ref")
-    if not all((isinstance(symbol, str) and symbol, side in {"LONG", "SHORT"}, isinstance(request_hash, str) and request_hash, isinstance(policy_version, str) and policy_version, isinstance(account_ref, str) and account_ref)):
+    if not all((isinstance(symbol, str) and symbol, side in {"LONG", "SHORT"}, isinstance(request_hash, str) and request_hash, isinstance(policy_version, str) and policy_version, isinstance(account_ref, str) and account_ref, isinstance(quantity, (int, float)) and not isinstance(quantity, bool) and quantity > 0)):
         raise ExecutionRevalidationError("Approved intent is incomplete.")
     if account.get("account_ref") != account_ref:
         raise ExecutionRevalidationError("Fresh account does not match the approved account.")
