@@ -2,11 +2,13 @@
 -- This migration is repository-only; execution remains disabled.
 create schema if not exists extensions;
 create extension if not exists pgcrypto with schema extensions;
-do $ begin
+do $role$
+begin
   create role execution_persistence_owner nologin nosuperuser nocreatedb nocreaterole noinherit;
 exception when duplicate_object then
   alter role execution_persistence_owner nologin nosuperuser nocreatedb nocreaterole noinherit;
-end $;
+end
+$role$;
 revoke create on schema public from public, anon, authenticated;
 -- Repository-only migration. Do not apply to production during Phase 1.
 -- Browser roles have no direct table grants or RLS policies; all writes use
