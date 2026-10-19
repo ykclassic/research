@@ -1,4 +1,13 @@
 -- Phase 1 execution persistence contract.
+-- This migration is repository-only; execution remains disabled.
+create schema if not exists extensions;
+create extension if not exists pgcrypto with schema extensions;
+do $ begin
+  create role execution_persistence_owner nologin nosuperuser nocreatedb nocreaterole noinherit;
+exception when duplicate_object then
+  alter role execution_persistence_owner nologin nosuperuser nocreatedb nocreaterole noinherit;
+end $;
+revoke create on schema public from public, anon, authenticated;
 -- Repository-only migration. Do not apply to production during Phase 1.
 -- Browser roles have no direct table grants or RLS policies; all writes use
 -- narrow service-role RPCs that run atomically under the migration owner.
@@ -66,6 +75,39 @@ create table if not exists public.execution_events (
 create index if not exists execution_events_intent_seq_idx
   on public.execution_events(intent_id, event_seq);
 
+create or replace function public.execution_snapshot_sha256(p_snapshot jsonb)
+returns text
+language sql
+immutable
+strict
+set search_path = pg_catalog
+as $
+  select pg_catalog.encode(
+    extensions.digest(pg_catalog.convert_to(p_snapshot::text, 'UTF8'), 'sha256'),
+    'hex'
+  );
+$;
+
+create or replace function public.execution_intent_request_sha256(
+  p_signal_snapshot jsonb,
+  p_account_snapshot jsonb,
+  p_market_snapshot jsonb,
+  p_risk_snapshot jsonb
+)
+returns text
+language sql
+immutable
+strict
+set search_path = pg_catalog
+as $
+  select public.execution_snapshot_sha256(pg_catalog.jsonb_build_object(
+    'signal_snapshot', p_signal_snapshot,
+    'account_snapshot', p_account_snapshot,
+    'market_snapshot', p_market_snapshot,
+    'risk_snapshot', p_risk_snapshot
+  ));
+$;
+
 alter table public.execution_intents enable row level security;
 alter table public.execution_approvals enable row level security;
 alter table public.execution_records enable row level security;
@@ -77,7 +119,7 @@ revoke all on public.execution_intents, public.execution_approvals,
 create or replace function public.reject_execution_record_mutation()
 returns trigger
 language plpgsql
-set search_path = pg_catalog, public
+set search_path = pg_catalog
 as $$
 begin
   raise exception 'execution evidence is append-only' using errcode = '55000';
@@ -99,6 +141,46 @@ create trigger execution_events_immutable
 before update or delete on public.execution_events
 for each row execute function public.reject_execution_record_mutation();
 
+create or replace function public.guard_execution_intent_mutation()
+returns trigger
+language plpgsql
+set search_path = pg_catalog
+as $
+begin
+  if tg_op = 'DELETE' then
+    raise exception 'execution intents cannot be deleted' using errcode = '55000';
+  end if;
+
+  if (to_jsonb(new) - 'status' - 'updated_at')
+       is distinct from
+     (to_jsonb(old) - 'status' - 'updated_at') then
+    raise exception 'execution intent payload is immutable' using errcode = '55000';
+  end if;
+
+  if new.status is distinct from old.status then
+    if pg_catalog.current_setting('app.execution_transition', true) is distinct from 'approval'
+       and pg_catalog.current_setting('app.execution_transition', true) is distinct from 'result' then
+      raise exception 'execution intent state may only change through a persistence RPC' using errcode = '55000';
+    end if;
+    if not (
+      (old.status = 'AWAITING_APPROVAL' and new.status in ('APPROVED', 'REJECTED'))
+      or (old.status = 'EXECUTING' and new.status in ('EXECUTED', 'FAILED', 'UNKNOWN'))
+    ) then
+      raise exception 'invalid execution intent state transition' using errcode = '55000';
+    end if;
+  elsif new.updated_at is distinct from old.updated_at then
+    raise exception 'execution intent timestamp cannot change without a state transition' using errcode = '55000';
+  end if;
+
+  return new;
+end;
+$;
+
+drop trigger if exists execution_intents_transition_guard on public.execution_intents;
+create trigger execution_intents_transition_guard
+before update or delete on public.execution_intents
+for each row execute function public.guard_execution_intent_mutation();
+
 create or replace function public.create_execution_intent(
   p_user_id uuid,
   p_idempotency_key text,
@@ -112,12 +194,25 @@ create or replace function public.create_execution_intent(
 returns table(intent_id uuid, created boolean)
 language plpgsql
 security definer
-set search_path = pg_catalog, public
+set search_path = pg_catalog
 as $$
 declare
   v_id uuid;
   v_created boolean := false;
+  v_expected_request_hash text;
 begin
+  if jsonb_typeof(p_signal_snapshot) is distinct from 'object'
+     or jsonb_typeof(p_account_snapshot) is distinct from 'object'
+     or jsonb_typeof(p_market_snapshot) is distinct from 'object'
+     or jsonb_typeof(p_risk_snapshot) is distinct from 'object' then
+    raise exception 'execution snapshots must be JSON objects' using errcode = '22023';
+  end if;
+  v_expected_request_hash := public.execution_intent_request_sha256(
+    p_signal_snapshot, p_account_snapshot, p_market_snapshot, p_risk_snapshot
+  );
+  if p_request_hash is distinct from v_expected_request_hash then
+    raise exception 'request hash does not match canonical intent snapshots' using errcode = '22023';
+  end if;
   if p_expires_at <= now() then
     raise exception 'intent expiry must be in the future' using errcode = '22023';
   end if;
@@ -167,12 +262,13 @@ create or replace function public.record_execution_approval(
 returns uuid
 language plpgsql
 security definer
-set search_path = pg_catalog, public
+set search_path = pg_catalog
 as $$
 declare
   v_intent public.execution_intents%rowtype;
   v_approval_id uuid;
   v_now timestamptz := now();
+  v_expected_approval_snapshot jsonb;
 begin
   if p_decision not in ('APPROVE','REJECT') then
     raise exception 'invalid approval decision' using errcode = '22023';
@@ -192,10 +288,22 @@ begin
   if p_expires_at <= v_now or p_expires_at > v_intent.expires_at then
     raise exception 'approval expiry is invalid' using errcode = '22023';
   end if;
-  if p_approval_snapshot ->> 'request_hash' is distinct from v_intent.request_hash
-     or p_snapshot_hash is null
-     or p_snapshot_hash !~ '^[a-f0-9]{64}$' then
-    raise exception 'approval snapshot does not match intent' using errcode = '22023';
+  v_expected_approval_snapshot := pg_catalog.jsonb_build_object(
+    'intent_id', v_intent.id,
+    'request_hash', v_intent.request_hash,
+    'account_ref', v_intent.account_snapshot -> 'account_ref',
+    'symbol', v_intent.signal_snapshot -> 'symbol',
+    'side', v_intent.signal_snapshot -> 'side',
+    'quantity', v_intent.signal_snapshot -> 'quantity',
+    'entry_price', v_intent.signal_snapshot -> 'entry_price',
+    'stop_loss', v_intent.signal_snapshot -> 'stop_loss',
+    'take_profit', v_intent.signal_snapshot -> 'take_profit',
+    'risk_policy_version', v_intent.risk_snapshot -> 'risk_policy_version',
+    'human_confirmed', 'true'::jsonb
+  );
+  if p_approval_snapshot is distinct from v_expected_approval_snapshot
+     or p_snapshot_hash is distinct from public.execution_snapshot_sha256(p_approval_snapshot) then
+    raise exception 'approval snapshot does not match canonical approved intent' using errcode = '22023';
   end if;
 
   insert into public.execution_approvals(
@@ -206,6 +314,7 @@ begin
     p_approval_snapshot, p_snapshot_hash
   ) returning id into v_approval_id;
 
+  perform pg_catalog.set_config('app.execution_transition', 'approval', true);
   update public.execution_intents
     set status = case when p_decision = 'APPROVE' then 'APPROVED' else 'REJECTED' end,
         updated_at = v_now
@@ -232,73 +341,14 @@ create or replace function public.claim_execution(
 returns boolean
 language plpgsql
 security definer
-set search_path = pg_catalog, public
+set search_path = pg_catalog
 as $$
-declare
-  v_intent public.execution_intents%rowtype;
-  v_approval public.execution_approvals%rowtype;
-  v_now timestamptz := now();
-  v_validated_at timestamptz;
 begin
-  select * into v_intent
-    from public.execution_intents i
-    where i.id = p_intent_id and i.user_id = p_user_id
-    for update;
-
-  if not found or v_intent.status <> 'APPROVED' or v_intent.expires_at <= v_now then
-    raise exception 'intent is missing, expired, or not executable' using errcode = '55000';
-  end if;
-
-  select * into v_approval
-    from public.execution_approvals a
-    where a.id = p_approval_id and a.intent_id = p_intent_id
-      and a.user_id = p_user_id and a.decision = 'APPROVE'
-    for update;
-
-  if not found or v_approval.expires_at <= v_now then
-    raise exception 'approval is missing or expired' using errcode = '55000';
-  end if;
-
-  if jsonb_typeof(p_revalidation_snapshot) is distinct from 'object'
-     or p_revalidation_snapshot ->> 'passed' is distinct from 'true'
-     or p_revalidation_snapshot ->> 'request_hash' is distinct from v_intent.request_hash
-     or p_revalidation_snapshot ->> 'account_ref' is distinct from v_intent.account_snapshot ->> 'account_ref'
-     or p_revalidation_snapshot ->> 'symbol' is distinct from v_intent.signal_snapshot ->> 'symbol'
-     or p_revalidation_snapshot ->> 'risk_policy_version' is distinct from v_intent.risk_snapshot ->> 'risk_policy_version'
-     or p_revalidation_hash is null
-     or p_revalidation_hash !~ '^[a-f0-9]{64}$' then
-    raise exception 'fresh account, market, and risk revalidation is required' using errcode = '55000';
-  end if;
-
-  begin
-    v_validated_at := (p_revalidation_snapshot ->> 'validated_at')::timestamptz;
-  exception when others then
-    raise exception 'fresh account, market, and risk revalidation is required' using errcode = '55000';
-  end;
-  if v_validated_at is null
-     or v_validated_at < v_now - interval '15 seconds'
-     or v_validated_at > v_now + interval '2 seconds' then
-    raise exception 'fresh account, market, and risk revalidation is required' using errcode = '55000';
-  end if;
-
-  update public.execution_intents
-    set status = 'EXECUTING', updated_at = v_now
-    where id = p_intent_id and status = 'APPROVED';
-  if not found then
-    raise exception 'intent was already claimed' using errcode = '55000';
-  end if;
-
-  insert into public.execution_events(intent_id, user_id, actor_user_id, event_type, event_data)
-  values (
-    p_intent_id, p_user_id, p_user_id, 'EXECUTION_CLAIMED',
-    jsonb_build_object(
-      'approval_id', p_approval_id,
-      'revalidation_hash', p_revalidation_hash,
-      'validated_at', p_revalidation_snapshot ->> 'validated_at'
-    )
-  );
-
-  return true;
+  -- Deliberate hard stop: caller-supplied JSON and a self-computed hash do not
+  -- prove authoritative provider provenance. A separately reviewed server-side
+  -- orchestration contract must replace this guard before any claim is enabled.
+  raise exception 'execution is disabled until trusted revalidation provenance is integrated'
+    using errcode = '55000';
 end;
 $$;
 
@@ -314,63 +364,33 @@ create or replace function public.record_execution_result(
 returns uuid
 language plpgsql
 security definer
-set search_path = pg_catalog, public
+set search_path = pg_catalog
 as $$
-declare
-  v_intent public.execution_intents%rowtype;
-  v_approval public.execution_approvals%rowtype;
-  v_record_id uuid;
-  v_next_status text;
 begin
-  if p_result_status not in ('FILLED','FAILED','REJECTED','UNKNOWN') then
-    raise exception 'invalid execution result status' using errcode = '22023';
-  end if;
-
-  select * into v_intent from public.execution_intents i
-    where i.id = p_intent_id and i.user_id = p_user_id for update;
-  if not found or v_intent.status <> 'EXECUTING' then
-    raise exception 'intent was not claimed or has already completed' using errcode = '55000';
-  end if;
-  if p_idempotency_key is distinct from v_intent.idempotency_key then
-    raise exception 'execution idempotency key does not match intent' using errcode = '23505';
-  end if;
-
-  select * into v_approval from public.execution_approvals a
-    where a.id = p_approval_id and a.intent_id = p_intent_id
-      and a.user_id = p_user_id and a.decision = 'APPROVE';
-  if not found then
-    raise exception 'approval is missing' using errcode = '55000';
-  end if;
-
-  insert into public.execution_records(
-    intent_id, approval_id, user_id, idempotency_key, result_status,
-    broker_order_id, result_snapshot
-  ) values (
-    p_intent_id, p_approval_id, p_user_id, p_idempotency_key, p_result_status,
-    p_broker_order_id, p_result_snapshot
-  ) returning id into v_record_id;
-
-  v_next_status := case
-    when p_result_status = 'FILLED' then 'EXECUTED'
-    when p_result_status = 'UNKNOWN' then 'UNKNOWN'
-    else 'FAILED'
-  end;
-
-  update public.execution_intents
-    set status = v_next_status, updated_at = now()
-    where id = p_intent_id;
-
-  insert into public.execution_events(intent_id, user_id, actor_user_id, event_type, event_data)
-  values (
-    p_intent_id, p_user_id, p_user_id,
-    case when p_result_status = 'UNKNOWN' then 'EXECUTION_UNKNOWN' else 'EXECUTION_RECORDED' end,
-    jsonb_build_object('execution_record_id', v_record_id, 'result_status', p_result_status)
-  );
-
-  return v_record_id;
+  raise exception 'execution is disabled; execution results cannot be recorded without an authorized claim'
+    using errcode = '55000';
 end;
 $$;
 
+grant usage on schema public to execution_persistence_owner;
+grant create on schema public to execution_persistence_owner;
+alter table public.execution_intents owner to execution_persistence_owner;
+alter table public.execution_approvals owner to execution_persistence_owner;
+alter table public.execution_records owner to execution_persistence_owner;
+alter table public.execution_events owner to execution_persistence_owner;
+alter function public.create_execution_intent(uuid,text,text,jsonb,jsonb,jsonb,jsonb,timestamptz) owner to execution_persistence_owner;
+alter function public.record_execution_approval(uuid,uuid,text,uuid,jsonb,text,timestamptz) owner to execution_persistence_owner;
+alter function public.claim_execution(uuid,uuid,uuid,jsonb,text) owner to execution_persistence_owner;
+alter function public.record_execution_result(uuid,uuid,uuid,text,text,text,jsonb) owner to execution_persistence_owner;
+alter function public.execution_snapshot_sha256(jsonb) owner to execution_persistence_owner;
+alter function public.execution_intent_request_sha256(jsonb,jsonb,jsonb,jsonb) owner to execution_persistence_owner;
+grant select, insert, update on public.execution_intents, public.execution_approvals, public.execution_records, public.execution_events to execution_persistence_owner;
+grant usage, select on sequence public.execution_events_event_seq_seq to execution_persistence_owner;
+revoke create on schema public from execution_persistence_owner;
+revoke all on function public.execution_snapshot_sha256(jsonb) from public, anon, authenticated;
+revoke all on function public.execution_intent_request_sha256(jsonb,jsonb,jsonb,jsonb) from public, anon, authenticated;
+grant execute on function public.execution_snapshot_sha256(jsonb) to execution_persistence_owner;
+grant execute on function public.execution_intent_request_sha256(jsonb,jsonb,jsonb,jsonb) to execution_persistence_owner;
 revoke all on function public.create_execution_intent(uuid,text,text,jsonb,jsonb,jsonb,jsonb,timestamptz) from public, anon, authenticated;
 revoke all on function public.record_execution_approval(uuid,uuid,text,uuid,jsonb,text,timestamptz) from public, anon, authenticated;
 revoke all on function public.claim_execution(uuid,uuid,uuid,jsonb,text) from public, anon, authenticated;
