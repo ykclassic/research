@@ -71,10 +71,11 @@ class ExecutionResult(BaseModel):
 
 
 class ExecutionRequest(BaseModel):
-    model_config = ConfigDict(frozen=True)
+    """Public request shape intentionally excludes client-authored approval data."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
 
     position: PositionQualification
     execution_mode: ExecutionMode = ExecutionMode.PAPER
-    authorization: ExecutionAuthorization = ExecutionAuthorization()
     client_order_id: str | None = None
     experiment_id: str | None = None
