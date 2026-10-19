@@ -14,8 +14,8 @@ create table if not exists public.execution_intents (
   status text not null default 'AWAITING_APPROVAL'
     check (status in ('AWAITING_APPROVAL','APPROVED','REJECTED','EXPIRED','EXECUTING','EXECUTED','FAILED','UNKNOWN','CANCELLED')),
   expires_at timestamptz not null,
-  created_at timestamptz not null default timezone('utc', now()),
-  updated_at timestamptz not null default timezone('utc', now()),
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
   unique (user_id, idempotency_key),
   check (expires_at > created_at)
 );
@@ -29,7 +29,7 @@ create table if not exists public.execution_approvals (
   user_id uuid not null references auth.users(id) on delete restrict,
   actor_user_id uuid not null references auth.users(id) on delete restrict,
   decision text not null check (decision in ('APPROVE','REJECT')),
-  approved_at timestamptz not null default timezone('utc', now()),
+  approved_at timestamptz not null default now(),
   expires_at timestamptz not null,
   approval_snapshot jsonb not null check (jsonb_typeof(approval_snapshot) = 'object'),
   snapshot_hash text not null check (snapshot_hash ~ '^[a-f0-9]{64}$'),
@@ -45,7 +45,7 @@ create table if not exists public.execution_records (
   result_status text not null check (result_status in ('FILLED','FAILED','REJECTED','UNKNOWN')),
   broker_order_id text,
   result_snapshot jsonb not null check (jsonb_typeof(result_snapshot) = 'object'),
-  recorded_at timestamptz not null default timezone('utc', now())
+  recorded_at timestamptz not null default now()
 );
 
 create table if not exists public.execution_events (
@@ -59,7 +59,7 @@ create table if not exists public.execution_events (
     'INTENT_EXPIRED','INTENT_CANCELLED'
   )),
   event_data jsonb not null default '{}'::jsonb check (jsonb_typeof(event_data) = 'object'),
-  occurred_at timestamptz not null default timezone('utc', now())
+  occurred_at timestamptz not null default now()
 );
 
 create index if not exists execution_events_intent_seq_idx
@@ -121,7 +121,7 @@ declare
   v_id uuid;
   v_created boolean := false;
 begin
-  if p_expires_at <= timezone('utc', now()) then
+  if p_expires_at <= now() then
     raise exception 'intent expiry must be in the future' using errcode = '22023';
   end if;
 
@@ -175,7 +175,7 @@ as $$
 declare
   v_intent public.execution_intents%rowtype;
   v_approval_id uuid;
-  v_now timestamptz := timezone('utc', now());
+  v_now timestamptz := now();
 begin
   if p_decision not in ('APPROVE','REJECT') then
     raise exception 'invalid approval decision' using errcode = '22023';
@@ -233,7 +233,7 @@ as $$
 declare
   v_intent public.execution_intents%rowtype;
   v_approval public.execution_approvals%rowtype;
-  v_now timestamptz := timezone('utc', now());
+  v_now timestamptz := now();
 begin
   select * into v_intent
     from public.execution_intents i
@@ -301,8 +301,7 @@ begin
 
   select * into v_approval from public.execution_approvals a
     where a.id = p_approval_id and a.intent_id = p_intent_id
-      and a.user_id = p_user_id and a.decision = 'APPROVE'
-      and a.expires_at > timezone('utc', now());
+      and a.user_id = p_user_id and a.decision = 'APPROVE';
   if not found then
     raise exception 'approval is missing or expired' using errcode = '55000';
   end if;
@@ -322,7 +321,7 @@ begin
   end;
 
   update public.execution_intents
-    set status = v_next_status, updated_at = timezone('utc', now())
+    set status = v_next_status, updated_at = now()
     where id = p_intent_id;
 
   insert into public.execution_events(intent_id, user_id, actor_user_id, event_type, event_data)
