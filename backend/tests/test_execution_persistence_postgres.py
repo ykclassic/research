@@ -70,24 +70,21 @@ def _create_intent(db, user_id: str, key: str | None = None):
     return rows[0], rows[1], key
 
 
-def _claim(db, user_id: str, intent_id, approval_id, *, stale: bool = False):
+def _claim(db, user_id: str, intent_id, approval_id, *, stale: bool = False, missing_timestamp: bool = False):
     validated_at = datetime.now(timezone.utc) - timedelta(seconds=20 if stale else 0)
+    proof = {
+        "passed": True,
+        "request_hash": "a" * 64,
+        "account_ref": "test-account",
+        "symbol": "BTC/USDT",
+        "risk_policy_version": "test-v1",
+        "validated_at": validated_at.isoformat(),
+    }
+    if missing_timestamp:
+        proof.pop("validated_at")
     return db.execute(
         "select public.claim_execution(%s, %s, %s, %s, %s)",
-        (
-            user_id,
-            intent_id,
-            approval_id,
-            Jsonb({
-                "passed": True,
-                "request_hash": "a" * 64,
-                "account_ref": "test-account",
-                "symbol": "BTC/USDT",
-                "risk_policy_version": "test-v1",
-                "validated_at": validated_at.isoformat(),
-            }),
-            "d" * 64,
-        ),
+        (user_id, intent_id, approval_id, Jsonb(proof), "d" * 64),
     ).fetchone()[0]
 
 
@@ -221,5 +218,18 @@ def test_stale_revalidation_cannot_claim_an_approved_intent(db) -> None:
     with pytest.raises(psycopg.Error, match="fresh account, market, and risk revalidation"):
         with db.transaction():
             _claim(db, user_id, intent_id, approval_id, stale=True)
+
+    assert db.execute("select status from public.execution_intents where id=%s", (intent_id,)).fetchone()[0] == "APPROVED"
+
+
+
+def test_missing_revalidation_timestamp_cannot_claim_an_approved_intent(db) -> None:
+    user_id = _new_user(db)
+    intent_id, _, _ = _create_intent(db, user_id)
+    approval_id = _approve(db, user_id, intent_id)
+
+    with pytest.raises(psycopg.Error, match="fresh account, market, and risk revalidation"):
+        with db.transaction():
+            _claim(db, user_id, intent_id, approval_id, missing_timestamp=True)
 
     assert db.execute("select status from public.execution_intents where id=%s", (intent_id,)).fetchone()[0] == "APPROVED"
