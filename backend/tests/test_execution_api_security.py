@@ -129,3 +129,19 @@ def test_even_entitled_user_cannot_execute_until_approval_store_exists(
 
     assert response.status_code == 503
     assert "disabled" in response.json()["detail"].lower()
+
+
+
+def test_feature_flag_cannot_upgrade_pro_to_premium(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    _authenticate_with_csrf()
+    client.cookies.set("mr_access_token", "opaque-test-token")
+    monkeypatch.setattr(
+        execution_api,
+        "require_feature",
+        lambda *args, **kwargs: {"plan_id": "pro", "features": {"live_trade_execution": True}},
+    )
+
+    response = client.post("/api/execution/order", json=_payload())
+
+    assert response.status_code == 403
+    assert "premium" in response.json()["detail"].lower()
