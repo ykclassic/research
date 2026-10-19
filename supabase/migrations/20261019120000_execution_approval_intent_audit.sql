@@ -375,6 +375,7 @@ end;
 $$;
 
 grant usage on schema public to execution_persistence_owner;
+grant usage on schema extensions to execution_persistence_owner;
 grant create on schema public to execution_persistence_owner;
 alter table public.execution_intents owner to execution_persistence_owner;
 alter table public.execution_approvals owner to execution_persistence_owner;
