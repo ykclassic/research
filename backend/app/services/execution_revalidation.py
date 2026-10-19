@@ -15,6 +15,7 @@ class RevalidationLimits:
     market_max_age: timedelta = timedelta(seconds=15)
     account_max_age: timedelta = timedelta(seconds=30)
     risk_max_age: timedelta = timedelta(seconds=30)
+    provider_timeout_seconds: float = 5.0
     max_entry_drift_pct: float = 0.25
     max_risk_pct: float = 0.75
     max_daily_loss_pct: float = 2.0
@@ -187,19 +188,28 @@ async def revalidate_before_execution(
     now: datetime | None = None,
     limits: RevalidationLimits = RevalidationLimits(),
 ) -> dict[str, Any]:
-    """Fetch all mandatory state and fail closed on missing providers or errors."""
+    """Fetch all mandatory state under a deadline and fail closed on errors."""
     if providers.account is None or providers.market is None or providers.risk is None:
         raise ExecutionRevalidationError("Required account, market, and risk providers are not configured.")
     account_ref = intent.get("account_ref")
     symbol = intent.get("symbol")
     if not isinstance(account_ref, str) or not account_ref or not isinstance(symbol, str) or not symbol:
         raise ExecutionRevalidationError("Approved intent lacks account or symbol identity.")
-    try:
+    if limits.provider_timeout_seconds <= 0:
+        raise ExecutionRevalidationError("Provider timeout must be positive.")
+
+    async def _fetch_and_evaluate() -> tuple[Mapping[str, Any], Mapping[str, Any], Mapping[str, Any]]:
         account, market = await asyncio.gather(
             providers.account.get_account_snapshot(user_id, account_ref),
             providers.market.get_market_snapshot(symbol),
         )
         risk = await providers.risk.evaluate_risk(intent, account, market)
+        return account, market, risk
+
+    try:
+        account, market, risk = await asyncio.wait_for(
+            _fetch_and_evaluate(), timeout=limits.provider_timeout_seconds
+        )
     except Exception as exc:
         raise ExecutionRevalidationError(
             "Required fresh account, market, or risk state could not be verified."
