@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+import asyncio
 from datetime import datetime, timedelta, timezone
 
 import pytest
 
 from app.services.execution_revalidation import (
     ExecutionRevalidationError,
+    RevalidationLimits,
     RevalidationProviders,
     revalidate_before_execution,
     revalidate_execution_snapshots,
@@ -122,6 +124,12 @@ class _Account:
         return self.snapshot
 
 
+class _SlowAccount:
+    async def get_account_snapshot(self, user_id, account_ref):
+        await asyncio.sleep(0.1)
+        return {}
+
+
 class _Market:
     def __init__(self, snapshot):
         self.snapshot = snapshot
@@ -162,6 +170,22 @@ async def test_provider_failure_fails_closed_without_leaking_exception() -> None
             user_id="user-1", intent=intent, providers=providers, now=NOW
         )
     assert "provider secret detail" not in str(error.value)
+
+
+@pytest.mark.asyncio
+async def test_provider_hang_times_out_and_fails_closed() -> None:
+    intent, _, market, risk = _snapshots()
+    providers = RevalidationProviders(
+        account=_SlowAccount(), market=_Market(market), risk=_Risk(snapshot=risk)
+    )
+    with pytest.raises(ExecutionRevalidationError, match="could not be verified"):
+        await revalidate_before_execution(
+            user_id="user-1",
+            intent=intent,
+            providers=providers,
+            now=NOW,
+            limits=RevalidationLimits(provider_timeout_seconds=0.01),
+        )
 
 
 @pytest.mark.asyncio
