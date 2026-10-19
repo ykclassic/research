@@ -262,14 +262,21 @@ class MarketDataOrchestrator:
                 if semantic_success:
                     self._record_success(provider, latency_ms, "quote")
                 elif failures:
-                    detail = next((by_symbol[key].error for key in candidates if key in by_symbol and by_symbol[key].error), "Provider returned no usable quotes")
-                    self._record_failure(provider, detail, latency_ms, failures[0], "quote")
+                    self._record_failure(
+                        provider,
+                        error_label(failures[0]),
+                        latency_ms,
+                        failures[0],
+                        "quote",
+                    )
             except Exception as exc:
                 latency_ms = int((time.perf_counter() - started) * 1000)
                 code = classify_provider_error(exc)
                 for key in candidates:
                     diagnostics[key].append(provider.name)
-                self._record_failure(provider, str(exc), latency_ms, code, "quote")
+                # Never retain exception text: HTTP client errors may include
+                # credential-bearing query parameters in their request URL.
+                self._record_failure(provider, error_label(code), latency_ms, code, "quote")
             finally:
                 if provider.name == "twelve_data":
                     self._available_twelve_data_quote_budget(provider)
@@ -402,8 +409,19 @@ class MarketDataOrchestrator:
                 self.candle_cache.set(canonical_key, dataset, settings.quote_cache_seconds, settings.market_cache_stale_seconds)
                 return dataset
             except Exception as exc:
-                self._record_failure(provider, str(exc), int((time.perf_counter() - started) * 1000), classify_provider_error(exc), "candles")
-                provider_diagnostics.append(f"{provider.name}={type(exc).__name__}: {exc}")
+                code = classify_provider_error(exc)
+                # Provider exceptions can contain full request URLs, including
+                # API keys. Store and return only a stable, sanitized reason.
+                self._record_failure(
+                    provider,
+                    error_label(code),
+                    int((time.perf_counter() - started) * 1000),
+                    code,
+                    "candles",
+                )
+                provider_diagnostics.append(
+                    f"{provider.name}={type(exc).__name__}: {error_label(code)}"
+                )
             finally:
                 if candle_reserved:
                     self._release_twelve_data_candle_budget()

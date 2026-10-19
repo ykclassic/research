@@ -4,6 +4,7 @@ from datetime import datetime, timezone
 import httpx
 
 from app.models import Quote, QuoteStatus
+from app.models.market import Timeframe
 from app.providers.base import MarketDataProvider
 from app.providers.errors import ProviderErrorCode, classify_provider_error
 from app.providers.orchestrator import MarketDataOrchestrator
@@ -181,3 +182,41 @@ def test_twelve_data_does_not_retry_quota_exhaustion(monkeypatch):
 
     assert calls == 1
     assert all(quote.error_code == ProviderErrorCode.QUOTA_EXHAUSTED for quote in quotes)
+
+
+def test_provider_exception_urls_are_redacted_from_quote_and_candle_diagnostics():
+    provider = FakeProvider(batch=True)
+    secret = "test-secret-must-not-appear"
+    request = httpx.Request(
+        "GET", f"https://provider.example.test/candles?apikey={secret}"
+    )
+    response = httpx.Response(401, request=request)
+    failure = httpx.HTTPStatusError(
+        f"401 Unauthorized for url {request.url}", request=request, response=response
+    )
+
+    async def fail_quotes(symbols):
+        raise failure
+
+    async def fail_candles(symbol, timeframe, outputsize=250, start_date=None, end_date=None):
+        raise failure
+
+    provider.get_quotes = fail_quotes
+    provider.get_candles = fail_candles
+    orchestrator = MarketDataOrchestrator([provider])
+
+    quote = asyncio.run(orchestrator.get_quote("BTC/USD"))
+    quote_status = orchestrator.provider_status("quote")[0]
+
+    assert quote.status == QuoteStatus.UNAVAILABLE
+    assert secret not in (quote.error or "")
+    assert secret not in (quote_status.last_error or "")
+    assert quote_status.last_error_code == ProviderErrorCode.AUTHENTICATION_FAILURE
+
+    try:
+        asyncio.run(orchestrator.get_candles("BTC/USD", Timeframe.HOUR_1, 250))
+    except RuntimeError as exc:
+        assert secret not in str(exc)
+        assert "Authentication failure" in str(exc)
+    else:
+        raise AssertionError("Expected provider exhaustion to fail closed")
