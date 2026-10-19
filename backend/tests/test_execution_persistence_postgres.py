@@ -250,7 +250,7 @@ def test_execution_tables_are_not_granted_to_browser_roles(db) -> None:
 
 
 
-def test_stale_revalidation_cannot_claim_an_approved_intent(db) -> None:
+def test_stale_revalidation_cannot_bypass_disabled_claim(db) -> None:
     user_id = _new_user(db)
     intent_id, _, _ = _create_intent(db, user_id)
     approval_id = _approve(db, user_id, intent_id)
@@ -263,12 +263,12 @@ def test_stale_revalidation_cannot_claim_an_approved_intent(db) -> None:
 
 
 
-def test_missing_revalidation_timestamp_cannot_claim_an_approved_intent(db) -> None:
+def test_missing_revalidation_timestamp_cannot_bypass_disabled_claim(db) -> None:
     user_id = _new_user(db)
     intent_id, _, _ = _create_intent(db, user_id)
     approval_id = _approve(db, user_id, intent_id)
 
-    with pytest.raises(psycopg.Error, match="fresh account, market, and risk revalidation"):
+    with pytest.raises(psycopg.Error, match="execution is disabled"):
         with db.transaction():
             _claim(db, user_id, intent_id, approval_id, missing_timestamp=True)
 
