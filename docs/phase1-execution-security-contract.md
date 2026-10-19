@@ -1,6 +1,6 @@
 # Phase 1: Migration reconciliation and execution security contract
 
-Status: planning / pre-implementation. This document does not authorize production schema changes, deployment, exchange integration, or orders.
+Status: Phase 1 prototype implemented on a draft branch. No production schema changes, deployment, exchange integration, or orders are authorized.
 
 ## Baseline identity
 
@@ -143,3 +143,52 @@ Database requirements: RLS enabled; no direct `anon`/authenticated writes; owner
 ## Explicit exclusions
 
 No production SQL/DDL, migration ledger repair, Render/Vercel deployment, exchange adapter, live trading enablement, or order submission is included. CI green alone is not production acceptance.
+
+
+## Phase 1 prototype: persisted intent, approval, and event contract
+
+Migration source: `supabase/migrations/20261019120000_execution_approval_intent_audit.sql`. This file is present only in the feature branch and has been exercised against a disposable PostgreSQL 16 service in GitHub Actions. It has **not** been applied to Supabase production.
+
+### Persistence model
+
+- `execution_intents`: immutable proposal inputs and their signal/account/market/risk snapshots; mutable lifecycle state; unique per-user idempotency key; canonical request hash.
+- `execution_approvals`: one immutable decision per intent, actor/user ownership, expiry, approval snapshot and snapshot hash. Approval JSON must carry the same request hash as the intent.
+- `execution_records`: immutable terminal outcome, unique per intent and approval, and idempotency key bound to the original intent.
+- `execution_events`: append-only audit stream. Update/delete triggers reject mutation.
+- The intent lifecycle is constrained to `AWAITING_APPROVAL → APPROVED|REJECTED → EXECUTING → EXECUTED|FAILED|UNKNOWN`. The database RPCs enforce ownership, expiry, rejection isolation, and one-time claim. An `UNKNOWN` result is not automatically retryable; it requires a separate reconciliation process.
+
+### Database access boundary
+
+RLS is enabled on all four tables, with no browser-role policies. Direct table grants are revoked for `anon`, `authenticated`, and `service_role`; only the narrowly scoped service-role RPCs are granted execution. The RPCs use `SECURITY DEFINER` with a fixed search path. The migration assumes the Supabase migration owner owns the objects, as it does in the intended deployment model; the disposable PostgreSQL workflow verifies SQL behavior and browser-role privilege denial.
+
+### Atomic operations
+
+1. `create_execution_intent` creates the intent and its first audit event atomically. Repeating the same user/idempotency key and request hash returns the original intent without another event. Reusing that key with a different hash fails.
+2. `record_execution_approval` locks the intent, checks ownership/status/expiry, binds the immutable approval snapshot to the intent request hash, writes the decision, transitions intent status, and appends an event in one transaction. A rejected intent cannot be claimed.
+3. `claim_execution` atomically moves an approved intent to `EXECUTING` only when the approval is valid and a matching successful revalidation proof is no more than 15 seconds old. It binds account reference, symbol, request hash, and risk-policy version. A duplicate claim fails.
+4. `record_execution_result` writes a single immutable result and audit event and transitions the intent to a terminal state. It permits recording a result after the approval expiry if the order was already claimed; this avoids losing reconciliation evidence due to a slow broker response. It requires the original idempotency key. A transport timeout must be recorded as `UNKNOWN`, never retried automatically.
+
+### Fresh-state revalidation prototype
+
+`backend/app/services/execution_revalidation.py` implements a deterministic validation contract with injected account, market, and risk providers. Missing providers, provider exceptions, missing/malformed timestamps, stale data, clock skew, wrong account/symbol, non-tradable market, price drift, invalid stop/target structure, reward-to-risk below 2R, daily loss at/above 2%, two or more correlated positions, disabled execution, a risk policy mismatch, risk above 0.75%, or a recalculated size differing from the approved size all reject the request.
+
+Freshness limits: market 15 seconds; account and risk 30 seconds. Maximum entry drift is 0.25%. A successful proof is explicitly marked `passed=true`, includes a timestamp and snapshot bindings, and is required by the database claim RPC. These values are code defaults for the contract and require product/risk-owner review before any live feature is enabled.
+
+The provider protocols are deliberately injected and **no live exchange provider is implemented or wired**. The public execution route still returns a fail-closed 503 even if entitlement succeeds; the new persistence/revalidation code is not reachable from an order-submission route.
+
+### CI evidence
+
+- Backend CI: 552 passed, 1 skipped at the last completed code-bearing run; the skip is the PostgreSQL integration module in the generic runner because it has no disposable database configured.
+- Dedicated PostgreSQL 16 integration workflow: 7 passed at the last completed run. It applies the branch migration to a throwaway database and tests idempotency, payload mismatch, immutable approvals/records/events, rejected proposal isolation, single-use claims, and browser-role denial.
+- Revalidation tests are included in backend CI and exercise stale/missing snapshots, provider errors, disabled execution, account/risk limits, price drift, policy mismatch, and size changes.
+
+The latest edits that tightened claim-time revalidation and quantity matching are awaiting their own CI completion; do not infer their checks from earlier runs.
+
+## Phase 1 exit conditions
+
+Before the PR can be considered for merge:
+1. The newest commit must pass Backend CI, Frontend build, Branch Governance, and PostgreSQL integration.
+2. A reviewer must inspect the SQL migration and security model, including the role/ownership behavior on Supabase.
+3. The migration matrix must retain the three unresolved ledger-only records as explicit history gaps; do not fabricate matching source files or mark them repaired.
+4. The protected database diagnostic must be deployed and observed before asserting the Render process uses the intended project. That deployment is not part of this prototype.
+5. The execution route must remain disabled until real authenticated approval endpoints, current entitlement rows, provider adapters for read-only account/market state, and end-to-end failure injection are reviewed.
