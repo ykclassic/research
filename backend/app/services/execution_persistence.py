@@ -99,13 +99,22 @@ def record_execution_approval(
     return ExecutionApprovalReceipt(approval_id=UUID(approval_id))
 
 
-def claim_execution(*, user_id: UUID, intent_id: UUID, approval_id: UUID) -> None:
+def claim_execution(
+    *,
+    user_id: UUID,
+    intent_id: UUID,
+    approval_id: UUID,
+    revalidation_snapshot: dict[str, Any],
+    revalidation_hash: str,
+) -> None:
     claimed = _rpc(
         "claim_execution",
         {
             "p_user_id": str(user_id),
             "p_intent_id": str(intent_id),
             "p_approval_id": str(approval_id),
+            "p_revalidation_snapshot": revalidation_snapshot,
+            "p_revalidation_hash": revalidation_hash,
         },
     )
     if claimed is not True:
