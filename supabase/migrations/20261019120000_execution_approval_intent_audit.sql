@@ -83,12 +83,12 @@ language sql
 immutable
 strict
 set search_path = pg_catalog
-as $
+as $snapshot_hash$
   select pg_catalog.encode(
     extensions.digest(pg_catalog.convert_to(p_snapshot::text, 'UTF8'), 'sha256'),
     'hex'
   );
-$;
+$snapshot_hash$;
 
 create or replace function public.execution_intent_request_sha256(
   p_signal_snapshot jsonb,
@@ -101,14 +101,14 @@ language sql
 immutable
 strict
 set search_path = pg_catalog
-as $
+as $intent_hash$
   select public.execution_snapshot_sha256(pg_catalog.jsonb_build_object(
     'signal_snapshot', p_signal_snapshot,
     'account_snapshot', p_account_snapshot,
     'market_snapshot', p_market_snapshot,
     'risk_snapshot', p_risk_snapshot
   ));
-$;
+$intent_hash$;
 
 alter table public.execution_intents enable row level security;
 alter table public.execution_approvals enable row level security;
@@ -147,7 +147,7 @@ create or replace function public.guard_execution_intent_mutation()
 returns trigger
 language plpgsql
 set search_path = pg_catalog
-as $
+as $intent_guard$
 begin
   if tg_op = 'DELETE' then
     raise exception 'execution intents cannot be deleted' using errcode = '55000';
@@ -176,7 +176,7 @@ begin
 
   return new;
 end;
-$;
+$intent_guard$;
 
 drop trigger if exists execution_intents_transition_guard on public.execution_intents;
 create trigger execution_intents_transition_guard
