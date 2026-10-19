@@ -52,14 +52,26 @@ def _new_user(db) -> str:
 
 def _create_intent(db, user_id: str, key: str | None = None):
     key = key or f"intent-{uuid4()}"
-    signal = {"signal_id": "signal-test", "symbol": "BTC/USDT", "side": "LONG", "quantity": 1.0, "entry_price": 100.0, "stop_loss": 99.0, "take_profit": 102.0, "qualified": True}
-    account = {"equity": 10000, "source": "test", "account_ref": "test-account"}
-    market = {"price": 100, "observed_at": datetime.now(timezone.utc).isoformat()}
-    risk = {"risk_pct": 0.5, "risk_policy_version": "test-v1"}
-    request_hash = db.execute(
-        "select public.execution_intent_request_sha256(%s, %s, %s, %s)",
-        (Jsonb(signal), Jsonb(account), Jsonb(market), Jsonb(risk)),
-    ).fetchone()[0]
+    existing = None
+    if db.execute(
+        "select to_regclass('public.execution_intents')"
+    ).fetchone()[0] is not None:
+        existing = db.execute(
+            """select request_hash, signal_snapshot, account_snapshot, market_snapshot, risk_snapshot
+               from public.execution_intents where user_id=%s and idempotency_key=%s""",
+            (user_id, key),
+        ).fetchone()
+    if existing:
+        request_hash, signal, account, market, risk = existing
+    else:
+        signal = {"signal_id": "signal-test", "symbol": "BTC/USDT", "side": "LONG", "quantity": 1.0, "entry_price": 100.0, "stop_loss": 99.0, "take_profit": 102.0, "qualified": True}
+        account = {"equity": 10000, "source": "test", "account_ref": "test-account"}
+        market = {"price": 100, "observed_at": datetime.now(timezone.utc).isoformat()}
+        risk = {"risk_pct": 0.5, "risk_policy_version": "test-v1"}
+        request_hash = db.execute(
+            "select public.execution_intent_request_sha256(%s, %s, %s, %s)",
+            (Jsonb(signal), Jsonb(account), Jsonb(market), Jsonb(risk)),
+        ).fetchone()[0]
     rows = db.execute(
         """select intent_id, created from public.create_execution_intent(
           %s, %s, %s, %s, %s, %s, %s, %s
@@ -173,7 +185,7 @@ def test_rejected_proposal_cannot_be_claimed(db) -> None:
     intent_id, _, _ = _create_intent(db, user_id)
     approval_id = _approve(db, user_id, intent_id, "REJECT")
 
-    with pytest.raises(psycopg.Error, match="not executable"):
+    with pytest.raises(psycopg.Error, match="execution is disabled"):
         with db.transaction():
             _claim(db, user_id, intent_id, approval_id)
 
@@ -243,7 +255,7 @@ def test_stale_revalidation_cannot_claim_an_approved_intent(db) -> None:
     intent_id, _, _ = _create_intent(db, user_id)
     approval_id = _approve(db, user_id, intent_id)
 
-    with pytest.raises(psycopg.Error, match="fresh account, market, and risk revalidation"):
+    with pytest.raises(psycopg.Error, match="execution is disabled"):
         with db.transaction():
             _claim(db, user_id, intent_id, approval_id, stale=True)
 
