@@ -60,14 +60,35 @@ def _create_intent(db, user_id: str, key: str | None = None):
             user_id,
             key,
             "a" * 64,
-            Jsonb({"signal_id": "signal-test", "qualified": True}),
-            Jsonb({"equity": 10000, "source": "test"}),
+            Jsonb({"signal_id": "signal-test", "symbol": "BTC/USDT", "qualified": True}),
+            Jsonb({"equity": 10000, "source": "test", "account_ref": "test-account"}),
             Jsonb({"price": 100, "observed_at": datetime.now(timezone.utc).isoformat()}),
-            Jsonb({"risk_pct": 0.5, "policy_version": "test-v1"}),
+            Jsonb({"risk_pct": 0.5, "risk_policy_version": "test-v1"}),
             _future(120),
         ),
     ).fetchone()
     return rows[0], rows[1], key
+
+
+def _claim(db, user_id: str, intent_id, approval_id, *, stale: bool = False):
+    validated_at = datetime.now(timezone.utc) - timedelta(seconds=20 if stale else 0)
+    return db.execute(
+        "select public.claim_execution(%s, %s, %s, %s, %s)",
+        (
+            user_id,
+            intent_id,
+            approval_id,
+            Jsonb({
+                "passed": True,
+                "request_hash": "a" * 64,
+                "account_ref": "test-account",
+                "symbol": "BTC/USDT",
+                "risk_policy_version": "test-v1",
+                "validated_at": validated_at.isoformat(),
+            }),
+            "d" * 64,
+        ),
+    ).fetchone()[0]
 
 
 def _approve(db, user_id: str, intent_id, decision: str = "APPROVE"):
@@ -78,7 +99,7 @@ def _approve(db, user_id: str, intent_id, decision: str = "APPROVE"):
             intent_id,
             decision,
             user_id,
-            Jsonb({"intent_id": str(intent_id), "human_confirmed": True}),
+            Jsonb({"intent_id": str(intent_id), "request_hash": "a" * 64, "human_confirmed": True}),
             "b" * 64,
             _future(60),
         ),
@@ -136,7 +157,7 @@ def test_rejected_proposal_cannot_be_claimed(db) -> None:
 
     with pytest.raises(psycopg.Error, match="not executable"):
         with db.transaction():
-            db.execute("select public.claim_execution(%s, %s, %s)", (user_id, intent_id, approval_id))
+            _claim(db, user_id, intent_id, approval_id)
 
 
 def test_claim_is_atomic_single_use_and_execution_record_is_immutable(db) -> None:
@@ -144,7 +165,7 @@ def test_claim_is_atomic_single_use_and_execution_record_is_immutable(db) -> Non
     intent_id, _, key = _create_intent(db, user_id)
     approval_id = _approve(db, user_id, intent_id)
 
-    assert db.execute("select public.claim_execution(%s, %s, %s)", (user_id, intent_id, approval_id)).fetchone()[0] is True
+    assert _claim(db, user_id, intent_id, approval_id) is True
     with pytest.raises(psycopg.Error, match="not executable"):
         with db.transaction():
             db.execute("select public.claim_execution(%s, %s, %s)", (user_id, intent_id, approval_id))
@@ -189,3 +210,16 @@ def test_execution_tables_are_not_granted_to_browser_roles(db) -> None:
     ).fetchall()
     assert len(rows) == 4
     assert all(row[1] is True and row[2] is False and row[3] is False for row in rows)
+
+
+
+def test_stale_revalidation_cannot_claim_an_approved_intent(db) -> None:
+    user_id = _new_user(db)
+    intent_id, _, _ = _create_intent(db, user_id)
+    approval_id = _approve(db, user_id, intent_id)
+
+    with pytest.raises(psycopg.Error, match="fresh account, market, and risk revalidation"):
+        with db.transaction():
+            _claim(db, user_id, intent_id, approval_id, stale=True)
+
+    assert db.execute("select status from public.execution_intents where id=%s", (intent_id,)).fetchone()[0] == "APPROVED"
