@@ -82,6 +82,7 @@ returns text
 language sql
 immutable
 strict
+security definer
 set search_path = pg_catalog
 as $snapshot_hash$
   select pg_catalog.encode(
@@ -100,6 +101,7 @@ returns text
 language sql
 immutable
 strict
+security definer
 set search_path = pg_catalog
 as $intent_hash$
   select public.execution_snapshot_sha256(pg_catalog.jsonb_build_object(
@@ -394,6 +396,8 @@ revoke all on function public.execution_snapshot_sha256(jsonb) from public, anon
 revoke all on function public.execution_intent_request_sha256(jsonb,jsonb,jsonb,jsonb) from public, anon, authenticated;
 grant execute on function public.execution_snapshot_sha256(jsonb) to execution_persistence_owner;
 grant execute on function public.execution_intent_request_sha256(jsonb,jsonb,jsonb,jsonb) to execution_persistence_owner;
+grant execute on function public.execution_snapshot_sha256(jsonb) to service_role;
+grant execute on function public.execution_intent_request_sha256(jsonb,jsonb,jsonb,jsonb) to service_role;
 revoke all on function public.create_execution_intent(uuid,text,text,jsonb,jsonb,jsonb,jsonb,timestamptz) from public, anon, authenticated;
 revoke all on function public.record_execution_approval(uuid,uuid,text,uuid,jsonb,text,timestamptz) from public, anon, authenticated;
 revoke all on function public.claim_execution(uuid,uuid,uuid,jsonb,text) from public, anon, authenticated;
