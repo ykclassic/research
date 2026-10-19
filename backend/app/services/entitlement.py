@@ -12,6 +12,8 @@ FEATURE_KEYS = {
     "ai_research", "advanced_portfolio_analytics", "backtesting",
     "strategy_builder", "scanner", "webhooks", "scheduled_workflows",
     "api", "mcp", "exports", "team_workspaces", "signal_intelligence_analytics", "advanced_research", "enhanced_signal", "copilot_deep_research", "copilot_multi_step",
+    # This is not granted by code; the live DB must explicitly grant it to Premium.
+    "live_trade_execution",
 }
 
 METRICS = {
