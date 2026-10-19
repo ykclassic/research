@@ -337,3 +337,205 @@ def test_rpc_owner_and_search_path_are_hardened(db) -> None:
     assert len(rows) == 4
     assert all(row[1] is False and row[2] is False for row in rows)
     assert all(row[3] and "search_path=pg_catalog" in row[3] for row in rows)
+
+
+def _canonical_approval_snapshot(db, intent_id):
+    request_hash, signal, account, risk = db.execute(
+        "select request_hash, signal_snapshot, account_snapshot, risk_snapshot "
+        "from public.execution_intents where id=%s",
+        (intent_id,),
+    ).fetchone()
+    return {
+        "intent_id": str(intent_id),
+        "request_hash": request_hash,
+        "account_ref": account["account_ref"],
+        "symbol": signal["symbol"],
+        "side": signal["side"],
+        "quantity": signal["quantity"],
+        "entry_price": signal["entry_price"],
+        "stop_loss": signal["stop_loss"],
+        "take_profit": signal["take_profit"],
+        "risk_policy_version": risk["risk_policy_version"],
+        "human_confirmed": True,
+    }
+
+
+@pytest.mark.parametrize(
+    ("field", "replacement"),
+    [
+        ("intent_id", str(uuid4())),
+        ("request_hash", "f" * 64),
+        ("account_ref", "different-account"),
+        ("symbol", "ETH/USDT"),
+        ("side", "SHORT"),
+        ("quantity", 0.01),
+        ("entry_price", 101.0),
+        ("stop_loss", 98.0),
+        ("take_profit", 103.0),
+        ("risk_policy_version", "changed-policy"),
+        ("human_confirmed", False),
+    ],
+)
+def test_every_security_critical_approval_field_is_bound(db, field, replacement) -> None:
+    user_id = _new_user(db)
+    intent_id, _, _ = _create_intent(db, user_id)
+    snapshot = _canonical_approval_snapshot(db, intent_id)
+    snapshot[field] = replacement
+    digest = db.execute(
+        "select public.execution_snapshot_sha256(%s)", (Jsonb(snapshot),)
+    ).fetchone()[0]
+
+    with pytest.raises(psycopg.Error, match="canonical approved intent"):
+        with db.transaction():
+            db.execute(
+                "select public.record_execution_approval(%s,%s,%s,%s,%s,%s,%s)",
+                (user_id, intent_id, "APPROVE", user_id, Jsonb(snapshot), digest, _future(10)),
+            )
+
+
+def test_canonical_jsonb_hash_is_stable_for_equivalent_object_key_order(db) -> None:
+    first = {"z": 1, "nested": {"b": 2, "a": 3}, "a": "value"}
+    second = {"a": "value", "nested": {"a": 3, "b": 2}, "z": 1}
+    hashes = db.execute(
+        "select public.execution_snapshot_sha256(%s), public.execution_snapshot_sha256(%s)",
+        (Jsonb(first), Jsonb(second)),
+    ).fetchone()
+    assert hashes[0] == hashes[1]
+
+
+def test_approval_rejects_wrong_actor_and_expiry_beyond_intent(db) -> None:
+    user_id = _new_user(db)
+    other_user_id = _new_user(db)
+    intent_id, _, _ = _create_intent(db, user_id)
+    snapshot = _canonical_approval_snapshot(db, intent_id)
+    digest = db.execute(
+        "select public.execution_snapshot_sha256(%s)", (Jsonb(snapshot),)
+    ).fetchone()[0]
+
+    with pytest.raises(psycopg.Error, match="does not own intent"):
+        with db.transaction():
+            db.execute(
+                "select public.record_execution_approval(%s,%s,%s,%s,%s,%s,%s)",
+                (user_id, intent_id, "APPROVE", other_user_id, Jsonb(snapshot), digest, _future(5)),
+            )
+
+    # The intent expires in 120 minutes; an approval cannot outlive it.
+    with pytest.raises(psycopg.Error, match="expiry is invalid"):
+        with db.transaction():
+            db.execute(
+                "select public.record_execution_approval(%s,%s,%s,%s,%s,%s,%s)",
+                (user_id, intent_id, "APPROVE", user_id, Jsonb(snapshot), digest, _future(180)),
+            )
+
+
+def test_approval_and_intent_transition_roll_back_if_audit_insert_fails(db) -> None:
+    user_id = _new_user(db)
+    intent_id, _, _ = _create_intent(db, user_id)
+    db.execute("""
+        create or replace function public.test_reject_approval_audit_insert()
+        returns trigger language plpgsql as $test$
+        begin
+          if new.event_type in ('APPROVAL_ACCEPTED', 'APPROVAL_REJECTED') then
+            raise exception 'forced audit insert failure';
+          end if;
+          return new;
+        end;
+        $test$
+    """)
+    db.execute("""
+        create trigger test_reject_approval_audit_insert
+        before insert on public.execution_events
+        for each row execute function public.test_reject_approval_audit_insert()
+    """)
+    with pytest.raises(psycopg.Error, match="forced audit insert failure"):
+        with db.transaction():
+            _approve(db, user_id, intent_id)
+
+    assert db.execute(
+        "select status from public.execution_intents where id=%s", (intent_id,)
+    ).fetchone()[0] == "AWAITING_APPROVAL"
+    assert db.execute(
+        "select count(*) from public.execution_approvals where intent_id=%s", (intent_id,)
+    ).fetchone()[0] == 0
+    assert db.execute(
+        "select count(*) from public.execution_events where intent_id=%s "
+        "and event_type in ('APPROVAL_ACCEPTED', 'APPROVAL_REJECTED')",
+        (intent_id,),
+    ).fetchone()[0] == 0
+
+
+def test_all_privileged_functions_have_restricted_owner_and_execute_grants(db) -> None:
+    signatures = [
+        "public.execution_snapshot_sha256(jsonb)",
+        "public.execution_intent_request_sha256(jsonb,jsonb,jsonb,jsonb)",
+        "public.create_execution_intent(uuid,text,text,jsonb,jsonb,jsonb,jsonb,timestamptz)",
+        "public.record_execution_approval(uuid,uuid,text,uuid,jsonb,text,timestamptz)",
+        "public.claim_execution(uuid,uuid,uuid,jsonb,text)",
+        "public.record_execution_result(uuid,uuid,uuid,text,text,text,jsonb)",
+    ]
+    rows = db.execute(
+        """
+        select p.oid::regprocedure::text, r.rolname, r.rolsuper, r.rolcanlogin,
+               p.prosecdef, p.proconfig
+        from pg_proc p
+        join pg_roles r on r.oid = p.proowner
+        where p.oid = any(%s::oid[])
+        """,
+        ([db.execute("select %s::regprocedure::oid", (sig,)).fetchone()[0] for sig in signatures],),
+    ).fetchall()
+    assert len(rows) == len(signatures)
+    assert all(row[1] == "execution_persistence_owner" for row in rows)
+    assert all(row[2] is False and row[3] is False and row[4] is True for row in rows)
+    assert all(row[5] and "search_path=pg_catalog" in row[5] for row in rows)
+
+    assert db.execute(
+        "select has_schema_privilege('execution_persistence_owner','public','create')"
+    ).fetchone()[0] is False
+    assert db.execute(
+        "select pg_has_role('service_role','execution_persistence_owner','member')"
+    ).fetchone()[0] is False
+
+    for signature in signatures:
+        privilege = db.execute(
+            "select has_function_privilege('anon', %s::regprocedure, 'execute'), "
+            "has_function_privilege('authenticated', %s::regprocedure, 'execute')",
+            (signature, signature),
+        ).fetchone()
+        assert privilege == (False, False), signature
+
+    for signature in signatures[2:]:
+        assert db.execute(
+            "select has_function_privilege('service_role', %s::regprocedure, 'execute')",
+            (signature,),
+        ).fetchone()[0] is True
+
+
+def test_service_role_cannot_mutate_execution_tables_directly(db) -> None:
+    user_id = _new_user(db)
+    intent_id, _, _ = _create_intent(db, user_id)
+    with pytest.raises(psycopg.Error):
+        with db.transaction():
+            db.execute("set local role service_role")
+            db.execute(
+                "update public.execution_intents set status='APPROVED' where id=%s",
+                (intent_id,),
+            )
+    assert db.execute(
+        "select status from public.execution_intents where id=%s", (intent_id,)
+    ).fetchone()[0] == "AWAITING_APPROVAL"
+
+
+def test_expired_approval_window_is_rejected(db) -> None:
+    user_id = _new_user(db)
+    intent_id, _, _ = _create_intent(db, user_id)
+    snapshot = _canonical_approval_snapshot(db, intent_id)
+    digest = db.execute(
+        "select public.execution_snapshot_sha256(%s)", (Jsonb(snapshot),)
+    ).fetchone()[0]
+    with pytest.raises(psycopg.Error, match="expiry is invalid"):
+        with db.transaction():
+            db.execute(
+                "select public.record_execution_approval(%s,%s,%s,%s,%s,%s,%s)",
+                (user_id, intent_id, "APPROVE", user_id, Jsonb(snapshot), digest,
+                 datetime.now(timezone.utc) - timedelta(seconds=1)),
+            )
