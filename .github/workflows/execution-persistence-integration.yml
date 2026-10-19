@@ -6,14 +6,22 @@ on:
     paths:
       - "supabase/migrations/*execution*"
       - "backend/app/services/execution_persistence.py"
+      - "backend/app/services/execution_revalidation.py"
+      - "backend/app/api/execution.py"
+      - "backend/app/api/diagnostics.py"
       - "backend/tests/test_execution_persistence_postgres.py"
+      - "backend/tests/test_execution_revalidation.py"
       - ".github/workflows/execution-persistence-integration.yml"
   push:
     branches: [main]
     paths:
       - "supabase/migrations/*execution*"
       - "backend/app/services/execution_persistence.py"
+      - "backend/app/services/execution_revalidation.py"
+      - "backend/app/api/execution.py"
+      - "backend/app/api/diagnostics.py"
       - "backend/tests/test_execution_persistence_postgres.py"
+      - "backend/tests/test_execution_revalidation.py"
       - ".github/workflows/execution-persistence-integration.yml"
   workflow_dispatch:
 
@@ -40,7 +48,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
       - name: Set up Python
-        uses: actions/setup-python@v5
+      - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
       - name: Install backend and PostgreSQL driver
