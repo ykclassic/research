@@ -190,7 +190,7 @@ def test_rejected_proposal_cannot_be_claimed(db) -> None:
             _claim(db, user_id, intent_id, approval_id)
 
 
-def test_claim_is_atomic_single_use_and_execution_record_is_immutable(db) -> None:
+def test_claim_and_result_rpc_fail_closed_while_execution_is_disabled(db) -> None:
     user_id = _new_user(db)
     intent_id, _, key = _create_intent(db, user_id)
     approval_id = _approve(db, user_id, intent_id)
