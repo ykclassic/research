@@ -102,3 +102,12 @@ def test_database_diagnostic_never_sends_service_key_to_wrong_supabase_project(
     assert response.status_code == 200
     assert response.json()["project_ref"] == "aaaaaaaaaaaaaaaaaaaa"
     assert response.json()["database_probe"] == "failed"
+
+
+
+def test_database_diagnostic_requires_trusted_github_actions_identity(client: TestClient) -> None:
+    app.dependency_overrides.pop(require_github_actions, None)
+
+    response = client.get("/internal/diagnostics/database")
+
+    assert response.status_code == 401
