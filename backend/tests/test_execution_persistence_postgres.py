@@ -149,10 +149,8 @@ def test_claim_is_atomic_single_use_and_execution_record_is_immutable(db) -> Non
         with db.transaction():
             db.execute("select public.claim_execution(%s, %s, %s)", (user_id, intent_id, approval_id))
 
-    # The second claim did not corrupt the already-committed-in-transaction state.
-    assert db.execute("select status from public.execution_intents where id=%s", (intent_id,)).fetchone()[0] == "APPROVED"
-    with db.transaction():
-        db.execute("select public.claim_execution(%s, %s, %s)", (user_id, intent_id, approval_id))
+    # Duplicate claim fails, while the original claim remains in EXECUTING state.
+    assert db.execute("select status from public.execution_intents where id=%s", (intent_id,)).fetchone()[0] == "EXECUTING"
     record_id = db.execute(
         """select public.record_execution_result(%s, %s, %s, %s, %s, %s, %s)""",
         (user_id, intent_id, approval_id, f"execution-{uuid4()}", "FILLED", "TEST-BROKER-1", Jsonb({"fill_price": 100.1})),
