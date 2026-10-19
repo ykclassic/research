@@ -159,6 +159,12 @@ def revalidate_execution_snapshots(
     if not isinstance(risk_pct, (int, float)) or isinstance(risk_pct, bool) or risk_pct <= 0 or risk_pct > limits.max_risk_pct:
         raise ExecutionRevalidationError("Current per-trade risk exceeds policy.")
 
+    recomputed_quantity = risk.get("recomputed_quantity")
+    if not isinstance(recomputed_quantity, (int, float)) or isinstance(recomputed_quantity, bool) or recomputed_quantity <= 0:
+        raise ExecutionRevalidationError("Risk engine did not provide a fresh position size.")
+    if abs(float(recomputed_quantity) - float(quantity)) > max(1e-9, abs(float(quantity)) * 1e-8):
+        raise ExecutionRevalidationError("Fresh risk sizing differs from the human-approved quantity.")
+
     return {
         "passed": True,
         "validated_at": checked_at.isoformat(),
