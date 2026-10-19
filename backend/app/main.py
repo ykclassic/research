@@ -13,6 +13,7 @@ from app.api.alerts import router as alerts_router
 from app.api.analysis import router as analysis_router
 from app.api.auth import router as auth_router
 from app.api.execution import router as execution_router
+from app.api.diagnostics import router as diagnostics_router
 from app.api.market import router as market_router
 from app.api.market_session import router as market_session_router
 from app.api.market_structure import router as market_structure_router
@@ -125,6 +126,7 @@ app.include_router(research_history_router)
 app.include_router(research_intelligence_router)
 app.include_router(alerts_router)
 app.include_router(execution_router)
+app.include_router(diagnostics_router)
 app.include_router(performance_router)
 app.include_router(portfolio_router)
 app.include_router(quant_lab_router)
