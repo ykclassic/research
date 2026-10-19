@@ -159,6 +159,7 @@ def revalidate_execution_snapshots(
         raise ExecutionRevalidationError("Current per-trade risk exceeds policy.")
 
     return {
+        "passed": True,
         "validated_at": checked_at.isoformat(),
         "account_ref": account_ref,
         "symbol": symbol,
