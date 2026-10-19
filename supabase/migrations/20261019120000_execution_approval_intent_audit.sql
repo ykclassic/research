@@ -72,10 +72,8 @@ alter table public.execution_events enable row level security;
 
 revoke all on public.execution_intents, public.execution_approvals,
   public.execution_records, public.execution_events from public, anon, authenticated;
-grant select, insert, update on public.execution_intents to service_role;
-grant select, insert on public.execution_approvals, public.execution_records,
-  public.execution_events to service_role;
-grant usage, select on sequence public.execution_events_event_seq_seq to service_role;
+revoke all on public.execution_intents, public.execution_approvals,
+  public.execution_records, public.execution_events from service_role;
 
 create or replace function public.reject_execution_record_mutation()
 returns trigger
@@ -194,6 +192,423 @@ begin
   end if;
   if p_expires_at <= v_now or p_expires_at > v_intent.expires_at then
     raise exception 'approval expiry is invalid' using errcode = '22023';
+  end if;
+  if p_approval_snapshot ->> 'request_hash' is distinct from v_intent.request_hash
+     or p_snapshot_hash !~ '^[a-f0-9]{64}
+    intent_id, user_id, actor_user_id, decision, expires_at,
+    approval_snapshot, snapshot_hash
+  ) values (
+    p_intent_id, p_user_id, p_actor_user_id, p_decision, p_expires_at,
+    p_approval_snapshot, p_snapshot_hash
+  ) returning id into v_approval_id;
+
+  update public.execution_intents
+    set status = case when p_decision = 'APPROVE' then 'APPROVED' else 'REJECTED' end,
+        updated_at = v_now
+    where id = p_intent_id;
+
+  insert into public.execution_events(intent_id, user_id, actor_user_id, event_type, event_data)
+  values (
+    p_intent_id, p_user_id, p_actor_user_id,
+    case when p_decision = 'APPROVE' then 'APPROVAL_ACCEPTED' else 'APPROVAL_REJECTED' end,
+    jsonb_build_object('approval_id', v_approval_id, 'snapshot_hash', p_snapshot_hash, 'expires_at', p_expires_at)
+  );
+
+  return v_approval_id;
+end;
+$$;
+
+create or replace function public.claim_execution(
+  p_user_id uuid,
+  p_intent_id uuid,
+  p_approval_id uuid,
+  p_revalidation_snapshot jsonb,
+  p_revalidation_hash text
+)
+returns boolean
+language plpgsql
+security definer
+set search_path = pg_catalog, public
+as $$
+declare
+  v_intent public.execution_intents%rowtype;
+  v_approval public.execution_approvals%rowtype;
+  v_now timestamptz := now();
+begin
+  select * into v_intent
+    from public.execution_intents i
+    where i.id = p_intent_id and i.user_id = p_user_id
+    for update;
+
+  if not found or v_intent.status <> 'APPROVED' or v_intent.expires_at <= v_now then
+    raise exception 'intent is missing, expired, or not executable' using errcode = '55000';
+  end if;
+
+  select * into v_approval
+    from public.execution_approvals a
+    where a.id = p_approval_id and a.intent_id = p_intent_id
+      and a.user_id = p_user_id and a.decision = 'APPROVE'
+    for update;
+
+  if not found or v_approval.expires_at <= v_now then
+    raise exception 'approval is missing or expired' using errcode = '55000';
+  end if;
+  if jsonb_typeof(p_revalidation_snapshot) is distinct from 'object'
+     or p_revalidation_snapshot ->> 'passed' is distinct from 'true'
+     or p_revalidation_snapshot ->> 'request_hash' is distinct from v_intent.request_hash
+     or p_revalidation_snapshot ->> 'account_ref' is distinct from v_intent.account_snapshot ->> 'account_ref'
+     or p_revalidation_snapshot ->> 'symbol' is distinct from v_intent.signal_snapshot ->> 'symbol'
+     or p_revalidation_snapshot ->> 'risk_policy_version' is distinct from v_intent.risk_snapshot ->> 'risk_policy_version'
+     or p_revalidation_hash !~ '^[a-f0-9]{64}
+    set status = 'EXECUTING', updated_at = v_now
+    where id = p_intent_id and status = 'APPROVED';
+  if not found then
+    raise exception 'intent was already claimed' using errcode = '55000';
+  end if;
+
+  insert into public.execution_events(intent_id, user_id, actor_user_id, event_type, event_data)
+  values (p_intent_id, p_user_id, p_user_id, 'EXECUTION_CLAIMED',
+    jsonb_build_object(
+      'approval_id', p_approval_id,
+      'revalidation_hash', p_revalidation_hash,
+      'validated_at', p_revalidation_snapshot ->> 'validated_at'
+    ));
+
+  return true;
+end;
+$$;
+
+create or replace function public.record_execution_result(
+  p_user_id uuid,
+  p_intent_id uuid,
+  p_approval_id uuid,
+  p_idempotency_key text,
+  p_result_status text,
+  p_broker_order_id text,
+  p_result_snapshot jsonb
+)
+returns uuid
+language plpgsql
+security definer
+set search_path = pg_catalog, public
+as $$
+declare
+  v_intent public.execution_intents%rowtype;
+  v_approval public.execution_approvals%rowtype;
+  v_record_id uuid;
+  v_next_status text;
+begin
+  if p_result_status not in ('FILLED','FAILED','REJECTED','UNKNOWN') then
+    raise exception 'invalid execution result status' using errcode = '22023';
+  end if;
+
+  select * into v_intent from public.execution_intents i
+    where i.id = p_intent_id and i.user_id = p_user_id for update;
+  if not found or v_intent.status <> 'EXECUTING' then
+    raise exception 'intent was not claimed or has already completed' using errcode = '55000';
+  end if;
+  if p_idempotency_key is distinct from v_intent.idempotency_key then
+    raise exception 'execution idempotency key does not match intent' using errcode = '23505';
+  end if;
+
+  select * into v_approval from public.execution_approvals a
+    where a.id = p_approval_id and a.intent_id = p_intent_id
+      and a.user_id = p_user_id and a.decision = 'APPROVE';
+  if not found then
+    raise exception 'approval is missing or expired' using errcode = '55000';
+  end if;
+
+  insert into public.execution_records(
+    intent_id, approval_id, user_id, idempotency_key, result_status,
+    broker_order_id, result_snapshot
+  ) values (
+    p_intent_id, p_approval_id, p_user_id, p_idempotency_key, p_result_status,
+    p_broker_order_id, p_result_snapshot
+  ) returning id into v_record_id;
+
+  v_next_status := case
+    when p_result_status = 'FILLED' then 'EXECUTED'
+    when p_result_status = 'UNKNOWN' then 'UNKNOWN'
+    else 'FAILED'
+  end;
+
+  update public.execution_intents
+    set status = v_next_status, updated_at = now()
+    where id = p_intent_id;
+
+  insert into public.execution_events(intent_id, user_id, actor_user_id, event_type, event_data)
+  values (
+    p_intent_id, p_user_id, p_user_id,
+    case when p_result_status = 'UNKNOWN' then 'EXECUTION_UNKNOWN' else 'EXECUTION_RECORDED' end,
+    jsonb_build_object('execution_record_id', v_record_id, 'result_status', p_result_status)
+  );
+
+  return v_record_id;
+end;
+$$;
+
+revoke all on function public.create_execution_intent(uuid,text,text,jsonb,jsonb,jsonb,jsonb,timestamptz) from public, anon, authenticated;
+revoke all on function public.record_execution_approval(uuid,uuid,text,uuid,jsonb,text,timestamptz) from public, anon, authenticated;
+revoke all on function public.claim_execution(uuid,uuid,uuid,jsonb,text) from public, anon, authenticated;
+revoke all on function public.record_execution_result(uuid,uuid,uuid,text,text,text,jsonb) from public, anon, authenticated;
+grant execute on function public.create_execution_intent(uuid,text,text,jsonb,jsonb,jsonb,jsonb,timestamptz) to service_role;
+grant execute on function public.record_execution_approval(uuid,uuid,text,uuid,jsonb,text,timestamptz) to service_role;
+grant execute on function public.claim_execution(uuid,uuid,uuid,jsonb,text) to service_role;
+grant execute on function public.record_execution_result(uuid,uuid,uuid,text,text,text,jsonb) to service_role;
+ then
+    raise exception 'approval snapshot does not match intent' using errcode = '22023';
+  end if;
+
+  insert into public.execution_approvals(
+    intent_id, user_id, actor_user_id, decision, expires_at,
+    approval_snapshot, snapshot_hash
+  ) values (
+    p_intent_id, p_user_id, p_actor_user_id, p_decision, p_expires_at,
+    p_approval_snapshot, p_snapshot_hash
+  ) returning id into v_approval_id;
+
+  update public.execution_intents
+    set status = case when p_decision = 'APPROVE' then 'APPROVED' else 'REJECTED' end,
+        updated_at = v_now
+    where id = p_intent_id;
+
+  insert into public.execution_events(intent_id, user_id, actor_user_id, event_type, event_data)
+  values (
+    p_intent_id, p_user_id, p_actor_user_id,
+    case when p_decision = 'APPROVE' then 'APPROVAL_ACCEPTED' else 'APPROVAL_REJECTED' end,
+    jsonb_build_object('approval_id', v_approval_id, 'snapshot_hash', p_snapshot_hash, 'expires_at', p_expires_at)
+  );
+
+  return v_approval_id;
+end;
+$$;
+
+create or replace function public.claim_execution(
+  p_user_id uuid,
+  p_intent_id uuid,
+  p_approval_id uuid
+)
+returns boolean
+language plpgsql
+security definer
+set search_path = pg_catalog, public
+as $$
+declare
+  v_intent public.execution_intents%rowtype;
+  v_approval public.execution_approvals%rowtype;
+  v_now timestamptz := now();
+begin
+  select * into v_intent
+    from public.execution_intents i
+    where i.id = p_intent_id and i.user_id = p_user_id
+    for update;
+
+  if not found or v_intent.status <> 'APPROVED' or v_intent.expires_at <= v_now then
+    raise exception 'intent is missing, expired, or not executable' using errcode = '55000';
+  end if;
+
+  select * into v_approval
+    from public.execution_approvals a
+    where a.id = p_approval_id and a.intent_id = p_intent_id
+      and a.user_id = p_user_id and a.decision = 'APPROVE'
+    for update;
+
+  if not found or v_approval.expires_at <= v_now then
+    raise exception 'approval is missing or expired' using errcode = '55000';
+  end if;
+
+  update public.execution_intents
+    set status = 'EXECUTING', updated_at = v_now
+    where id = p_intent_id and status = 'APPROVED';
+  if not found then
+    raise exception 'intent was already claimed' using errcode = '55000';
+  end if;
+
+  insert into public.execution_events(intent_id, user_id, actor_user_id, event_type, event_data)
+  values (p_intent_id, p_user_id, p_user_id, 'EXECUTION_CLAIMED',
+    jsonb_build_object('approval_id', p_approval_id));
+
+  return true;
+end;
+$$;
+
+create or replace function public.record_execution_result(
+  p_user_id uuid,
+  p_intent_id uuid,
+  p_approval_id uuid,
+  p_idempotency_key text,
+  p_result_status text,
+  p_broker_order_id text,
+  p_result_snapshot jsonb
+)
+returns uuid
+language plpgsql
+security definer
+set search_path = pg_catalog, public
+as $$
+declare
+  v_intent public.execution_intents%rowtype;
+  v_approval public.execution_approvals%rowtype;
+  v_record_id uuid;
+  v_next_status text;
+begin
+  if p_result_status not in ('FILLED','FAILED','REJECTED','UNKNOWN') then
+    raise exception 'invalid execution result status' using errcode = '22023';
+  end if;
+
+  select * into v_intent from public.execution_intents i
+    where i.id = p_intent_id and i.user_id = p_user_id for update;
+  if not found or v_intent.status <> 'EXECUTING' then
+    raise exception 'intent was not claimed or has already completed' using errcode = '55000';
+  end if;
+
+  select * into v_approval from public.execution_approvals a
+    where a.id = p_approval_id and a.intent_id = p_intent_id
+      and a.user_id = p_user_id and a.decision = 'APPROVE';
+  if not found then
+    raise exception 'approval is missing or expired' using errcode = '55000';
+  end if;
+
+  insert into public.execution_records(
+    intent_id, approval_id, user_id, idempotency_key, result_status,
+    broker_order_id, result_snapshot
+  ) values (
+    p_intent_id, p_approval_id, p_user_id, p_idempotency_key, p_result_status,
+    p_broker_order_id, p_result_snapshot
+  ) returning id into v_record_id;
+
+  v_next_status := case
+    when p_result_status = 'FILLED' then 'EXECUTED'
+    when p_result_status = 'UNKNOWN' then 'UNKNOWN'
+    else 'FAILED'
+  end;
+
+  update public.execution_intents
+    set status = v_next_status, updated_at = now()
+    where id = p_intent_id;
+
+  insert into public.execution_events(intent_id, user_id, actor_user_id, event_type, event_data)
+  values (
+    p_intent_id, p_user_id, p_user_id,
+    case when p_result_status = 'UNKNOWN' then 'EXECUTION_UNKNOWN' else 'EXECUTION_RECORDED' end,
+    jsonb_build_object('execution_record_id', v_record_id, 'result_status', p_result_status)
+  );
+
+  return v_record_id;
+end;
+$$;
+
+revoke all on function public.create_execution_intent(uuid,text,text,jsonb,jsonb,jsonb,jsonb,timestamptz) from public, anon, authenticated;
+revoke all on function public.record_execution_approval(uuid,uuid,text,uuid,jsonb,text,timestamptz) from public, anon, authenticated;
+revoke all on function public.claim_execution(uuid,uuid,uuid) from public, anon, authenticated;
+revoke all on function public.record_execution_result(uuid,uuid,uuid,text,text,text,jsonb) from public, anon, authenticated;
+grant execute on function public.create_execution_intent(uuid,text,text,jsonb,jsonb,jsonb,jsonb,timestamptz) to service_role;
+grant execute on function public.record_execution_approval(uuid,uuid,text,uuid,jsonb,text,timestamptz) to service_role;
+grant execute on function public.claim_execution(uuid,uuid,uuid) to service_role;
+grant execute on function public.record_execution_result(uuid,uuid,uuid,text,text,text,jsonb) to service_role;
+ then
+    raise exception 'fresh account, market, and risk revalidation is required' using errcode = '55000';
+  end if;
+  begin
+    if (p_revalidation_snapshot ->> 'validated_at')::timestamptz < v_now - interval '15 seconds'
+       or (p_revalidation_snapshot ->> 'validated_at')::timestamptz > v_now + interval '2 seconds' then
+      raise exception 'fresh account, market, and risk revalidation is required' using errcode = '55000';
+    end if;
+  exception when others then
+    raise exception 'fresh account, market, and risk revalidation is required' using errcode = '55000';
+  end;
+
+  update public.execution_intents
+    set status = 'EXECUTING', updated_at = v_now
+    where id = p_intent_id and status = 'APPROVED';
+  if not found then
+    raise exception 'intent was already claimed' using errcode = '55000';
+  end if;
+
+  insert into public.execution_events(intent_id, user_id, actor_user_id, event_type, event_data)
+  values (p_intent_id, p_user_id, p_user_id, 'EXECUTION_CLAIMED',
+    jsonb_build_object('approval_id', p_approval_id));
+
+  return true;
+end;
+$$;
+
+create or replace function public.record_execution_result(
+  p_user_id uuid,
+  p_intent_id uuid,
+  p_approval_id uuid,
+  p_idempotency_key text,
+  p_result_status text,
+  p_broker_order_id text,
+  p_result_snapshot jsonb
+)
+returns uuid
+language plpgsql
+security definer
+set search_path = pg_catalog, public
+as $$
+declare
+  v_intent public.execution_intents%rowtype;
+  v_approval public.execution_approvals%rowtype;
+  v_record_id uuid;
+  v_next_status text;
+begin
+  if p_result_status not in ('FILLED','FAILED','REJECTED','UNKNOWN') then
+    raise exception 'invalid execution result status' using errcode = '22023';
+  end if;
+
+  select * into v_intent from public.execution_intents i
+    where i.id = p_intent_id and i.user_id = p_user_id for update;
+  if not found or v_intent.status <> 'EXECUTING' then
+    raise exception 'intent was not claimed or has already completed' using errcode = '55000';
+  end if;
+
+  select * into v_approval from public.execution_approvals a
+    where a.id = p_approval_id and a.intent_id = p_intent_id
+      and a.user_id = p_user_id and a.decision = 'APPROVE';
+  if not found then
+    raise exception 'approval is missing or expired' using errcode = '55000';
+  end if;
+
+  insert into public.execution_records(
+    intent_id, approval_id, user_id, idempotency_key, result_status,
+    broker_order_id, result_snapshot
+  ) values (
+    p_intent_id, p_approval_id, p_user_id, p_idempotency_key, p_result_status,
+    p_broker_order_id, p_result_snapshot
+  ) returning id into v_record_id;
+
+  v_next_status := case
+    when p_result_status = 'FILLED' then 'EXECUTED'
+    when p_result_status = 'UNKNOWN' then 'UNKNOWN'
+    else 'FAILED'
+  end;
+
+  update public.execution_intents
+    set status = v_next_status, updated_at = now()
+    where id = p_intent_id;
+
+  insert into public.execution_events(intent_id, user_id, actor_user_id, event_type, event_data)
+  values (
+    p_intent_id, p_user_id, p_user_id,
+    case when p_result_status = 'UNKNOWN' then 'EXECUTION_UNKNOWN' else 'EXECUTION_RECORDED' end,
+    jsonb_build_object('execution_record_id', v_record_id, 'result_status', p_result_status)
+  );
+
+  return v_record_id;
+end;
+$$;
+
+revoke all on function public.create_execution_intent(uuid,text,text,jsonb,jsonb,jsonb,jsonb,timestamptz) from public, anon, authenticated;
+revoke all on function public.record_execution_approval(uuid,uuid,text,uuid,jsonb,text,timestamptz) from public, anon, authenticated;
+revoke all on function public.claim_execution(uuid,uuid,uuid) from public, anon, authenticated;
+revoke all on function public.record_execution_result(uuid,uuid,uuid,text,text,text,jsonb) from public, anon, authenticated;
+grant execute on function public.create_execution_intent(uuid,text,text,jsonb,jsonb,jsonb,jsonb,timestamptz) to service_role;
+grant execute on function public.record_execution_approval(uuid,uuid,text,uuid,jsonb,text,timestamptz) to service_role;
+grant execute on function public.claim_execution(uuid,uuid,uuid) to service_role;
+grant execute on function public.record_execution_result(uuid,uuid,uuid,text,text,text,jsonb) to service_role;
+ then
+    raise exception 'approval snapshot does not match intent' using errcode = '22023';
   end if;
 
   insert into public.execution_approvals(
