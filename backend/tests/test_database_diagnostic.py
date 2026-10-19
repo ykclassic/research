@@ -83,3 +83,22 @@ def test_database_diagnostic_does_not_claim_unrecognized_target(
     assert response.json()["configured"] is True
     assert response.json()["project_ref"] is None
     assert response.json()["database_probe"] == "failed"
+
+
+
+def test_database_diagnostic_never_sends_service_key_to_wrong_supabase_project(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(settings, "supabase_url", "https://aaaaaaaaaaaaaaaaaaaa.supabase.co")
+    monkeypatch.setattr(settings, "supabase_service_role_key", "server-only-test-key")
+    monkeypatch.setattr(
+        diagnostics_api,
+        "service_request",
+        lambda *args, **kwargs: pytest.fail("must not probe a project other than the expected production target"),
+    )
+
+    response = client.get("/internal/diagnostics/database")
+
+    assert response.status_code == 200
+    assert response.json()["project_ref"] == "aaaaaaaaaaaaaaaaaaaa"
+    assert response.json()["database_probe"] == "failed"
