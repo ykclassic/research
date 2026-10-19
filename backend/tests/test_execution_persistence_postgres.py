@@ -120,13 +120,12 @@ def test_approval_is_immutable_and_single_use(db) -> None:
     approval_id = _approve(db, user_id, intent_id)
 
     with pytest.raises(psycopg.Error, match="append-only"):
-        db.execute("update public.execution_approvals set decision='REJECT' where id=%s", (approval_id,))
-    db.rollback()
+        with db.transaction():
+            db.execute("update public.execution_approvals set decision='REJECT' where id=%s", (approval_id,))
 
-    # Use a fresh transaction after the expected trigger exception.
-    with db.transaction():
-        assert db.execute("select status from public.execution_intents where id=%s", (intent_id,)).fetchone()[0] == "APPROVED"
-        with pytest.raises(psycopg.Error):
+    assert db.execute("select status from public.execution_intents where id=%s", (intent_id,)).fetchone()[0] == "APPROVED"
+    with pytest.raises(psycopg.Error):
+        with db.transaction():
             _approve(db, user_id, intent_id)
 
 
@@ -136,7 +135,8 @@ def test_rejected_proposal_cannot_be_claimed(db) -> None:
     approval_id = _approve(db, user_id, intent_id, "REJECT")
 
     with pytest.raises(psycopg.Error, match="not executable"):
-        db.execute("select public.claim_execution(%s, %s, %s)", (user_id, intent_id, approval_id))
+        with db.transaction():
+            db.execute("select public.claim_execution(%s, %s, %s)", (user_id, intent_id, approval_id))
 
 
 def test_claim_is_atomic_single_use_and_execution_record_is_immutable(db) -> None:
@@ -146,19 +146,19 @@ def test_claim_is_atomic_single_use_and_execution_record_is_immutable(db) -> Non
 
     assert db.execute("select public.claim_execution(%s, %s, %s)", (user_id, intent_id, approval_id)).fetchone()[0] is True
     with pytest.raises(psycopg.Error, match="not executable"):
-        db.execute("select public.claim_execution(%s, %s, %s)", (user_id, intent_id, approval_id))
-    db.rollback()
+        with db.transaction():
+            db.execute("select public.claim_execution(%s, %s, %s)", (user_id, intent_id, approval_id))
 
-    # Re-run the complete valid sequence in a clean transaction.
+    # The second claim did not corrupt the already-committed-in-transaction state.
+    assert db.execute("select status from public.execution_intents where id=%s", (intent_id,)).fetchone()[0] == "APPROVED"
     with db.transaction():
-        intent_id, _, key = _create_intent(db, user_id, f"intent-{uuid4()}")
-        approval_id = _approve(db, user_id, intent_id)
         db.execute("select public.claim_execution(%s, %s, %s)", (user_id, intent_id, approval_id))
-        record_id = db.execute(
-            """select public.record_execution_result(%s, %s, %s, %s, %s, %s, %s)""",
-            (user_id, intent_id, approval_id, f"execution-{uuid4()}", "FILLED", "TEST-BROKER-1", Jsonb({"fill_price": 100.1})),
-        ).fetchone()[0]
-        with pytest.raises(psycopg.Error, match="append-only"):
+    record_id = db.execute(
+        """select public.record_execution_result(%s, %s, %s, %s, %s, %s, %s)""",
+        (user_id, intent_id, approval_id, f"execution-{uuid4()}", "FILLED", "TEST-BROKER-1", Jsonb({"fill_price": 100.1})),
+    ).fetchone()[0]
+    with pytest.raises(psycopg.Error, match="append-only"):
+        with db.transaction():
             db.execute("delete from public.execution_records where id=%s", (record_id,))
 
 
@@ -172,8 +172,22 @@ def test_event_log_is_append_only_and_rejected_approval_has_no_execution_record(
     ).fetchone()[0]
 
     with pytest.raises(psycopg.Error, match="append-only"):
-        db.execute("delete from public.execution_events where event_seq=%s", (event_id,))
-    db.rollback()
-    with db.transaction():
-        assert db.execute("select status from public.execution_intents where id=%s", (intent_id,)).fetchone()[0] == "REJECTED"
-        assert db.execute("select count(*) from public.execution_records where intent_id=%s", (intent_id,)).fetchone()[0] == 0
+        with db.transaction():
+            db.execute("delete from public.execution_events where event_seq=%s", (event_id,))
+    assert db.execute("select status from public.execution_intents where id=%s", (intent_id,)).fetchone()[0] == "REJECTED"
+    assert db.execute("select count(*) from public.execution_records where intent_id=%s", (intent_id,)).fetchone()[0] == 0
+
+
+
+def test_execution_tables_are_not_granted_to_browser_roles(db) -> None:
+    rows = db.execute(
+        """select c.relname, c.relrowsecurity,
+          has_table_privilege('anon', format('public.%I', c.relname), 'select') as anon_select,
+          has_table_privilege('authenticated', format('public.%I', c.relname), 'select') as authenticated_select
+        from pg_class c join pg_namespace n on n.oid=c.relnamespace
+        where n.nspname='public' and c.relname in (
+          'execution_intents','execution_approvals','execution_records','execution_events'
+        ) order by c.relname"""
+    ).fetchall()
+    assert len(rows) == 4
+    assert all(row[1] is True and row[2] is False and row[3] is False for row in rows)
