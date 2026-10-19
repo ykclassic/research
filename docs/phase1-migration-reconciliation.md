@@ -1,47 +1,61 @@
-# Phase 1 migration reconciliation — first pass
+# Phase 1 migration reconciliation — row-by-row matrix
 
-Read-only audit of repository commit `4d5eefeb6cd231a7b733db508035fa869814ad7b` against Supabase project `rprgjfvfttxydhbekuoc`. No schema or migration history was changed.
+**Scope:** read-only comparison of the 33 migration files in repository `main` at `4d5eefeb6cd231a7b733db508035fa869814ad7b`, the 29-row Supabase migration ledger, and live catalog/RLS/grant evidence queried from project `rprgjfvfttxydhbekuoc`. No production DDL or ledger edits were made.
 
-## Counts
+## Reconciliation matrix
 
-- Repository: 33 SQL files under `supabase/migrations/`.
-- Supabase migration ledger: 29 records.
-- Live catalog query: workspace and signal-intelligence objects exist; the objects listed below do not.
-- Count difference is not, by itself, a safe migration plan. Names/timestamps differ, duplicate Phase 4 ledger entries exist, and object presence alone does not prove matching policies or constraints.
+| # | Repository migration | Ledger evidence | Live catalog evidence | Classification |
+|---:|---|---|---|---|
+| 1 | `20260824233618_watchlists_phase_2.sql` | `watchlists_phase_2` | `watchlists`, `watchlist_items` present; RLS enabled | MATCHED by name/effect; timestamp alias |
+| 2 | `20260904090000_mtf_candle_cache.sql` | No matching row | `mtf_candle_cache` absent | NOT_APPLIED; verify no code path requires it before scheduling a later migration |
+| 3 | `20260906180000_research_history.sql` | `20260906180000_research_history` at ledger version `20260906192011` | `research_history`, `research_notes` present | MATCHED by name/effect; ledger version differs from filename timestamp |
+| 4 | `20260906190000_alerts_monitoring.sql` | `20260906190000_alerts_monitoring` at `20260906191758` | `alert_rules`, `alert_events` present; RLS enabled | MATCHED by name/effect; timestamp alias |
+| 5 | `20260906200000_portfolio_decision_support.sql` | `portfolio_decision_support` at `20260906212023` | `portfolio_positions` present; RLS enabled; 4 policies | MATCHED by name/effect; timestamp alias |
+| 6 | `20260913200000_settings_foundation.sql` | `settings_foundation` at `20260913220130` | `user_preferences` present | MATCHED by name/effect; timestamp alias |
+| 7 | `20260913201000_settings_security_hardening.sql` | `settings_security_hardening` at `20260913220211` | No standalone table expected; function/policy effects require SQL-object comparison | MATCHED by name; function/policy checksum review remains |
+| 8 | `20260919200000_signal_outcome_target_tag_audit.sql` | `signal_outcome_target_tag_audit` at `20260919225814` | `signal_outcome_audit` present; mutation-rejection trigger previously observed | MATCHED by name/effect; timestamp alias |
+| 9 | `20260921120000_monetization_entitlements.sql` | `20260921120000_monetization_entitlements` at `20260921222914` | Billing plans/features/limits/subscriptions/events and usage tables present | MATCHED by name/effect; **grant review remains open** |
+| 10 | `20260922000000_usage_threshold_notifications.sql` | `billing_usage_notifications_table` at `20260922092753` | `billing_usage_notifications` present; `consume_usage` exists | MATCHED by effect/alias; timestamp/name differs |
+| 11 | `20260922010000_signal_intelligence_analytics.sql` | No exact matching row | `signal_intelligence` and `signal_intelligence_analytics` feature present; next migration creates same table canonically | SUPERSEDED / SCHEMA_PRESENT_LEDGER_MISMATCH; compare column, index, grant and policy definitions with row 12 |
+| 12 | `20260922044929_signal_intelligence.sql` | `signal_intelligence` at `20260922044929` | Table present, RLS enabled, 2 policies; authenticated SELECT/INSERT grants observed | MATCHED; table effect verified, review row 11 overlap |
+| 13 | `20260922090000_phase3_scanner.sql` | `phase3_scanner_market_scanner_alert_engine` at `20260922052245` | Scanner presets/runs/opportunities/schedules/alert events present | MATCHED by effect/alias; timestamp precedes filename |
+| 14 | `20260923000000_phase3_scanner_completion.sql` | No exact matching row | `scanner_alert_deliveries` present; `scanner_opportunities` altered by source migration | SCHEMA_PRESENT_LEDGER_MISMATCH; likely applied outside matching ledger name; compare columns/policies |
+| 15 | `20260923150000_phase4_research_intelligence.sql` | Three ledger rows named `phase4_research_intelligence` at `20260923141140`, `20260925021944`, `20260925024319` | Research snapshots/provenance/watchpoints/watchpoint events/catalyst events present | SCHEMA_PRESENT_LEDGER_MISMATCH; one file vs three ledger entries; provenance of two extra entries unresolved |
+| 16 | `20260923193000_phase3_completion_gates.sql` | `phase3_completion_gates` at `20260923192326` | No table creation expected; migration is a completion-gate script | MATCHED by name/effect; confirm exact script history/checksum |
+| 17 | `20260923194500_phase4_completion_gates.sql` | `phase4_completion_gates` at `20260923193016` | `research_catalyst_events` and related alterations present | MATCHED by name/effect; timestamp alias |
+| 18 | `20260923200000_phase5_grounded_copilot.sql` | `phase5_grounded_copilot` at `20260923193748` | `research_runs`, `research_schedules` present | MATCHED by name/effect; timestamp alias |
+| 19 | `20260925120000_phase6_quant_lab.sql` | No matching row | `quant_experiments`, `paper_portfolios`, `paper_trades` absent | NOT_APPLIED |
+| 20 | `20260925220000_quant_experiment_contract.sql` | No matching row | Base quant tables absent, so its target columns/indexes cannot exist | DEPENDENCY_BLOCKED / NOT_APPLIED |
+| 21 | `20260925233000_phase6_strategy_builder_validation.sql` | No matching row | `strategy_definitions` absent | NOT_APPLIED |
+| 22 | `20260925240000_phase7_portfolio_intelligence.sql` | `phase7_portfolio_intelligence` at `20260925230252` | `portfolio_positions` present | MATCHED by effect/alias; timestamp differs |
+| 23 | `20260926003000_phase10_optimization_intelligence.sql` | `phase10_optimization_intelligence` at `20260926075534` | Chart events, fundamentals, models/versions/events, cache entries and product events present | MATCHED by effect/alias; cache table has RLS but no policies and is service-role-only |
+| 24 | `20260926010000_phase10_model_governance_guardrails.sql` | `phase10_model_governance_guardrails` at `20260926081941` | Model version/event tables present; exact trigger/function body needs checksum comparison | MATCHED by name/effect; trigger definition review remains |
+| 25 | `20260926100000_phase8_research_workspaces.sql` | No exact matching row | All seven workspace-related tables present; RLS enabled; expected owner/shared policy families present | SCHEMA_PRESENT_LEDGER_MISMATCH; compare all columns/constraints/policies to source SQL |
+| 26 | `20260926103000_phase8_research_entitlement.sql` | No exact matching row | `advanced_research` feature exists | SCHEMA_PRESENT_LEDGER_MISMATCH; verify every plan-feature row and its provenance |
+| 27 | `20260926120000_phase9_infrastructure.sql` | `phase9_infrastructure` at `20260926001951` | API keys, webhooks, organizations, members, shares, audit log and exports present | MATCHED by name/effect; timestamp alias |
+| 28 | `20260926123000_phase9_shared_resource_rls.sql` | `phase9_shared_resource_rls` at `20260926002146` | Workspace/shared resource policy families present | MATCHED by name/effect; compare policy expressions and grants |
+| 29 | `20260926124500_phase9_scheduled_exports.sql` | `phase9_scheduled_exports` at `20260926002238` | `research_export_schedules` present | MATCHED by name/effect; timestamp alias |
+| 30 | `20261002090000_enhanced_signal_entitlement.sql` | `enhanced_signal_entitlement` at `20261002122943` | `enhanced_signal` feature exists | MATCHED by name/effect; verify plan-feature rows |
+| 31 | `20261006090000_billing_paid_plan_lifecycle.sql` | `billing_paid_plan_lifecycle` at `20261006212641` | `consume_usage` lifecycle function exists | MATCHED by name/effect; compare function body |
+| 32 | `20261007190000_fix_consume_usage_period_start_ambiguity.sql` | `fix_consume_usage_period_start_ambiguity` at `20261007200501` | `consume_usage` exists | MATCHED by name/effect; compare function body |
+| 33 | `20261007211000_fix_consume_api_usage_period_start_ambiguity.sql` | `fix_consume_api_usage_period_start_ambiguity` at `20261007210815` | `consume_api_usage` expected from migration; exact function body not yet compared | MATCHED by name/effect; compare function body |
 
-## Repository files without exact ledger-name matches
+## Ledger rows without a one-to-one repository file
 
-| Migration file | Expected live effect | Observed evidence | Initial classification |
-|---|---|---|---|
-| `20260904090000_mtf_candle_cache.sql` | `public.mtf_candle_cache` | Table absent | NOT_APPLIED |
-| `20260922010000_signal_intelligence_analytics.sql` | `signal_intelligence`, `signal_intelligence_analytics` billing feature and grants/policies | Table and feature exist | SCHEMA_PRESENT_LEDGER_MISMATCH; inspect policy/grant equivalence |
-| `20260925120000_phase6_quant_lab.sql` | `quant_experiments`, `paper_portfolios`, `paper_trades` | All three tables absent | NOT_APPLIED |
-| `20260925220000_quant_experiment_contract.sql` | Adds contract fields/indexes to quant tables | Base tables absent | NOT_APPLIED / dependency blocked |
-| `20260925233000_phase6_strategy_builder_validation.sql` | `strategy_definitions` | Table absent | NOT_APPLIED |
-| `20260926100000_phase8_research_workspaces.sql` | Workspace, asset, dashboard, link, scorecard, automation and cross-asset tables | Workspace tables and related objects present | SCHEMA_PRESENT_LEDGER_MISMATCH; inspect full schema/security equivalence |
-| `20260926103000_phase8_research_entitlement.sql` | `advanced_research` feature and plan-feature rows | Feature exists | SCHEMA_PRESENT_LEDGER_MISMATCH; verify plan-feature rows |
+| Ledger version | Ledger name | Classification |
+|---|---|---|
+| `20260925021944` | `phase4_research_intelligence` | UNRESOLVED duplicate; no second repository migration |
+| `20260925024319` | `phase4_research_intelligence` | UNRESOLVED duplicate; no third repository migration |
+| `20260925221413` | `20260925230000_pro_premium_feature_parity` | UNRESOLVED; no exact repository file; inspect plan-feature data and historical commit |
 
-## Ledger entries without exact repository counterparts
+The row at `20260923141140 / phase4_research_intelligence` is the first plausible match for the repository Phase 4 file, but its version differs from the repository timestamp. It cannot establish which later duplicate entries ran or whether they changed schema/data.
 
-- `20260925021944 / phase4_research_intelligence`
-- `20260925024319 / phase4_research_intelligence`
-- `20260925221413 / 20260925230000_pro_premium_feature_parity`
+## Catalog security evidence
 
-The ledger also has `20260923141140 / phase4_research_intelligence`, while the repository has one `20260923150000_phase4_research_intelligence.sql`. Do not assume these duplicate entries are harmless or interchangeable. Classify them as UNRESOLVED until their SQL effects are compared with catalog definitions and historical commits.
+The live catalog confirms RLS enabled on the inspected billing, portfolio, signal, cache, and workspace tables. It also shows role grants broader than the source migration's explicit grants on several billing and workspace tables. RLS policies are a separate control from table grants; grants should be narrowed only after reviewing the policy expressions and actual application access patterns. `research_cache_entries` has RLS enabled with no policies and service-role-only grants, which is a deliberate fail-closed pattern if all access is intended to remain backend-only.
 
-## What the first pass establishes
+The matrix's status indicates best-supported effect mapping, not cryptographic SQL equivalence. Exact source checksums and full function/trigger/policy expressions are still needed for the rows explicitly flagged above. No migration was applied, marked applied, deleted, or repaired in production.
 
-Four repository migrations have absent expected objects; three repository migrations have evidence of their effects but no exact ledger match; three live ledger entries lack exact one-to-one repository counterparts. This explains the 33-file/29-record count without proving full schema equivalence.
+## Execution migration testing boundary
 
-## Required reconciliation before any migration action
-
-For each file and ledger row, compare SQL content/checksum, created objects, columns, constraints, indexes, policies, grants, triggers, functions, seed/entitlement rows, dependent migrations, and historical commits. Record one of:
-
-- MATCHED
-- SCHEMA_PRESENT_LEDGER_MISMATCH
-- LEDGER_PRESENT_SCHEMA_MISSING
-- NOT_APPLIED
-- SUPERSEDED
-- UNRESOLVED
-
-No production migration should be applied, marked applied, deleted, squashed, or repaired until this matrix has been reviewed. The live catalog must be checked for all security objects as well as table names; a present table does not prove that its RLS policies or grants match the migration source.
+The new execution persistence migration lives only in the repository branch. A disposable PostgreSQL 16 GitHub Actions service is configured to create minimal `auth.users` and test roles, apply the migration, and test transactional RPCs, idempotency, rejected-intent isolation, single-use claim, browser-role denial, and append-only triggers. It is not connected to production Supabase.
