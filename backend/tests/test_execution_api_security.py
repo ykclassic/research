@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import ast
+from pathlib import Path
+
 from fastapi.testclient import TestClient
 import pytest
 from pydantic import ValidationError
@@ -393,3 +396,34 @@ def test_approval_challenge_is_bound_to_action_and_authenticated_user(
         json={"decision": "APPROVE", "request_hash": preview["request_hash"], "challenge": token},
     )
     assert foreign.status_code == 403
+
+
+def test_repository_has_no_alternate_order_submission_call_paths() -> None:
+    app_root = Path(__file__).resolve().parents[1] / "app"
+    execution_module = (app_root / "services" / "execution.py").resolve()
+    violations = []
+
+    for source_path in app_root.rglob("*.py"):
+        tree = ast.parse(source_path.read_text(encoding="utf-8"), filename=str(source_path))
+        for node in ast.walk(tree):
+            if isinstance(node, ast.ImportFrom) and node.module == "app.services.execution":
+                if any(alias.name == "execute_order" for alias in node.names):
+                    if source_path.resolve() != execution_module:
+                        violations.append(f"{source_path}: imports execute_order")
+            if not isinstance(node, ast.Call):
+                continue
+            function = node.func
+            calls_execute_order = (
+                isinstance(function, ast.Name) and function.id == "execute_order"
+            ) or (
+                isinstance(function, ast.Attribute) and function.attr == "execute_order"
+            )
+            calls_broker_submission = (
+                isinstance(function, ast.Attribute) and function.attr == "submit_order"
+            )
+            if source_path.resolve() != execution_module and (
+                calls_execute_order or calls_broker_submission
+            ):
+                violations.append(f"{source_path}:{node.lineno}: order submission call")
+
+    assert violations == [], "Alternate execution paths found: " + "; ".join(violations)
