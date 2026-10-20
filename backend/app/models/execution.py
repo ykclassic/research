@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from enum import Enum
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -79,3 +80,12 @@ class ExecutionRequest(BaseModel):
     execution_mode: ExecutionMode = ExecutionMode.PAPER
     client_order_id: str | None = None
     experiment_id: str | None = None
+
+
+class ExecutionApprovalDecisionRequest(BaseModel):
+    """A decision only; identity and approval snapshot are server-derived."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    decision: Literal["APPROVE", "REJECT"]
+    request_hash: str = Field(pattern=r"^[a-f0-9]{64}$")
