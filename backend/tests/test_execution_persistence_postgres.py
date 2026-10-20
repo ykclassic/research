@@ -474,7 +474,8 @@ def test_all_privileged_functions_have_restricted_owner_and_execute_grants(db) -
         "public.execution_snapshot_sha256(jsonb)",
         "public.execution_intent_request_sha256(jsonb,jsonb,jsonb,jsonb)",
         "public.create_execution_intent(uuid,text,text,jsonb,jsonb,jsonb,jsonb,timestamptz)",
-        "public.record_execution_approval(uuid,uuid,text,uuid,jsonb,text,timestamptz)",
+        "public.register_execution_approval_challenge(uuid,uuid,text,text,text,timestamptz)",
+        "public.record_execution_approval(uuid,uuid,text,uuid,jsonb,text,timestamptz,text)",
         "public.get_execution_intent_approval_preview(uuid,uuid)",
         "public.claim_execution(uuid,uuid,uuid,jsonb,text)",
         "public.record_execution_result(uuid,uuid,uuid,text,text,text,jsonb)",
@@ -758,6 +759,10 @@ def test_effective_privileges_include_inherited_membership_and_default_grants(db
         assert db.execute(
             "select pg_has_role(%s, 'execution_persistence_owner', 'member')", (role,)
         ).fetchone()[0] is False
+        for schema in ("public", "extensions"):
+            assert db.execute(
+                "select has_schema_privilege(%s, %s, 'CREATE')", (role, schema)
+            ).fetchone()[0] is False
 
     default_grants = db.execute(
         """
@@ -765,8 +770,7 @@ def test_effective_privileges_include_inherited_membership_and_default_grants(db
                d.defaclobjtype, x.grantee, x.privilege_type
         from pg_default_acl d
         cross join lateral aclexplode(d.defaclacl) x
-        where d.defaclnamespace = 'public'::regnamespace
-          and x.grantee in (
+        where x.grantee in (
             select oid from pg_roles where rolname = any(%s)
           )
           and x.privilege_type in (
