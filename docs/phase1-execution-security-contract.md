@@ -209,3 +209,22 @@ The order endpoint remains fail-closed and does not call a broker adapter. claim
 
 
 Approval confirmation uses a short-lived signed challenge bound to the verified user ID, intent ID, canonical request hash, explicit APPROVE/REJECT action, expiry, and unique nonce. The approval endpoint verifies the token and reloads the current owner-scoped intent. The database then atomically creates the single approval row, transitions the intent out of AWAITING_APPROVAL, and appends the audit event. That single-use state transition makes a replayed token ineffective; changed action, user, intent, hash, or expired token is rejected before persistence. The signing secret remains server-side.
+
+
+## Independent-review remediation follow-up
+
+### Persisted one-time challenge consumption
+
+Approval challenges are now persisted in `execution_approval_challenges`. Only a SHA-256 digest of the signed token's random `jti` is stored. The registration RPC binds that digest to owner, intent, canonical request hash, decision, and expiry. The approval RPC locks the intent, validates the canonical snapshot, and conditionally consumes the matching unexpired challenge with `consumed_at IS NULL` in the same database transaction as approval insertion, state transition, and audit-event insertion. Any failure rolls back consumption. A database trigger prevents challenge-binding edits and deletion and rejects a second consumption.
+
+### End-to-end and concurrency evidence
+
+The PostgreSQL integration suite now drives the FastAPI approval preview/challenge/decision routes through the real SQL RPC functions using disposable PostgreSQL. It verifies owner-scoped denial, successful decision persistence, same-token replay denial, and exactly one approval/audit event. The test injects the authenticated session dependency, while persistence and SQL behavior are not mocked. Separate deterministic multi-session tests race the same approval challenge, competing decisions, duplicate intent creation, and conflicting idempotency keys.
+
+### Effective privileges and alternate execution paths
+
+The disposable PostgreSQL audit includes the challenge table, effective grants across protected tables and sequences, role memberships, schema CREATE rights, default ACLs including PUBLIC, SECURITY DEFINER RPC ownership/search paths, and explicit PUBLIC/role execution checks for trigger functions. Trigger functions are owned by the non-login persistence role and are not directly executable by browser/service roles.
+
+Repository-wide AST checks fail if application code outside `backend/app/services/execution.py` imports/calls `execute_order` or invokes `submit_order`. That service now rejects LIVE mode unconditionally and rejects custom broker adapters in all modes while this phase's execution gate is disabled. The API order route remains fail-closed, and the SQL claim/result functions remain unconditional hard stops.
+
+These controls do not authorize live trading. Production migration, deployment, and merge remain blocked pending green checks on the final head and a new independent review decision.
