@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
+import hashlib
 from uuid import uuid4
 
 import pytest
@@ -84,6 +85,7 @@ def test_approval_creation_uses_canonical_snapshot_hash(monkeypatch) -> None:
             return _Response("c" * 64)
         if path == "rpc/record_execution_approval":
             assert kwargs["json"]["p_snapshot_hash"] == "c" * 64
+            assert kwargs["json"]["p_challenge_jti_hash"] == hashlib.sha256(b"test-jti").hexdigest()
             return _Response(str(approval_id))
         raise AssertionError(f"unexpected RPC: {path}")
 
@@ -94,6 +96,7 @@ def test_approval_creation_uses_canonical_snapshot_hash(monkeypatch) -> None:
         decision="APPROVE",
         actor_user_id=user_id,
         approval_snapshot={"symbol": "BTC/USDT", "quantity": 1},
+        challenge_jti="test-jti",
         expires_at=datetime.now(timezone.utc) + timedelta(minutes=5),
     )
 
@@ -119,8 +122,34 @@ def test_approval_rejects_caller_forged_hash(monkeypatch) -> None:
             decision="APPROVE",
             actor_user_id=uuid4(),
             approval_snapshot={"symbol": "BTC/USDT", "quantity": 1},
+            challenge_jti="test-jti",
             snapshot_hash="b" * 64,
             expires_at=datetime.now(timezone.utc) + timedelta(minutes=5),
         )
 
     assert calls == ["rpc/execution_snapshot_sha256"]
+
+
+def test_challenge_registration_persists_only_a_digest_of_the_nonce(monkeypatch) -> None:
+    user_id, intent_id = uuid4(), uuid4()
+    calls = []
+
+    def fake_service_request(method, path, **kwargs):
+        calls.append((path, kwargs))
+        assert path == "rpc/register_execution_approval_challenge"
+        assert kwargs["json"]["p_user_id"] == str(user_id)
+        assert kwargs["json"]["p_intent_id"] == str(intent_id)
+        assert kwargs["json"]["p_challenge_jti_hash"] == hashlib.sha256(b"nonce-value").hexdigest()
+        assert kwargs["json"]["p_challenge_jti_hash"] != "nonce-value"
+        return _Response(True)
+
+    monkeypatch.setattr(execution_persistence, "service_request", fake_service_request)
+    execution_persistence.register_execution_approval_challenge(
+        user_id=user_id,
+        intent_id=intent_id,
+        request_hash="a" * 64,
+        decision="APPROVE",
+        challenge_jti="nonce-value",
+        expires_at=datetime.now(timezone.utc) + timedelta(minutes=2),
+    )
+    assert len(calls) == 1
