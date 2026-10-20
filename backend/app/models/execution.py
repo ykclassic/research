@@ -82,10 +82,16 @@ class ExecutionRequest(BaseModel):
     experiment_id: str | None = None
 
 
-class ExecutionApprovalDecisionRequest(BaseModel):
-    """A decision only; identity and approval snapshot are server-derived."""
+class ExecutionApprovalChallengeRequest(BaseModel):
+    """The requested action and hash; identity and challenge are server-derived."""
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     decision: Literal["APPROVE", "REJECT"]
     request_hash: str = Field(pattern=r"^[a-f0-9]{64}$")
+
+
+class ExecutionApprovalDecisionRequest(ExecutionApprovalChallengeRequest):
+    """A one-time signed challenge is required to persist a decision."""
+
+    challenge: str = Field(min_length=32, max_length=4096)
