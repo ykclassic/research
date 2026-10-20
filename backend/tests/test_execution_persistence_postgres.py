@@ -241,10 +241,10 @@ def test_execution_tables_are_not_granted_to_browser_roles(db) -> None:
           has_table_privilege('authenticated', format('public.%I', c.relname), 'select') as authenticated_select
         from pg_class c join pg_namespace n on n.oid=c.relnamespace
         where n.nspname='public' and c.relname in (
-          'execution_intents','execution_approvals','execution_records','execution_events'
+          'execution_intents','execution_approvals','execution_approval_challenges','execution_records','execution_events'
         ) order by c.relname"""
     ).fetchall()
-    assert len(rows) == 6
+    assert len(rows) == 5
     assert all(row[1] is True and row[2] is False and row[3] is False for row in rows)
 
     rpc_privileges = db.execute(
@@ -340,7 +340,7 @@ def test_rpc_owner_and_search_path_are_hardened(db) -> None:
            where n.nspname='public' and p.proname in
              ('create_execution_intent','get_execution_intent_approval_preview','register_execution_approval_challenge','record_execution_approval','claim_execution','record_execution_result')"""
     ).fetchall()
-    assert len(rows) == 4
+    assert len(rows) == 6
     assert all(row[1] is False and row[2] is False for row in rows)
     assert all(row[3] and "search_path=pg_catalog" in row[3] for row in rows)
 
