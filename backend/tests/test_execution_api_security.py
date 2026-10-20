@@ -305,6 +305,10 @@ def test_approval_actor_and_snapshot_are_derived_from_session_and_database(
         execution_api, "get_execution_intent_approval_preview",
         lambda **kwargs: preview,
     )
+    monkeypatch.setattr(
+        execution_api, "register_execution_approval_challenge",
+        lambda **kwargs: None,
+    )
     calls = []
 
     def record(**kwargs):
@@ -358,6 +362,10 @@ def test_approval_challenge_is_bound_to_action_and_authenticated_user(
     monkeypatch.setattr(
         execution_api, "get_execution_intent_approval_preview",
         lambda **kwargs: preview,
+    )
+    monkeypatch.setattr(
+        execution_api, "register_execution_approval_challenge",
+        lambda **kwargs: None,
     )
     challenge_response = client.post(
         f"/api/execution/intents/{preview['intent_id']}/approval-challenge",
