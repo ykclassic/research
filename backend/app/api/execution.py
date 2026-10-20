@@ -1,13 +1,22 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
+import secrets
+
+import jwt
 from typing import Annotated
 from uuid import UUID
 
 from fastapi import APIRouter, Cookie, Depends, HTTPException
 
 from app.api.auth import SESSION_COOKIE, UserResponse, _require_csrf, get_current_user
-from app.models.execution import ExecutionApprovalDecisionRequest, ExecutionRequest, ExecutionResult
+from app.config import settings
+from app.models.execution import (
+    ExecutionApprovalChallengeRequest,
+    ExecutionApprovalDecisionRequest,
+    ExecutionRequest,
+    ExecutionResult,
+)
 from app.services.entitlement import FeatureNotEntitledError, require_feature
 from app.services.execution_persistence import (
     get_execution_intent_approval_preview,
@@ -85,6 +94,56 @@ async def get_approval_preview(
         ) from exc
 
 
+@router.post("/intents/{intent_id}/approval-challenge")
+async def create_approval_challenge(
+    intent_id: UUID,
+    payload: ExecutionApprovalChallengeRequest,
+    user: Annotated[UserResponse, Depends(get_current_user)],
+    _: Annotated[None, Depends(_require_csrf)],
+) -> dict[str, str]:
+    """Issue a short-lived token bound to this user, intent, hash, and action."""
+    user_id = UUID(user.id)
+    try:
+        preview = get_execution_intent_approval_preview(
+            user_id=user_id,
+            intent_id=intent_id,
+        )
+        if preview["request_hash"] != payload.request_hash:
+            raise HTTPException(
+                status_code=409,
+                detail="The proposal changed. Reload the approval preview before deciding.",
+            )
+        now = datetime.now(timezone.utc)
+        intent_expires_at = datetime.fromisoformat(
+            str(preview["expires_at"]).replace("Z", "+00:00")
+        )
+        challenge_expires_at = min(now + timedelta(minutes=5), intent_expires_at)
+        if challenge_expires_at <= now:
+            raise HTTPException(status_code=409, detail="The intent has expired.")
+        token = jwt.encode(
+            {
+                "aud": "execution-approval",
+                "sub": str(user_id),
+                "intent_id": str(intent_id),
+                "request_hash": preview["request_hash"],
+                "decision": payload.decision,
+                "jti": secrets.token_urlsafe(24),
+                "iat": now,
+                "exp": challenge_expires_at,
+            },
+            settings.csrf_secret,
+            algorithm="HS256",
+        )
+        return {"challenge": token, "expires_at": challenge_expires_at.isoformat()}
+    except HTTPException:
+        raise
+    except DataServiceError as exc:
+        raise HTTPException(
+            status_code=404,
+            detail="Execution intent is unavailable for approval.",
+        ) from exc
+
+
 @router.post("/intents/{intent_id}/approval")
 async def decide_execution_approval(
     intent_id: UUID,
@@ -99,6 +158,20 @@ async def decide_execution_approval(
     """
     user_id = UUID(user.id)
     try:
+        claims = jwt.decode(
+            payload.challenge,
+            settings.csrf_secret,
+            algorithms=["HS256"],
+            audience="execution-approval",
+            options={"require": ["exp", "iat", "sub", "aud", "intent_id", "request_hash", "decision", "jti"]},
+        )
+        if (
+            claims.get("sub") != str(user_id)
+            or claims.get("intent_id") != str(intent_id)
+            or claims.get("request_hash") != payload.request_hash
+            or claims.get("decision") != payload.decision
+        ):
+            raise HTTPException(status_code=403, detail="Approval challenge does not match this decision.")
         preview = get_execution_intent_approval_preview(
             user_id=user_id,
             intent_id=intent_id,
@@ -139,6 +212,8 @@ async def decide_execution_approval(
         return {"approval_id": str(receipt.approval_id), "decision": payload.decision}
     except HTTPException:
         raise
+    except jwt.PyJWTError as exc:
+        raise HTTPException(status_code=403, detail="Approval challenge is invalid or expired.") from exc
     except DataServiceError as exc:
         raise HTTPException(
             status_code=409,
