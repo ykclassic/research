@@ -103,6 +103,23 @@ async def execute_order(
             message="Live execution is disabled by the Phase 1 safety policy.",
         )
 
+    if broker is not None and type(broker) is not PaperBrokerAdapter:
+        return ExecutionResult(
+            client_order_id=order.client_order_id,
+            symbol=order.symbol,
+            direction=order.direction,
+            status=OrderStatus.REJECTED,
+            execution_mode=order.execution_mode,
+            requested_quantity=order.quantity,
+            requested_entry_price=order.entry_price,
+            stop_loss=order.stop_loss,
+            take_profit=order.take_profit,
+            strategy_id=order.strategy_id,
+            experiment_id=order.experiment_id,
+            generated_at=order.created_at,
+            message="Custom broker adapters are disabled by the Phase 1 safety policy.",
+        )
+
     now = _utcnow()
     if order.execution_mode == ExecutionMode.RESEARCH_ONLY:
         return ExecutionResult(
