@@ -251,3 +251,15 @@ def test_approval_actor_and_snapshot_are_derived_from_session_and_database(
     assert call["approval_snapshot"]["risk_policy_version"] == "risk-v3"
     assert call["approval_snapshot"]["human_confirmed"] is True
     assert "actor_user_id" not in response.json()
+
+
+def test_execution_router_exposes_no_unreviewed_submission_paths() -> None:
+    reachable = {
+        route.path for route in app.routes
+        if getattr(route, "path", "").startswith("/api/execution")
+    }
+    assert reachable == {
+        "/api/execution/order",
+        "/api/execution/intents/{intent_id}/approval-preview",
+        "/api/execution/intents/{intent_id}/approval",
+    }
