@@ -131,6 +131,7 @@ alter table public.execution_intents enable row level security;
 alter table public.execution_approvals enable row level security;
 alter table public.execution_records enable row level security;
 alter table public.execution_events enable row level security;
+alter table public.execution_approval_challenges enable row level security;
 
 revoke all on public.execution_intents, public.execution_approvals,
   public.execution_approval_challenges, public.execution_records, public.execution_events
