@@ -180,6 +180,12 @@ def test_approval_request_rejects_caller_authored_actor_or_snapshot() -> None:
             request_hash="a" * 64,
             human_confirmed=True,
         )
+    with pytest.raises(ValidationError):
+        ExecutionApprovalDecisionRequest(
+            decision="APPROVE",
+            request_hash="a" * 64,
+            user_id="b89e6b8b-9a6c-48cc-8e2b-2c60f3cb6a45",
+        )
 
 
 def test_approval_preview_requires_authenticated_owner(client: TestClient) -> None:
@@ -220,6 +226,40 @@ def test_approval_decision_requires_csrf(client: TestClient) -> None:
         json={"decision": "APPROVE", "request_hash": "a" * 64, "challenge": "x" * 64},
     )
     assert response.status_code == 403
+
+
+def test_foreign_intent_cannot_be_challenged_by_another_authenticated_user(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from uuid import UUID
+    from app.services.supabase_data import DataRequestError
+
+    other_user = UserResponse(
+        id="0c8a831d-2b89-4d32-a1d8-9f5f9d7b5e03",
+        email="other@example.com",
+        account_status="active",
+    )
+    app.dependency_overrides[execution_api.get_current_user] = lambda: other_user
+    app.dependency_overrides[execution_api._require_csrf] = lambda: None
+    observed = []
+    recorded = []
+
+    def owner_scoped_preview(*, user_id, intent_id):
+        observed.append((user_id, intent_id))
+        raise DataRequestError("not found")
+
+    monkeypatch.setattr(execution_api, "get_execution_intent_approval_preview", owner_scoped_preview)
+    monkeypatch.setattr(execution_api, "record_execution_approval", lambda **kwargs: recorded.append(kwargs))
+    response = client.post(
+        "/api/execution/intents/0d64c25d-a3d2-46c6-9ed2-ff1a7c3d8431/approval-challenge",
+        json={"decision": "APPROVE", "request_hash": "a" * 64},
+    )
+
+    assert response.status_code == 404
+    assert observed == [
+        (UUID(other_user.id), UUID("0d64c25d-a3d2-46c6-9ed2-ff1a7c3d8431"))
+    ]
+    assert recorded == []
 
 
 def test_changed_proposal_hash_cannot_be_approved(
