@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import os
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -126,9 +127,16 @@ def _approve(db, user_id: str, intent_id, decision: str = "APPROVE"):
     snapshot_hash = db.execute(
         "select public.execution_snapshot_sha256(%s)", (Jsonb(snapshot),)
     ).fetchone()[0]
+    challenge_jti_hash = hashlib.sha256(uuid4().hex.encode("utf-8")).hexdigest()
+    challenge_expiry = _future(5)
+    db.execute(
+        """select public.register_execution_approval_challenge(%s, %s, %s, %s, %s, %s)""",
+        (user_id, intent_id, request_hash, decision, challenge_jti_hash, challenge_expiry),
+    )
     return db.execute(
-        """select public.record_execution_approval(%s, %s, %s, %s, %s, %s, %s)""",
-        (user_id, intent_id, decision, user_id, Jsonb(snapshot), snapshot_hash, _future(60)),
+        """select public.record_execution_approval(%s, %s, %s, %s, %s, %s, %s, %s)""",
+        (user_id, intent_id, decision, user_id, Jsonb(snapshot), snapshot_hash,
+         _future(60), challenge_jti_hash),
     ).fetchone()[0]
 
 
@@ -294,8 +302,8 @@ def test_canonical_hash_rejects_tampered_approval_snapshot(db) -> None:
     with pytest.raises(psycopg.Error, match="canonical approved intent"):
         with db.transaction():
             db.execute(
-                "select public.record_execution_approval(%s,%s,%s,%s,%s,%s,%s)",
-                (user_id, intent_id, "APPROVE", user_id, Jsonb(snapshot), digest, _future(60)),
+                "select public.record_execution_approval(%s,%s,%s,%s,%s,%s,%s,%s)",
+                (user_id, intent_id, "APPROVE", user_id, Jsonb(snapshot), digest, _future(60), "0" * 64),
             )
 
 
@@ -386,7 +394,7 @@ def test_every_security_critical_approval_field_is_bound(db, field, replacement)
         with db.transaction():
             db.execute(
                 "select public.record_execution_approval(%s,%s,%s,%s,%s,%s,%s)",
-                (user_id, intent_id, "APPROVE", user_id, Jsonb(snapshot), digest, _future(10)),
+                (user_id, intent_id, "APPROVE", user_id, Jsonb(snapshot), digest, _future(10), "0" * 64),
             )
 
 
@@ -638,7 +646,7 @@ def test_concurrent_approval_race_allows_exactly_one_decision(db) -> None:
 
 def test_effective_privileges_cover_every_protected_object_and_sequence(db) -> None:
     protected_tables = (
-        "execution_intents", "execution_approvals", "execution_records", "execution_events"
+        "execution_intents", "execution_approvals", "execution_approval_challenges", "execution_records", "execution_events"
     )
     mutations = ("INSERT", "UPDATE", "DELETE", "TRUNCATE", "REFERENCES", "TRIGGER")
     for table in protected_tables:
