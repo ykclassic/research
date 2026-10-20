@@ -22,6 +22,7 @@ from app.services.entitlement import FeatureNotEntitledError, require_feature
 from app.services.execution_persistence import (
     get_execution_intent_approval_preview,
     record_execution_approval,
+    register_execution_approval_challenge,
 )
 from app.services.supabase_data import DataServiceError
 
@@ -121,6 +122,15 @@ async def create_approval_challenge(
         challenge_expires_at = min(now + timedelta(minutes=5), intent_expires_at)
         if challenge_expires_at <= now:
             raise HTTPException(status_code=409, detail="The intent has expired.")
+        challenge_jti = secrets.token_urlsafe(24)
+        register_execution_approval_challenge(
+            user_id=user_id,
+            intent_id=intent_id,
+            request_hash=preview["request_hash"],
+            decision=payload.decision,
+            challenge_jti=challenge_jti,
+            expires_at=challenge_expires_at,
+        )
         token = jwt.encode(
             {
                 "aud": "execution-approval",
@@ -128,7 +138,7 @@ async def create_approval_challenge(
                 "intent_id": str(intent_id),
                 "request_hash": preview["request_hash"],
                 "decision": payload.decision,
-                "jti": secrets.token_urlsafe(24),
+                "jti": challenge_jti,
                 "iat": now,
                 "exp": challenge_expires_at,
             },
@@ -205,6 +215,7 @@ async def decide_execution_approval(
             decision=payload.decision,
             actor_user_id=user_id,
             approval_snapshot=approval_snapshot,
+            challenge_jti=str(claims["jti"]),
             expires_at=intent_expires_at,
         )
         return {"approval_id": str(receipt.approval_id), "decision": payload.decision}
