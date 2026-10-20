@@ -122,7 +122,6 @@ def _approve(db, user_id: str, intent_id, decision: str = "APPROVE"):
         "stop_loss": signal["stop_loss"],
         "take_profit": signal["take_profit"],
         "risk_policy_version": risk["risk_policy_version"],
-        "human_confirmed": True,
     }
     snapshot_hash = db.execute(
         "select public.execution_snapshot_sha256(%s)", (Jsonb(snapshot),)
@@ -289,7 +288,6 @@ def test_canonical_hash_rejects_tampered_approval_snapshot(db) -> None:
         "side": signal["side"], "quantity": signal["quantity"],
         "entry_price": signal["entry_price"], "stop_loss": signal["stop_loss"],
         "take_profit": signal["take_profit"], "risk_policy_version": risk["risk_policy_version"],
-        "human_confirmed": True,
     }
     digest = db.execute("select public.execution_snapshot_sha256(%s)", (Jsonb(snapshot),)).fetchone()[0]
     snapshot["quantity"] = 999
@@ -356,7 +354,6 @@ def _canonical_approval_snapshot(db, intent_id):
         "stop_loss": signal["stop_loss"],
         "take_profit": signal["take_profit"],
         "risk_policy_version": risk["risk_policy_version"],
-        "human_confirmed": True,
     }
 
 
@@ -373,7 +370,7 @@ def _canonical_approval_snapshot(db, intent_id):
         ("stop_loss", 98.0),
         ("take_profit", 103.0),
         ("risk_policy_version", "changed-policy"),
-        ("human_confirmed", False),
+        ("unexpected_extra_field", "not-authoritative"),
     ],
 )
 def test_every_security_critical_approval_field_is_bound(db, field, replacement) -> None:
