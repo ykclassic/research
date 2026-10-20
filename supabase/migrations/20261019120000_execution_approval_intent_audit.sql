@@ -302,8 +302,7 @@ begin
     'entry_price', v_intent.signal_snapshot -> 'entry_price',
     'stop_loss', v_intent.signal_snapshot -> 'stop_loss',
     'take_profit', v_intent.signal_snapshot -> 'take_profit',
-    'risk_policy_version', v_intent.risk_snapshot -> 'risk_policy_version',
-    'human_confirmed', 'true'::jsonb
+    'risk_policy_version', v_intent.risk_snapshot -> 'risk_policy_version'
   );
   if p_approval_snapshot is distinct from v_expected_approval_snapshot
      or p_snapshot_hash is distinct from public.execution_snapshot_sha256(p_approval_snapshot) then
