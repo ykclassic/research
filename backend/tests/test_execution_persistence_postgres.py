@@ -537,6 +537,26 @@ def test_all_privileged_functions_have_restricted_owner_and_execute_grants(db) -
     ).fetchall()
     assert public_execute == []
 
+    trigger_signatures = [
+        "public.reject_execution_record_mutation()",
+        "public.guard_execution_approval_challenge_mutation()",
+        "public.guard_execution_intent_mutation()",
+    ]
+    for signature in trigger_signatures:
+        row = db.execute(
+            "select r.rolname, p.proconfig from pg_proc p "
+            "join pg_roles r on r.oid=p.proowner where p.oid=%s::regprocedure",
+            (signature,),
+        ).fetchone()
+        assert row[0] == "execution_persistence_owner"
+        assert row[1] and "search_path=pg_catalog" in row[1]
+        assert db.execute(
+            "select has_function_privilege('anon', %s::regprocedure, 'execute'), "
+            "has_function_privilege('authenticated', %s::regprocedure, 'execute'), "
+            "has_function_privilege('service_role', %s::regprocedure, 'execute')",
+            (signature, signature, signature),
+        ).fetchone() == (False, False, False)
+
 
 def test_service_role_cannot_mutate_execution_tables_directly(db) -> None:
     user_id = _new_user(db)
