@@ -352,14 +352,6 @@ create or replace function public.record_execution_approval(
   p_expires_at timestamptz,
   p_challenge_jti_hash text
 )
-  p_user_id uuid,
-  p_intent_id uuid,
-  p_decision text,
-  p_actor_user_id uuid,
-  p_approval_snapshot jsonb,
-  p_snapshot_hash text,
-  p_expires_at timestamptz
-)
 returns uuid
 language plpgsql
 security definer
