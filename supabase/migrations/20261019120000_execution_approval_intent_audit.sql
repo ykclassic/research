@@ -533,6 +533,9 @@ alter function public.register_execution_approval_challenge(uuid,uuid,text,text,
 alter function public.record_execution_approval(uuid,uuid,text,uuid,jsonb,text,timestamptz,text) owner to execution_persistence_owner;
 alter function public.claim_execution(uuid,uuid,uuid,jsonb,text) owner to execution_persistence_owner;
 alter function public.record_execution_result(uuid,uuid,uuid,text,text,text,jsonb) owner to execution_persistence_owner;
+alter function public.reject_execution_record_mutation() owner to execution_persistence_owner;
+alter function public.guard_execution_approval_challenge_mutation() owner to execution_persistence_owner;
+alter function public.guard_execution_intent_mutation() owner to execution_persistence_owner;
 alter function public.execution_snapshot_sha256(jsonb) owner to execution_persistence_owner;
 alter function public.execution_intent_request_sha256(jsonb,jsonb,jsonb,jsonb) owner to execution_persistence_owner;
 grant select, insert, update on public.execution_intents, public.execution_approvals,
@@ -542,6 +545,9 @@ grant usage, select on sequence public.execution_events_event_seq_seq to executi
 revoke create on schema public from execution_persistence_owner;
 revoke all on function public.execution_snapshot_sha256(jsonb) from public, anon, authenticated;
 revoke all on function public.execution_intent_request_sha256(jsonb,jsonb,jsonb,jsonb) from public, anon, authenticated;
+revoke all on function public.reject_execution_record_mutation() from public, anon, authenticated, service_role;
+revoke all on function public.guard_execution_approval_challenge_mutation() from public, anon, authenticated, service_role;
+revoke all on function public.guard_execution_intent_mutation() from public, anon, authenticated, service_role;
 grant execute on function public.execution_snapshot_sha256(jsonb) to execution_persistence_owner;
 grant execute on function public.execution_intent_request_sha256(jsonb,jsonb,jsonb,jsonb) to execution_persistence_owner;
 grant execute on function public.execution_snapshot_sha256(jsonb) to service_role;
