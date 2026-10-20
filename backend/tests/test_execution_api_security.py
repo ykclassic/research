@@ -204,17 +204,25 @@ def test_changed_proposal_hash_cannot_be_approved(
     from uuid import UUID
 
     _authenticate_with_csrf()
+    _authenticate_with_csrf()
+    preview = _approval_preview()
     monkeypatch.setattr(
         execution_api, "get_execution_intent_approval_preview",
-        lambda **kwargs: _approval_preview(),
+        lambda **kwargs: preview,
     )
     recorded = []
     monkeypatch.setattr(execution_api, "record_execution_approval", lambda **kwargs: recorded.append(kwargs))
-    response = client.post(
-        "/api/execution/intents/0d64c25d-a3d2-46c6-9ed2-ff1a7c3d8431/approval",
-        json={"decision": "APPROVE", "request_hash": "f" * 64},
+    challenge_response = client.post(
+        f"/api/execution/intents/{preview['intent_id']}/approval-challenge",
+        json={"decision": "APPROVE", "request_hash": preview["request_hash"]},
     )
-    assert response.status_code == 409
+    assert challenge_response.status_code == 200
+    response = client.post(
+        f"/api/execution/intents/{preview['intent_id']}/approval",
+        json={"decision": "APPROVE", "request_hash": "f" * 64,
+              "challenge": challenge_response.json()["challenge"]},
+    )
+    assert response.status_code == 403
     assert recorded == []
 
 
@@ -237,9 +245,15 @@ def test_approval_actor_and_snapshot_are_derived_from_session_and_database(
         return SimpleNamespace(approval_id=UUID("e3f0fd88-1770-4a52-a7c2-c6a35d7b26d0"))
 
     monkeypatch.setattr(execution_api, "record_execution_approval", record)
+    challenge_response = client.post(
+        f"/api/execution/intents/{preview['intent_id']}/approval-challenge",
+        json={"decision": "APPROVE", "request_hash": preview["request_hash"]},
+    )
+    assert challenge_response.status_code == 200
     response = client.post(
         f"/api/execution/intents/{preview['intent_id']}/approval",
-        json={"decision": "APPROVE", "request_hash": preview["request_hash"]},
+        json={"decision": "APPROVE", "request_hash": preview["request_hash"],
+              "challenge": challenge_response.json()["challenge"]},
     )
     assert response.status_code == 200
     assert len(calls) == 1
@@ -261,5 +275,45 @@ def test_execution_router_exposes_no_unreviewed_submission_paths() -> None:
     assert reachable == {
         "/api/execution/order",
         "/api/execution/intents/{intent_id}/approval-preview",
+        "/api/execution/intents/{intent_id}/approval-challenge",
         "/api/execution/intents/{intent_id}/approval",
     }
+
+
+def test_approval_challenge_is_bound_to_action_and_authenticated_user(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from uuid import UUID
+
+    _authenticate_with_csrf()
+    preview = _approval_preview()
+    monkeypatch.setattr(
+        execution_api, "get_execution_intent_approval_preview",
+        lambda **kwargs: preview,
+    )
+    challenge_response = client.post(
+        f"/api/execution/intents/{preview['intent_id']}/approval-challenge",
+        json={"decision": "APPROVE", "request_hash": preview["request_hash"]},
+    )
+    assert challenge_response.status_code == 200
+    token = challenge_response.json()["challenge"]
+
+    # A challenge for APPROVE cannot authorize REJECT, even for the same user.
+    mismatch = client.post(
+        f"/api/execution/intents/{preview['intent_id']}/approval",
+        json={"decision": "REJECT", "request_hash": preview["request_hash"], "challenge": token},
+    )
+    assert mismatch.status_code == 403
+
+    # A challenge minted for user A cannot be used by user B.
+    other_user = UserResponse(
+        id="0c8a831d-2b89-4d32-a1d8-9f5f9d7b5e03",
+        email="other@example.com",
+        account_status="active",
+    )
+    app.dependency_overrides[execution_api.get_current_user] = lambda: other_user
+    foreign = client.post(
+        f"/api/execution/intents/{preview['intent_id']}/approval",
+        json={"decision": "APPROVE", "request_hash": preview["request_hash"], "challenge": token},
+    )
+    assert foreign.status_code == 403
