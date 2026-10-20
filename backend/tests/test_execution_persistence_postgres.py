@@ -244,7 +244,7 @@ def test_execution_tables_are_not_granted_to_browser_roles(db) -> None:
           'execution_intents','execution_approvals','execution_records','execution_events'
         ) order by c.relname"""
     ).fetchall()
-    assert len(rows) == 4
+    assert len(rows) == 6
     assert all(row[1] is True and row[2] is False and row[3] is False for row in rows)
 
     rpc_privileges = db.execute(
@@ -338,7 +338,7 @@ def test_rpc_owner_and_search_path_are_hardened(db) -> None:
            from pg_proc p join pg_roles r on r.oid=p.proowner
            join pg_namespace n on n.oid=p.pronamespace
            where n.nspname='public' and p.proname in
-             ('create_execution_intent','record_execution_approval','claim_execution','record_execution_result')"""
+             ('create_execution_intent','get_execution_intent_approval_preview','register_execution_approval_challenge','record_execution_approval','claim_execution','record_execution_result')"""
     ).fetchall()
     assert len(rows) == 4
     assert all(row[1] is False and row[2] is False for row in rows)
@@ -393,7 +393,7 @@ def test_every_security_critical_approval_field_is_bound(db, field, replacement)
     with pytest.raises(psycopg.Error, match="canonical approved intent"):
         with db.transaction():
             db.execute(
-                "select public.record_execution_approval(%s,%s,%s,%s,%s,%s,%s)",
+                "select public.record_execution_approval(%s,%s,%s,%s,%s,%s,%s,%s)",
                 (user_id, intent_id, "APPROVE", user_id, Jsonb(snapshot), digest, _future(10), "0" * 64),
             )
 
@@ -420,16 +420,16 @@ def test_approval_rejects_wrong_actor_and_expiry_beyond_intent(db) -> None:
     with pytest.raises(psycopg.Error, match="does not own intent"):
         with db.transaction():
             db.execute(
-                "select public.record_execution_approval(%s,%s,%s,%s,%s,%s,%s)",
-                (user_id, intent_id, "APPROVE", other_user_id, Jsonb(snapshot), digest, _future(5)),
+                "select public.record_execution_approval(%s,%s,%s,%s,%s,%s,%s,%s)",
+                (user_id, intent_id, "APPROVE", other_user_id, Jsonb(snapshot), digest, _future(5), "0" * 64),
             )
 
     # The intent expires in 120 minutes; an approval cannot outlive it.
     with pytest.raises(psycopg.Error, match="expiry is invalid"):
         with db.transaction():
             db.execute(
-                "select public.record_execution_approval(%s,%s,%s,%s,%s,%s,%s)",
-                (user_id, intent_id, "APPROVE", user_id, Jsonb(snapshot), digest, _future(180)),
+                "select public.record_execution_approval(%s,%s,%s,%s,%s,%s,%s,%s)",
+                (user_id, intent_id, "APPROVE", user_id, Jsonb(snapshot), digest, _future(180), "0" * 64),
             )
 
 
@@ -560,7 +560,7 @@ def test_expired_approval_window_is_rejected(db) -> None:
     with pytest.raises(psycopg.Error, match="expiry is invalid"):
         with db.transaction():
             db.execute(
-                "select public.record_execution_approval(%s,%s,%s,%s,%s,%s,%s)",
+                "select public.record_execution_approval(%s,%s,%s,%s,%s,%s,%s,%s)",
                 (user_id, intent_id, "APPROVE", user_id, Jsonb(snapshot), digest,
                  datetime.now(timezone.utc) - timedelta(seconds=1)),
             )
@@ -751,7 +751,7 @@ def test_concurrent_duplicate_claims_and_conflicting_results_remain_fail_closed(
 def test_effective_privileges_include_inherited_membership_and_default_grants(db) -> None:
     """Check effective grants and default ACLs, not only direct GRANT statements."""
     protected_tables = (
-        "execution_intents", "execution_approvals", "execution_records", "execution_events"
+        "execution_intents", "execution_approvals", "execution_approval_challenges", "execution_records", "execution_events"
     )
     untrusted_roles = ("anon", "authenticated", "service_role")
     for role in untrusted_roles:
@@ -827,3 +827,60 @@ def test_approval_preview_rpc_is_not_executable_by_browser_roles(db) -> None:
         "has_function_privilege('service_role', %s::regprocedure, 'execute')",
         (signature, signature, signature),
     ).fetchone() == (False, False, True)
+
+
+def test_same_approval_challenge_is_consumed_once_under_concurrent_replay(db) -> None:
+    """Two database sessions racing one signed nonce can commit only one decision."""
+    import hashlib
+    from concurrent.futures import ThreadPoolExecutor
+    from threading import Barrier
+
+    user_id = _new_user(db)
+    intent_id, _, _ = _create_intent(db, user_id)
+    snapshot = _canonical_approval_snapshot(db, intent_id)
+    snapshot_hash = db.execute(
+        "select public.execution_snapshot_sha256(%s)", (Jsonb(snapshot),)
+    ).fetchone()[0]
+    jti_hash = hashlib.sha256(uuid4().hex.encode("utf-8")).hexdigest()
+    challenge_expiry = _future(5)
+    approval_expiry = _future(60)
+    request_hash = snapshot["request_hash"]
+    db.execute(
+        "select public.register_execution_approval_challenge(%s,%s,%s,%s,%s,%s)",
+        (user_id, intent_id, request_hash, "APPROVE", jti_hash, challenge_expiry),
+    )
+    db.commit()
+    barrier = Barrier(2)
+
+    def submit():
+        with psycopg.connect(DATABASE_URL) as connection:
+            barrier.wait(timeout=10)
+            try:
+                row = connection.execute(
+                    "select public.record_execution_approval(%s,%s,%s,%s,%s,%s,%s,%s)",
+                    (user_id, intent_id, "APPROVE", user_id, Jsonb(snapshot),
+                     snapshot_hash, approval_expiry, jti_hash),
+                ).fetchone()
+                connection.commit()
+                return ("accepted", str(row[0]))
+            except psycopg.Error as exc:
+                connection.rollback()
+                return ("rejected", exc.sqlstate)
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        outcomes = list(pool.map(lambda _: submit(), range(2)))
+
+    assert sum(outcome[0] == "accepted" for outcome in outcomes) == 1
+    assert sum(outcome[0] == "rejected" for outcome in outcomes) == 1
+    assert db.execute(
+        "select count(*) from public.execution_approvals where intent_id=%s", (intent_id,)
+    ).fetchone()[0] == 1
+    assert db.execute(
+        "select consumed_at is not null from public.execution_approval_challenges where challenge_jti_hash=%s",
+        (jti_hash,),
+    ).fetchone()[0] is True
+    assert db.execute(
+        "select count(*) from public.execution_events where intent_id=%s "
+        "and event_type in ('APPROVAL_ACCEPTED','APPROVAL_REJECTED')",
+        (intent_id,),
+    ).fetchone()[0] == 1
