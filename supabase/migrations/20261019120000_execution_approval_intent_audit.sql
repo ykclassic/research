@@ -146,6 +146,31 @@ begin
 end;
 $$;
 
+create or replace function public.guard_execution_approval_challenge_mutation()
+returns trigger
+language plpgsql
+set search_path = pg_catalog
+as $challenge_guard$
+begin
+  if tg_op = 'DELETE' then
+    raise exception 'approval challenges cannot be deleted' using errcode = '55000';
+  end if;
+  if (to_jsonb(new) - 'consumed_at') is distinct from
+     (to_jsonb(old) - 'consumed_at') then
+    raise exception 'approval challenge binding is immutable' using errcode = '55000';
+  end if;
+  if old.consumed_at is not null or new.consumed_at is null then
+    raise exception 'approval challenge can be consumed only once' using errcode = '55000';
+  end if;
+  return new;
+end;
+$challenge_guard$;
+
+drop trigger if exists execution_approval_challenges_consume_once on public.execution_approval_challenges;
+create trigger execution_approval_challenges_consume_once
+before update or delete on public.execution_approval_challenges
+for each row execute function public.guard_execution_approval_challenge_mutation();
+
 drop trigger if exists execution_approvals_immutable on public.execution_approvals;
 create trigger execution_approvals_immutable
 before update or delete on public.execution_approvals
