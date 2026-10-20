@@ -1010,3 +1010,61 @@ def test_authenticated_api_to_postgres_enforces_owner_and_consumes_challenge(
         "select consumed_at is not null from public.execution_approval_challenges "
         "where intent_id=%s", (intent_id,)
     ).fetchone()[0] is True
+
+
+def test_concurrent_conflicting_idempotency_requests_cannot_both_win(db) -> None:
+    """Same owner/key with different payloads must produce one winner and one denial."""
+    from concurrent.futures import ThreadPoolExecutor
+    from threading import Barrier
+
+    user_id = _new_user(db)
+    key = f"conflict-key-{uuid4().hex}"
+    db.commit()
+    barrier = Barrier(2)
+
+    def create(symbol: str):
+        signal = {
+            "signal_id": "concurrent-conflict",
+            "symbol": symbol,
+            "side": "LONG",
+            "quantity": 1.0,
+            "entry_price": 100.0,
+            "stop_loss": 99.0,
+            "take_profit": 102.0,
+            "qualified": True,
+        }
+        account = {"equity": 10000, "source": "test", "account_ref": "test-account"}
+        market = {"price": 100, "observed_at": datetime.now(timezone.utc).isoformat()}
+        risk = {"risk_pct": 0.5, "risk_policy_version": "test-v1"}
+        with psycopg.connect(DATABASE_URL) as connection:
+            request_hash = connection.execute(
+                "select public.execution_intent_request_sha256(%s,%s,%s,%s)",
+                (Jsonb(signal), Jsonb(account), Jsonb(market), Jsonb(risk)),
+            ).fetchone()[0]
+            barrier.wait(timeout=10)
+            try:
+                row = connection.execute(
+                    "select intent_id, created from public.create_execution_intent(%s,%s,%s,%s,%s,%s,%s,%s)",
+                    (user_id, key, request_hash, Jsonb(signal), Jsonb(account),
+                     Jsonb(market), Jsonb(risk), _future(120)),
+                ).fetchone()
+                connection.commit()
+                return ("created" if row[1] else "existing", str(row[0]))
+            except psycopg.Error as exc:
+                connection.rollback()
+                return ("rejected", exc.sqlstate)
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        outcomes = list(pool.map(create, ("BTC/USDT", "ETH/USDT")))
+
+    assert sum(outcome[0] in {"created", "existing"} for outcome in outcomes) == 1
+    assert sum(outcome[0] == "rejected" for outcome in outcomes) == 1
+    assert db.execute(
+        "select count(*) from public.execution_intents where user_id=%s and idempotency_key=%s",
+        (user_id, key),
+    ).fetchone()[0] == 1
+    assert db.execute(
+        "select count(*) from public.execution_events e join public.execution_intents i on i.id=e.intent_id "
+        "where i.user_id=%s and i.idempotency_key=%s and e.event_type='INTENT_CREATED'",
+        (user_id, key),
+    ).fetchone()[0] == 1
