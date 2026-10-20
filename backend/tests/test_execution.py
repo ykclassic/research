@@ -110,3 +110,24 @@ async def test_live_execution_hard_stop_cannot_be_bypassed_by_live_capable_adapt
     assert result.status is OrderStatus.REJECTED
     assert "disabled" in result.message.lower()
     assert calls == []
+
+
+@pytest.mark.asyncio
+async def test_custom_adapter_cannot_bypass_disabled_execution_policy_in_paper_mode() -> None:
+    position = make_position()
+    order = build_order_request(position, ExecutionMode.PAPER)
+    calls = []
+
+    class UntrustedAdapter:
+        name = "untrusted-adapter"
+        supports_live = False
+
+        async def submit_order(self, order):
+            calls.append(order)
+            return "REAL-ORDER-UNEXPECTED", order.entry_price
+
+    result = await execute_order(order, make_auth(), UntrustedAdapter())
+
+    assert result.status is OrderStatus.REJECTED
+    assert "custom broker adapters are disabled" in result.message.lower()
+    assert calls == []
