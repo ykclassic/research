@@ -888,3 +888,123 @@ def test_same_approval_challenge_is_consumed_once_under_concurrent_replay(db) ->
         "and event_type in ('APPROVAL_ACCEPTED','APPROVAL_REJECTED')",
         (intent_id,),
     ).fetchone()[0] == 1
+
+
+def test_authenticated_api_to_postgres_enforces_owner_and_consumes_challenge(
+    db, monkeypatch
+) -> None:
+    """Exercise the real API and SQL RPCs; only session verification is injected."""
+    from fastapi.testclient import TestClient
+
+    from app.api import execution as execution_api
+    from app.api.auth import UserResponse
+    from app.main import app
+    from app.services import execution_persistence
+    from app.services.supabase_data import DataRequestError
+
+    owner_id = _new_user(db)
+    foreign_id = _new_user(db)
+    intent_id, _, _ = _create_intent(db, owner_id)
+    db.commit()
+
+    class RpcResponse:
+        def __init__(self, value):
+            self.value = value
+
+        def json(self):
+            return self.value
+
+    def postgres_rpc(method, path, **kwargs):
+        assert method == "POST"
+        name = path.removeprefix("rpc/")
+        payload = kwargs["json"]
+        statements = {
+            "execution_snapshot_sha256": (
+                "select public.execution_snapshot_sha256(%s)",
+                (Jsonb(payload["p_snapshot"]),),
+            ),
+            "get_execution_intent_approval_preview": (
+                "select public.get_execution_intent_approval_preview(%s,%s)",
+                (payload["p_user_id"], payload["p_intent_id"]),
+            ),
+            "register_execution_approval_challenge": (
+                "select public.register_execution_approval_challenge(%s,%s,%s,%s,%s,%s)",
+                (payload["p_user_id"], payload["p_intent_id"], payload["p_request_hash"],
+                 payload["p_decision"], payload["p_challenge_jti_hash"], payload["p_expires_at"]),
+            ),
+            "record_execution_approval": (
+                "select public.record_execution_approval(%s,%s,%s,%s,%s,%s,%s,%s)",
+                (payload["p_user_id"], payload["p_intent_id"], payload["p_decision"],
+                 payload["p_actor_user_id"], Jsonb(payload["p_approval_snapshot"]),
+                 payload["p_snapshot_hash"], payload["p_expires_at"],
+                 payload["p_challenge_jti_hash"]),
+            ),
+        }
+        if name not in statements:
+            raise AssertionError(f"unexpected RPC: {name}")
+        statement, params = statements[name]
+        try:
+            with psycopg.connect(DATABASE_URL) as connection:
+                value = connection.execute(statement, params).fetchone()[0]
+        except psycopg.Error as exc:
+            raise DataRequestError("PostgreSQL RPC denied the operation.") from exc
+        if name == "record_execution_approval":
+            value = str(value)
+        return RpcResponse(value)
+
+    monkeypatch.setattr(execution_persistence, "service_request", postgres_rpc)
+    app.dependency_overrides[execution_api._require_csrf] = lambda: None
+    app.dependency_overrides[execution_api.get_current_user] = lambda: UserResponse(
+        id=owner_id, email="owner@example.test", account_status="active"
+    )
+    try:
+        with TestClient(app) as client:
+            preview_response = client.get(f"/api/execution/intents/{intent_id}/approval-preview")
+            assert preview_response.status_code == 200
+            preview = preview_response.json()
+            challenge_response = client.post(
+                f"/api/execution/intents/{intent_id}/approval-challenge",
+                json={"decision": "APPROVE", "request_hash": preview["request_hash"]},
+            )
+            assert challenge_response.status_code == 200
+            challenge = challenge_response.json()["challenge"]
+            approval_response = client.post(
+                f"/api/execution/intents/{intent_id}/approval",
+                json={"decision": "APPROVE", "request_hash": preview["request_hash"],
+                      "challenge": challenge},
+            )
+            assert approval_response.status_code == 200
+            replay_response = client.post(
+                f"/api/execution/intents/{intent_id}/approval",
+                json={"decision": "APPROVE", "request_hash": preview["request_hash"],
+                      "challenge": challenge},
+            )
+            assert replay_response.status_code == 409
+
+            app.dependency_overrides[execution_api.get_current_user] = lambda: UserResponse(
+                id=foreign_id, email="foreign@example.test", account_status="active"
+            )
+            foreign_preview = client.get(f"/api/execution/intents/{intent_id}/approval-preview")
+            foreign_challenge = client.post(
+                f"/api/execution/intents/{intent_id}/approval-challenge",
+                json={"decision": "APPROVE", "request_hash": preview["request_hash"]},
+            )
+            assert foreign_preview.status_code == 404
+            assert foreign_challenge.status_code == 404
+    finally:
+        app.dependency_overrides.clear()
+
+    assert db.execute(
+        "select status from public.execution_intents where id=%s", (intent_id,)
+    ).fetchone()[0] == "APPROVED"
+    assert db.execute(
+        "select count(*) from public.execution_approvals where intent_id=%s", (intent_id,)
+    ).fetchone()[0] == 1
+    assert db.execute(
+        "select count(*) from public.execution_events where intent_id=%s "
+        "and event_type='APPROVAL_ACCEPTED'", (intent_id,)
+    ).fetchone()[0] == 1
+    assert db.execute(
+        "select consumed_at is not null from public.execution_approval_challenges "
+        "where intent_id=%s", (intent_id,)
+    ).fetchone()[0] is True
