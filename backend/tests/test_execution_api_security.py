@@ -145,3 +145,109 @@ def test_feature_flag_cannot_upgrade_pro_to_premium(client: TestClient, monkeypa
 
     assert response.status_code == 403
     assert "premium" in response.json()["detail"].lower()
+
+
+def _approval_preview() -> dict:
+    from datetime import datetime, timedelta, timezone
+
+    return {
+        "intent_id": "0d64c25d-a3d2-46c6-9ed2-ff1a7c3d8431",
+        "request_hash": "a" * 64,
+        "account_ref": "server-account",
+        "symbol": "BTC/USDT",
+        "side": "LONG",
+        "quantity": 0.25,
+        "entry_price": 65000.0,
+        "stop_loss": 64000.0,
+        "take_profit": 68000.0,
+        "risk_policy_version": "risk-v3",
+        "expires_at": (datetime.now(timezone.utc) + timedelta(minutes=15)).isoformat(),
+    }
+
+
+def test_approval_request_rejects_caller_authored_actor_or_snapshot() -> None:
+    from app.models.execution import ExecutionApprovalDecisionRequest
+
+    with pytest.raises(ValidationError):
+        ExecutionApprovalDecisionRequest(
+            decision="APPROVE",
+            request_hash="a" * 64,
+            actor_user_id="b89e6b8b-9a6c-48cc-8e2b-2c60f3cb6a45",
+        )
+    with pytest.raises(ValidationError):
+        ExecutionApprovalDecisionRequest(
+            decision="APPROVE",
+            request_hash="a" * 64,
+            human_confirmed=True,
+        )
+
+
+def test_approval_preview_requires_authenticated_owner(client: TestClient) -> None:
+    response = client.get(
+        "/api/execution/intents/0d64c25d-a3d2-46c6-9ed2-ff1a7c3d8431/approval-preview"
+    )
+    assert response.status_code == 401
+
+
+def test_approval_decision_requires_csrf(client: TestClient) -> None:
+    app.dependency_overrides[execution_api.get_current_user] = lambda: USER
+    response = client.post(
+        "/api/execution/intents/0d64c25d-a3d2-46c6-9ed2-ff1a7c3d8431/approval",
+        json={"decision": "APPROVE", "request_hash": "a" * 64},
+    )
+    assert response.status_code == 403
+
+
+def test_changed_proposal_hash_cannot_be_approved(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from uuid import UUID
+
+    _authenticate_with_csrf()
+    monkeypatch.setattr(
+        execution_api, "get_execution_intent_approval_preview",
+        lambda **kwargs: _approval_preview(),
+    )
+    recorded = []
+    monkeypatch.setattr(execution_api, "record_execution_approval", lambda **kwargs: recorded.append(kwargs))
+    response = client.post(
+        "/api/execution/intents/0d64c25d-a3d2-46c6-9ed2-ff1a7c3d8431/approval",
+        json={"decision": "APPROVE", "request_hash": "f" * 64},
+    )
+    assert response.status_code == 409
+    assert recorded == []
+
+
+def test_approval_actor_and_snapshot_are_derived_from_session_and_database(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from uuid import UUID
+    from types import SimpleNamespace
+
+    _authenticate_with_csrf()
+    preview = _approval_preview()
+    monkeypatch.setattr(
+        execution_api, "get_execution_intent_approval_preview",
+        lambda **kwargs: preview,
+    )
+    calls = []
+
+    def record(**kwargs):
+        calls.append(kwargs)
+        return SimpleNamespace(approval_id=UUID("e3f0fd88-1770-4a52-a7c2-c6a35d7b26d0"))
+
+    monkeypatch.setattr(execution_api, "record_execution_approval", record)
+    response = client.post(
+        f"/api/execution/intents/{preview['intent_id']}/approval",
+        json={"decision": "APPROVE", "request_hash": preview["request_hash"]},
+    )
+    assert response.status_code == 200
+    assert len(calls) == 1
+    call = calls[0]
+    assert call["user_id"] == UUID(USER.id)
+    assert call["actor_user_id"] == UUID(USER.id)
+    assert call["approval_snapshot"]["account_ref"] == "server-account"
+    assert call["approval_snapshot"]["symbol"] == "BTC/USDT"
+    assert call["approval_snapshot"]["risk_policy_version"] == "risk-v3"
+    assert call["approval_snapshot"]["human_confirmed"] is True
+    assert "actor_user_id" not in response.json()
