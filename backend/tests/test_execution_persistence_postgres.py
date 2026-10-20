@@ -245,7 +245,9 @@ def test_execution_tables_are_not_granted_to_browser_roles(db) -> None:
         ) order by c.relname"""
     ).fetchall()
     assert len(rows) == 5
-    assert all(row[1] is True and row[2] is False and row[3] is False for row in rows)
+    # The service role uses only the narrow SECURITY DEFINER RPCs; it has no
+    # direct table privileges. Browser roles must also have no direct access.
+    assert all(row[1] is False and row[2] is False and row[3] is False for row in rows)
 
     rpc_privileges = db.execute(
         """select
@@ -563,7 +565,7 @@ def test_expired_approval_window_is_rejected(db) -> None:
             db.execute(
                 "select public.record_execution_approval(%s,%s,%s,%s,%s,%s,%s,%s)",
                 (user_id, intent_id, "APPROVE", user_id, Jsonb(snapshot), digest,
-                 datetime.now(timezone.utc) - timedelta(seconds=1)),
+                 datetime.now(timezone.utc) - timedelta(seconds=1), "0" * 64),
             )
 
 def test_concurrent_intent_creation_is_idempotent_across_sessions(db) -> None:
@@ -955,7 +957,7 @@ def test_authenticated_api_to_postgres_enforces_owner_and_consumes_challenge(
     monkeypatch.setattr(execution_persistence, "service_request", postgres_rpc)
     app.dependency_overrides[execution_api._require_csrf] = lambda: None
     app.dependency_overrides[execution_api.get_current_user] = lambda: UserResponse(
-        id=owner_id, email="owner@example.test", account_status="active"
+        id=owner_id, email="owner@example.com", account_status="active"
     )
     try:
         with TestClient(app) as client:
@@ -982,7 +984,7 @@ def test_authenticated_api_to_postgres_enforces_owner_and_consumes_challenge(
             assert replay_response.status_code == 409
 
             app.dependency_overrides[execution_api.get_current_user] = lambda: UserResponse(
-                id=foreign_id, email="foreign@example.test", account_status="active"
+                id=foreign_id, email="foreign@example.com", account_status="active"
             )
             foreign_preview = client.get(f"/api/execution/intents/{intent_id}/approval-preview")
             foreign_challenge = client.post(
