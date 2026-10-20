@@ -191,3 +191,18 @@ Before the PR can be considered for merge:
 3. The migration matrix must retain the three unresolved ledger-only records as explicit history gaps; do not fabricate matching source files or mark them repaired.
 4. The protected database diagnostic must be deployed and observed before asserting the Render process uses the intended project. That deployment is not part of this prototype.
 5. The execution route must remain disabled until real authenticated approval endpoints, current entitlement rows, provider adapters for read-only account/market state, and end-to-end failure injection are reviewed.
+
+
+## Approval provenance and trust boundary remediation
+
+The authenticated approval surface is now limited to:
+
+- GET /api/execution/intents/{intent_id}/approval-preview: requires the verified session and returns only the stored proposal fields for that authenticated owner while the intent is pending and unexpired.
+- POST /api/execution/intents/{intent_id}/approval: requires the verified session and CSRF validation. The client supplies only decision and the request hash it reviewed; it cannot supply actor_user_id, human_confirmed, or an approval snapshot. The API derives both user and actor from get_current_user, reloads the immutable proposal, rejects a changed request hash, and creates the canonical snapshot from database-returned values. The database transaction writes the decision, state transition, and audit event atomically. The unique approval per intent, pending-state check, and expiry check prevent duplicate decisions and replay after the first decision.
+- get_execution_intent_approval_preview is a restricted SECURITY DEFINER RPC executable only by the server-side service_role; browser roles cannot execute it. The RPC scopes lookup to the supplied user ID and only returns pending, unexpired intents.
+
+**Identity trust boundary:** PostgreSQL cannot independently verify a Supabase end-user session in this repository's service-role RPC design. The trusted application boundary is the API dependency that verifies the Supabase session, enforces CSRF, derives the actor ID, and passes that identity to the server-only persistence service. The UUID passed into a privileged RPC is not itself proof of identity. The database enforces owner equality and state constraints against that identity value; it does not replace API authentication. Never expose the service-role key or RPC execution to browser roles.
+
+The approval preview is intended to display the complete immutable order/risk fields before the user confirms. The API records a decision only when the submitted hash matches the currently stored intent. human_confirmed is a canonical binding field for this snapshot, **not** an independent identity credential or proof by itself.
+
+The order endpoint remains fail-closed and does not call a broker adapter. claim_execution and record_execution_result remain unconditionally disabled. Approval persistence is an audit workflow only; it is not execution authorization. No exchange adapter or alternate order-submission path is introduced. PostgreSQL tests now include competing claim attempts, conflicting result submissions, effective privileges/inherited membership/default ACL checks, and owner-scoped approval preview tests.
