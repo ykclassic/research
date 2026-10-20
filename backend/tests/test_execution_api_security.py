@@ -193,7 +193,7 @@ def test_approval_decision_requires_csrf(client: TestClient) -> None:
     app.dependency_overrides[execution_api.get_current_user] = lambda: USER
     response = client.post(
         "/api/execution/intents/0d64c25d-a3d2-46c6-9ed2-ff1a7c3d8431/approval",
-        json={"decision": "APPROVE", "request_hash": "a" * 64},
+        json={"decision": "APPROVE", "request_hash": "a" * 64, "challenge": "x" * 64},
     )
     assert response.status_code == 403
 
@@ -203,7 +203,6 @@ def test_changed_proposal_hash_cannot_be_approved(
 ) -> None:
     from uuid import UUID
 
-    _authenticate_with_csrf()
     _authenticate_with_csrf()
     preview = _approval_preview()
     monkeypatch.setattr(
