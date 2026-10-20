@@ -470,6 +470,7 @@ def test_all_privileged_functions_have_restricted_owner_and_execute_grants(db) -
         "public.execution_intent_request_sha256(jsonb,jsonb,jsonb,jsonb)",
         "public.create_execution_intent(uuid,text,text,jsonb,jsonb,jsonb,jsonb,timestamptz)",
         "public.record_execution_approval(uuid,uuid,text,uuid,jsonb,text,timestamptz)",
+        "public.get_execution_intent_approval_preview(uuid,uuid)",
         "public.claim_execution(uuid,uuid,uuid,jsonb,text)",
         "public.record_execution_result(uuid,uuid,uuid,text,text,text,jsonb)",
     ]
@@ -762,3 +763,43 @@ def test_effective_privileges_include_inherited_membership_and_default_grants(db
                     "select has_table_privilege(%s, %s, %s)",
                     (role, f"public.{table}", privilege),
                 ).fetchone()[0] is False
+
+
+def test_approval_preview_is_owner_scoped_and_only_returns_pending_intents(db) -> None:
+    user_id = _new_user(db)
+    other_user_id = _new_user(db)
+    intent_id, _, _ = _create_intent(db, user_id)
+
+    preview = db.execute(
+        "select public.get_execution_intent_approval_preview(%s, %s)",
+        (user_id, intent_id),
+    ).fetchone()[0]
+    assert preview["intent_id"] == str(intent_id)
+    assert preview["symbol"] == "BTC/USDT"
+    assert preview["request_hash"]
+    assert preview["risk_policy_version"] == "test-v1"
+
+    with pytest.raises(psycopg.Error, match="missing, expired, not owned"):
+        with db.transaction():
+            db.execute(
+                "select public.get_execution_intent_approval_preview(%s, %s)",
+                (other_user_id, intent_id),
+            )
+
+    _approve(db, user_id, intent_id)
+    with pytest.raises(psycopg.Error, match="missing, expired, not owned"):
+        with db.transaction():
+            db.execute(
+                "select public.get_execution_intent_approval_preview(%s, %s)",
+                (user_id, intent_id),
+            )
+
+
+def test_approval_preview_rpc_is_not_executable_by_browser_roles(db) -> None:
+    signature = "public.get_execution_intent_approval_preview(uuid,uuid)"
+    assert db.execute(
+        "select has_function_privilege('anon', %s::regprocedure, 'execute'), "
+        "has_function_privilege('authenticated', %s::regprocedure, 'execute'), "
+        "has_function_privilege('service_role', %s::regprocedure, 'execute')",
+        (signature, signature, signature),
+    ).fetchone() == (False, False, True)
