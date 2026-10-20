@@ -1088,3 +1088,36 @@ def test_concurrent_conflicting_idempotency_requests_cannot_both_win(db) -> None
         "where i.user_id=%s and i.idempotency_key=%s and e.event_type='INTENT_CREATED'",
         (user_id, key),
     ).fetchone()[0] == 1
+
+
+def test_expired_approval_challenge_cannot_be_consumed(db) -> None:
+    import hashlib
+
+    user_id = _new_user(db)
+    intent_id, _, _ = _create_intent(db, user_id)
+    snapshot = _canonical_approval_snapshot(db, intent_id)
+    snapshot_hash = db.execute(
+        "select public.execution_snapshot_sha256(%s)", (Jsonb(snapshot),)
+    ).fetchone()[0]
+    jti_hash = hashlib.sha256(uuid4().hex.encode("utf-8")).hexdigest()
+    db.execute(
+        """
+        insert into public.execution_approval_challenges(
+          challenge_jti_hash, intent_id, user_id, request_hash, decision,
+          expires_at, created_at
+        ) values (%s,%s,%s,%s,'APPROVE',now()-interval '1 minute',now()-interval '10 minutes')
+        """,
+        (jti_hash, intent_id, user_id, snapshot["request_hash"]),
+    )
+    with pytest.raises(psycopg.Error, match="missing, expired, mismatched, or already consumed"):
+        with db.transaction():
+            db.execute(
+                "select public.record_execution_approval(%s,%s,'APPROVE',%s,%s,%s,%s,%s)",
+                (user_id, intent_id, user_id, Jsonb(snapshot), snapshot_hash, _future(60), jti_hash),
+            )
+    assert db.execute(
+        "select status from public.execution_intents where id=%s", (intent_id,)
+    ).fetchone()[0] == "AWAITING_APPROVAL"
+    assert db.execute(
+        "select count(*) from public.execution_approvals where intent_id=%s", (intent_id,)
+    ).fetchone()[0] == 0
