@@ -335,6 +335,46 @@ begin
 end;
 $$;
 
+create or replace function public.get_execution_intent_approval_preview(
+  p_user_id uuid,
+  p_intent_id uuid
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = pg_catalog
+as $preview$
+declare
+  v_preview jsonb;
+begin
+  select pg_catalog.jsonb_build_object(
+    'intent_id', i.id,
+    'request_hash', i.request_hash,
+    'account_ref', i.account_snapshot -> 'account_ref',
+    'symbol', i.signal_snapshot -> 'symbol',
+    'side', i.signal_snapshot -> 'side',
+    'quantity', i.signal_snapshot -> 'quantity',
+    'entry_price', i.signal_snapshot -> 'entry_price',
+    'stop_loss', i.signal_snapshot -> 'stop_loss',
+    'take_profit', i.signal_snapshot -> 'take_profit',
+    'risk_policy_version', i.risk_snapshot -> 'risk_policy_version',
+    'expires_at', i.expires_at
+  )
+  into v_preview
+  from public.execution_intents i
+  where i.id = p_intent_id
+    and i.user_id = p_user_id
+    and i.status = 'AWAITING_APPROVAL'
+    and i.expires_at > pg_catalog.now();
+
+  if v_preview is null then
+    raise exception 'intent is missing, expired, not owned, or not awaiting approval'
+      using errcode = '42501';
+  end if;
+  return v_preview;
+end;
+$preview$;
+
 create or replace function public.claim_execution(
   p_user_id uuid,
   p_intent_id uuid,
@@ -384,6 +424,7 @@ alter table public.execution_approvals owner to execution_persistence_owner;
 alter table public.execution_records owner to execution_persistence_owner;
 alter table public.execution_events owner to execution_persistence_owner;
 alter function public.create_execution_intent(uuid,text,text,jsonb,jsonb,jsonb,jsonb,timestamptz) owner to execution_persistence_owner;
+alter function public.get_execution_intent_approval_preview(uuid,uuid) owner to execution_persistence_owner;
 alter function public.record_execution_approval(uuid,uuid,text,uuid,jsonb,text,timestamptz) owner to execution_persistence_owner;
 alter function public.claim_execution(uuid,uuid,uuid,jsonb,text) owner to execution_persistence_owner;
 alter function public.record_execution_result(uuid,uuid,uuid,text,text,text,jsonb) owner to execution_persistence_owner;
@@ -398,10 +439,12 @@ grant execute on function public.execution_snapshot_sha256(jsonb) to execution_p
 grant execute on function public.execution_intent_request_sha256(jsonb,jsonb,jsonb,jsonb) to execution_persistence_owner;
 grant execute on function public.execution_snapshot_sha256(jsonb) to service_role;
 grant execute on function public.execution_intent_request_sha256(jsonb,jsonb,jsonb,jsonb) to service_role;
+revoke all on function public.get_execution_intent_approval_preview(uuid,uuid) from public, anon, authenticated;
 revoke all on function public.create_execution_intent(uuid,text,text,jsonb,jsonb,jsonb,jsonb,timestamptz) from public, anon, authenticated;
 revoke all on function public.record_execution_approval(uuid,uuid,text,uuid,jsonb,text,timestamptz) from public, anon, authenticated;
 revoke all on function public.claim_execution(uuid,uuid,uuid,jsonb,text) from public, anon, authenticated;
 revoke all on function public.record_execution_result(uuid,uuid,uuid,text,text,text,jsonb) from public, anon, authenticated;
+grant execute on function public.get_execution_intent_approval_preview(uuid,uuid) to service_role;
 grant execute on function public.create_execution_intent(uuid,text,text,jsonb,jsonb,jsonb,jsonb,timestamptz) to service_role;
 grant execute on function public.record_execution_approval(uuid,uuid,text,uuid,jsonb,text,timestamptz) to service_role;
 grant execute on function public.claim_execution(uuid,uuid,uuid,jsonb,text) to service_role;
