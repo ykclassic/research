@@ -170,3 +170,27 @@ def record_execution_result(
     if not isinstance(record_id, str):
         raise DataRequestError("Execution result was not persisted.")
     return ExecutionRecordReceipt(execution_record_id=UUID(record_id))
+
+
+def get_execution_intent_approval_preview(*, user_id: UUID, intent_id: UUID) -> dict[str, Any]:
+    """Load the immutable, owner-scoped proposal fields for explicit approval.
+
+    The database RPC enforces ownership and only returns intents that are still
+    awaiting approval and unexpired. Callers must derive user_id from a verified
+    authenticated session; never accept it from request JSON.
+    """
+    preview = _rpc(
+        "get_execution_intent_approval_preview",
+        {"p_user_id": str(user_id), "p_intent_id": str(intent_id)},
+    )
+    if not isinstance(preview, dict):
+        raise DataRequestError("Execution intent preview could not be verified.")
+    required = {
+        "intent_id", "request_hash", "account_ref", "symbol", "side", "quantity",
+        "entry_price", "stop_loss", "take_profit", "risk_policy_version", "expires_at",
+    }
+    if not required.issubset(preview) or not re.fullmatch(
+        r"[a-f0-9]{64}", str(preview.get("request_hash", ""))
+    ):
+        raise DataRequestError("Execution intent preview is incomplete.")
+    return preview
