@@ -362,20 +362,6 @@ begin
     raise exception 'approval actor does not own intent' using errcode = '42501';
   end if;
 
-  update public.execution_approval_challenges
-    set consumed_at = v_now
-    where challenge_jti_hash = p_challenge_jti_hash
-      and intent_id = p_intent_id
-      and user_id = p_user_id
-      and request_hash = v_intent.request_hash
-      and decision = p_decision
-      and expires_at > v_now
-      and consumed_at is null;
-  if not found then
-    raise exception 'approval challenge is missing, expired, mismatched, or already consumed'
-      using errcode = '55000';
-  end if;
-
   if p_expires_at <= v_now or p_expires_at > v_intent.expires_at then
     raise exception 'approval expiry is invalid' using errcode = '22023';
   end if;
@@ -394,6 +380,20 @@ begin
   if p_approval_snapshot is distinct from v_expected_approval_snapshot
      or p_snapshot_hash is distinct from public.execution_snapshot_sha256(p_approval_snapshot) then
     raise exception 'approval snapshot does not match canonical approved intent' using errcode = '22023';
+  end if;
+
+  update public.execution_approval_challenges
+    set consumed_at = v_now
+    where challenge_jti_hash = p_challenge_jti_hash
+      and intent_id = p_intent_id
+      and user_id = p_user_id
+      and request_hash = v_intent.request_hash
+      and decision = p_decision
+      and expires_at > v_now
+      and consumed_at is null;
+  if not found then
+    raise exception 'approval challenge is missing, expired, mismatched, or already consumed'
+      using errcode = '55000';
   end if;
 
   insert into public.execution_approvals(
