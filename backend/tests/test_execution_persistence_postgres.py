@@ -792,9 +792,10 @@ def test_effective_privileges_include_inherited_membership_and_default_grants(db
                d.defaclobjtype, x.grantee, x.privilege_type
         from pg_default_acl d
         cross join lateral aclexplode(d.defaclacl) x
-        where x.grantee in (
-            select oid from pg_roles where rolname = any(%s)
-          )
+        where (
+          x.grantee = 0
+          or x.grantee in (select oid from pg_roles where rolname = any(%s))
+        )
           and x.privilege_type in (
             'SELECT','INSERT','UPDATE','DELETE','TRUNCATE','REFERENCES','TRIGGER','USAGE'
           )
