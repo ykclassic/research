@@ -194,9 +194,6 @@ async def decide_execution_approval(
             "stop_loss": preview["stop_loss"],
             "take_profit": preview["take_profit"],
             "risk_policy_version": preview["risk_policy_version"],
-            # This field is a server-generated binding field, not proof of
-            # identity. Identity is established by get_current_user above.
-            "human_confirmed": True,
         }
         expiry_value = str(preview["expires_at"])
         intent_expires_at = datetime.fromisoformat(
