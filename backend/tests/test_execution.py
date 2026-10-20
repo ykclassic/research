@@ -64,7 +64,7 @@ async def test_live_execution_is_rejected_without_live_broker_adapter() -> None:
     result = await execute_order(order, make_auth())
 
     assert result.status is OrderStatus.REJECTED
-    assert "does not support live execution" in result.message
+    assert "disabled" in result.message.lower()
 
 
 @pytest.mark.asyncio
