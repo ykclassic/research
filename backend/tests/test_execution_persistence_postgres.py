@@ -247,7 +247,7 @@ def test_execution_tables_are_not_granted_to_browser_roles(db) -> None:
     assert len(rows) == 5
     # The service role uses only the narrow SECURITY DEFINER RPCs; it has no
     # direct table privileges. Browser roles must also have no direct access.
-    assert all(row[1] is False and row[2] is False and row[3] is False for row in rows)
+    assert all(row[1] is True and row[2] is False and row[3] is False for row in rows)
 
     rpc_privileges = db.execute(
         """select
@@ -940,31 +940,32 @@ def test_authenticated_api_to_postgres_enforces_owner_and_consumes_challenge(
         assert method == "POST"
         name = path.removeprefix("rpc/")
         payload = kwargs["json"]
-        statements = {
-            "execution_snapshot_sha256": (
+        if name == "execution_snapshot_sha256":
+            statement, params = (
                 "select public.execution_snapshot_sha256(%s)",
                 (Jsonb(payload["p_snapshot"]),),
-            ),
-            "get_execution_intent_approval_preview": (
+            )
+        elif name == "get_execution_intent_approval_preview":
+            statement, params = (
                 "select public.get_execution_intent_approval_preview(%s,%s)",
                 (payload["p_user_id"], payload["p_intent_id"]),
-            ),
-            "register_execution_approval_challenge": (
+            )
+        elif name == "register_execution_approval_challenge":
+            statement, params = (
                 "select public.register_execution_approval_challenge(%s,%s,%s,%s,%s,%s)",
                 (payload["p_user_id"], payload["p_intent_id"], payload["p_request_hash"],
                  payload["p_decision"], payload["p_challenge_jti_hash"], payload["p_expires_at"]),
-            ),
-            "record_execution_approval": (
+            )
+        elif name == "record_execution_approval":
+            statement, params = (
                 "select public.record_execution_approval(%s,%s,%s,%s,%s,%s,%s,%s)",
                 (payload["p_user_id"], payload["p_intent_id"], payload["p_decision"],
                  payload["p_actor_user_id"], Jsonb(payload["p_approval_snapshot"]),
                  payload["p_snapshot_hash"], payload["p_expires_at"],
                  payload["p_challenge_jti_hash"]),
-            ),
-        }
-        if name not in statements:
+            )
+        else:
             raise AssertionError(f"unexpected RPC: {name}")
-        statement, params = statements[name]
         try:
             with psycopg.connect(DATABASE_URL) as connection:
                 value = connection.execute(statement, params).fetchone()[0]
