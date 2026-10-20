@@ -657,3 +657,108 @@ def test_effective_privileges_cover_every_protected_object_and_sequence(db) -> N
         "from pg_roles where rolname='execution_persistence_owner'"
     ).fetchone() == (False, False, False, False, False)
 
+
+
+def test_concurrent_duplicate_claims_and_conflicting_results_remain_fail_closed(db) -> None:
+    """Racing callers cannot turn the disabled claim/result RPCs into execution."""
+    from concurrent.futures import ThreadPoolExecutor
+    from threading import Barrier
+
+    user_id = _new_user(db)
+    intent_id, _, key = _create_intent(db, user_id)
+    approval_id = _approve(db, user_id, intent_id)
+    db.commit()
+    claim_barrier = Barrier(2)
+
+    def claim():
+        with psycopg.connect(DATABASE_URL) as connection:
+            claim_barrier.wait(timeout=10)
+            try:
+                _claim(connection, user_id, intent_id, approval_id)
+                connection.commit()
+                return ("unexpected-success", None)
+            except psycopg.Error as exc:
+                connection.rollback()
+                return ("denied", exc.sqlstate)
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        claim_results = list(pool.map(lambda _: claim(), range(2)))
+
+    assert all(result[0] == "denied" for result in claim_results)
+    assert db.execute(
+        "select status from public.execution_intents where id=%s", (intent_id,)
+    ).fetchone()[0] == "APPROVED"
+    assert db.execute(
+        "select count(*) from public.execution_records where intent_id=%s", (intent_id,)
+    ).fetchone()[0] == 0
+
+    result_barrier = Barrier(2)
+
+    def record(status: str):
+        with psycopg.connect(DATABASE_URL) as connection:
+            result_barrier.wait(timeout=10)
+            try:
+                connection.execute(
+                    "select public.record_execution_result(%s,%s,%s,%s,%s,%s,%s)",
+                    (user_id, intent_id, approval_id, key, status, None,
+                     Jsonb({"source": "adversarial-test", "status": status})),
+                )
+                connection.commit()
+                return ("unexpected-success", None)
+            except psycopg.Error as exc:
+                connection.rollback()
+                return ("denied", exc.sqlstate)
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        result_results = list(pool.map(record, ("FILLED", "FAILED")))
+
+    assert all(result[0] == "denied" for result in result_results)
+    assert db.execute(
+        "select count(*) from public.execution_records where intent_id=%s", (intent_id,)
+    ).fetchone()[0] == 0
+    assert db.execute(
+        "select count(*) from public.execution_events where intent_id=%s "
+        "and event_type in ('EXECUTION_CLAIMED','EXECUTION_RECORDED','EXECUTION_UNKNOWN')",
+        (intent_id,),
+    ).fetchone()[0] == 0
+
+
+def test_effective_privileges_include_inherited_membership_and_default_grants(db) -> None:
+    """Check effective grants and default ACLs, not only direct GRANT statements."""
+    protected_tables = (
+        "execution_intents", "execution_approvals", "execution_records", "execution_events"
+    )
+    untrusted_roles = ("anon", "authenticated", "service_role")
+    for role in untrusted_roles:
+        assert db.execute(
+            "select pg_has_role(%s, 'execution_persistence_owner', 'member')", (role,)
+        ).fetchone()[0] is False
+
+    default_grants = db.execute(
+        """
+        select d.defaclrole::regrole::text, d.defaclnamespace::regnamespace::text,
+               d.defaclobjtype, x.grantee, x.privilege_type
+        from pg_default_acl d
+        cross join lateral aclexplode(d.defaclacl) x
+        where d.defaclnamespace = 'public'::regnamespace
+          and x.grantee in (
+            select oid from pg_roles where rolname = any(%s)
+          )
+          and x.privilege_type in (
+            'SELECT','INSERT','UPDATE','DELETE','TRUNCATE','REFERENCES','TRIGGER','USAGE'
+          )
+        """,
+        (list(untrusted_roles),),
+    ).fetchall()
+    assert default_grants == []
+
+    for role in untrusted_roles:
+        for table in protected_tables:
+            assert db.execute(
+                "select has_table_privilege(%s, %s, 'SELECT')", (role, f"public.{table}")
+            ).fetchone()[0] is False
+            for privilege in ("INSERT", "UPDATE", "DELETE", "TRUNCATE", "REFERENCES", "TRIGGER"):
+                assert db.execute(
+                    "select has_table_privilege(%s, %s, %s)",
+                    (role, f"public.{table}", privilege),
+                ).fetchone()[0] is False
