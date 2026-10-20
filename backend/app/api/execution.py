@@ -1,11 +1,12 @@
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+import hashlib
 import secrets
-
-import jwt
+from datetime import datetime, timedelta, timezone
 from typing import Annotated
 from uuid import UUID
+
+import jwt
 
 from fastapi import APIRouter, Cookie, Depends, HTTPException
 
@@ -71,7 +72,7 @@ async def submit_execution(
     # snapshot revalidation, idempotency barrier, or live execution gate exists.
     raise HTTPException(
         status_code=503,
-        detail="Execution is disabled until server-side approvals and revalidation are implemented.",
+        detail="Execution is disabled until trusted revalidation and execution orchestration are separately reviewed.",
     )
 
 
@@ -131,7 +132,7 @@ async def create_approval_challenge(
                 "iat": now,
                 "exp": challenge_expires_at,
             },
-            settings.csrf_secret,
+            hashlib.sha256(("execution-approval:" + settings.csrf_secret).encode("utf-8")).digest(),
             algorithm="HS256",
         )
         return {"challenge": token, "expires_at": challenge_expires_at.isoformat()}
@@ -160,7 +161,7 @@ async def decide_execution_approval(
     try:
         claims = jwt.decode(
             payload.challenge,
-            settings.csrf_secret,
+            hashlib.sha256(("execution-approval:" + settings.csrf_secret).encode("utf-8")).digest(),
             algorithms=["HS256"],
             audience="execution-approval",
             options={"require": ["exp", "iat", "sub", "aud", "intent_id", "request_hash", "decision", "jti"]},
