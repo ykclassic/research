@@ -619,3 +619,41 @@ def test_concurrent_approval_race_allows_exactly_one_decision(db) -> None:
         "and event_type in ('APPROVAL_ACCEPTED','APPROVAL_REJECTED')", (intent_id,)
     ).fetchone()[0] == 1
 
+def test_effective_privileges_cover_every_protected_object_and_sequence(db) -> None:
+    protected_tables = (
+        "execution_intents", "execution_approvals", "execution_records", "execution_events"
+    )
+    mutations = ("INSERT", "UPDATE", "DELETE", "TRUNCATE", "REFERENCES", "TRIGGER")
+    for table in protected_tables:
+        qualified = f"public.{table}"
+        for role in ("anon", "authenticated", "service_role"):
+            assert db.execute(
+                "select has_table_privilege(%s, %s, 'SELECT')", (role, qualified)
+            ).fetchone()[0] is False, f"{role} unexpectedly has SELECT on {qualified}"
+            for privilege in mutations:
+                assert db.execute(
+                    "select has_table_privilege(%s, %s, %s)",
+                    (role, qualified, privilege),
+                ).fetchone()[0] is False, f"{role} unexpectedly has {privilege} on {qualified}"
+
+    sequence = "public.execution_events_event_seq_seq"
+    for role in ("anon", "authenticated", "service_role"):
+        for privilege in ("USAGE", "SELECT", "UPDATE"):
+            assert db.execute(
+                "select has_sequence_privilege(%s, %s, %s)",
+                (role, sequence, privilege),
+            ).fetchone()[0] is False, f"{role} unexpectedly has {privilege} on {sequence}"
+
+    for role in ("anon", "authenticated", "service_role", "execution_persistence_owner"):
+        assert db.execute(
+            "select has_schema_privilege(%s, 'public', 'CREATE')", (role,)
+        ).fetchone()[0] is False, f"{role} can create objects in public"
+
+    assert db.execute(
+        "select pg_has_role('service_role','execution_persistence_owner','member')"
+    ).fetchone()[0] is False
+    assert db.execute(
+        "select rolsuper, rolcreatedb, rolcreaterole, rolcanlogin, rolinherit "
+        "from pg_roles where rolname='execution_persistence_owner'"
+    ).fetchone() == (False, False, False, False, False)
+
