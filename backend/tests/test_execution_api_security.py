@@ -189,6 +189,30 @@ def test_approval_preview_requires_authenticated_owner(client: TestClient) -> No
     assert response.status_code == 401
 
 
+def test_approval_preview_scopes_lookup_to_verified_session_user(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from uuid import UUID
+    from app.services.supabase_data import DataRequestError
+
+    _authenticate_with_csrf()
+    observed = []
+
+    def owner_scoped_preview(*, user_id, intent_id):
+        observed.append((user_id, intent_id))
+        if user_id != UUID(USER.id):
+            raise DataRequestError("not found")
+        return _approval_preview()
+
+    monkeypatch.setattr(execution_api, "get_execution_intent_approval_preview", owner_scoped_preview)
+    response = client.get(
+        "/api/execution/intents/0d64c25d-a3d2-46c6-9ed2-ff1a7c3d8431/approval-preview"
+    )
+
+    assert response.status_code == 200
+    assert observed == [(UUID(USER.id), UUID("0d64c25d-a3d2-46c6-9ed2-ff1a7c3d8431"))]
+
+
 def test_approval_decision_requires_csrf(client: TestClient) -> None:
     app.dependency_overrides[execution_api.get_current_user] = lambda: USER
     response = client.post(
@@ -262,7 +286,7 @@ def test_approval_actor_and_snapshot_are_derived_from_session_and_database(
     assert call["approval_snapshot"]["account_ref"] == "server-account"
     assert call["approval_snapshot"]["symbol"] == "BTC/USDT"
     assert call["approval_snapshot"]["risk_policy_version"] == "risk-v3"
-    assert call["approval_snapshot"]["human_confirmed"] is True
+    assert "human_confirmed" not in call["approval_snapshot"]
     assert "actor_user_id" not in response.json()
 
 
