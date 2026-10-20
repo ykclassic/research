@@ -510,6 +510,25 @@ def test_all_privileged_functions_have_restricted_owner_and_execute_grants(db) -
             (signature,),
         ).fetchone()[0] is True
 
+    function_oids = [
+        db.execute("select %s::regprocedure::oid", (signature,)).fetchone()[0]
+        for signature in signatures
+    ]
+    public_execute = db.execute(
+        """
+        select p.oid::regprocedure::text
+        from pg_proc p
+        cross join lateral pg_catalog.aclexplode(
+          coalesce(p.proacl, pg_catalog.acldefault('f', p.proowner))
+        ) acl
+        where p.oid = any(%s::oid[])
+          and acl.grantee = 0
+          and acl.privilege_type = 'EXECUTE'
+        """,
+        (function_oids,),
+    ).fetchall()
+    assert public_execute == []
+
 
 def test_service_role_cannot_mutate_execution_tables_directly(db) -> None:
     user_id = _new_user(db)
