@@ -273,6 +273,10 @@ def test_changed_proposal_hash_cannot_be_approved(
         execution_api, "get_execution_intent_approval_preview",
         lambda **kwargs: preview,
     )
+    monkeypatch.setattr(
+        execution_api, "register_execution_approval_challenge",
+        lambda **kwargs: None,
+    )
     recorded = []
     monkeypatch.setattr(execution_api, "record_execution_approval", lambda **kwargs: recorded.append(kwargs))
     challenge_response = client.post(
@@ -323,6 +327,7 @@ def test_approval_actor_and_snapshot_are_derived_from_session_and_database(
     call = calls[0]
     assert call["user_id"] == UUID(USER.id)
     assert call["actor_user_id"] == UUID(USER.id)
+    assert isinstance(call["challenge_jti"], str) and call["challenge_jti"]
     assert call["approval_snapshot"]["account_ref"] == "server-account"
     assert call["approval_snapshot"]["symbol"] == "BTC/USDT"
     assert call["approval_snapshot"]["risk_policy_version"] == "risk-v3"
