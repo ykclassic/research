@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import hashlib
 from datetime import datetime
 import re
 from typing import Any, Literal
@@ -87,6 +88,32 @@ def create_execution_intent(
     return IntentReceipt(intent_id=UUID(row["intent_id"]), created=bool(row["created"]))
 
 
+def register_execution_approval_challenge(
+    *,
+    user_id: UUID,
+    intent_id: UUID,
+    request_hash: str,
+    decision: ApprovalDecision,
+    challenge_jti: str,
+    expires_at: datetime,
+) -> None:
+    """Persist a challenge nonce before returning the signed challenge to a client."""
+    challenge_jti_hash = hashlib.sha256(challenge_jti.encode("utf-8")).hexdigest()
+    registered = _rpc(
+        "register_execution_approval_challenge",
+        {
+            "p_user_id": str(user_id),
+            "p_intent_id": str(intent_id),
+            "p_request_hash": request_hash,
+            "p_decision": decision,
+            "p_challenge_jti_hash": challenge_jti_hash,
+            "p_expires_at": expires_at.isoformat(),
+        },
+    )
+    if registered is not True:
+        raise DataRequestError("Approval challenge could not be persisted.")
+
+
 def record_execution_approval(
     *,
     user_id: UUID,
@@ -94,6 +121,7 @@ def record_execution_approval(
     decision: ApprovalDecision,
     actor_user_id: UUID,
     approval_snapshot: dict[str, Any],
+    challenge_jti: str,
     snapshot_hash: str | None = None,
     expires_at: datetime,
 ) -> ExecutionApprovalReceipt:
@@ -116,6 +144,7 @@ def record_execution_approval(
             "p_approval_snapshot": approval_snapshot,
             "p_snapshot_hash": canonical_snapshot_hash,
             "p_expires_at": expires_at.isoformat(),
+            "p_challenge_jti_hash": hashlib.sha256(challenge_jti.encode("utf-8")).hexdigest(),
         },
     )
     if not isinstance(approval_id, str):
