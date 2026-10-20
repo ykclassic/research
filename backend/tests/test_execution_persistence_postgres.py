@@ -539,3 +539,83 @@ def test_expired_approval_window_is_rejected(db) -> None:
                 (user_id, intent_id, "APPROVE", user_id, Jsonb(snapshot), digest,
                  datetime.now(timezone.utc) - timedelta(seconds=1)),
             )
+
+def test_concurrent_intent_creation_is_idempotent_across_sessions(db) -> None:
+    from concurrent.futures import ThreadPoolExecutor
+    from threading import Barrier
+
+    user_id = _new_user(db)
+    db.commit()  # Make the fixture user visible to independent PostgreSQL sessions.
+    key = f"race-{uuid4()}-idempotency"
+    signal = {"signal_id": "signal-race", "symbol": "BTC/USDT", "side": "LONG",
+              "quantity": 1.0, "entry_price": 100.0, "stop_loss": 99.0,
+              "take_profit": 102.0, "qualified": True}
+    account = {"equity": 10000, "source": "test", "account_ref": "test-account"}
+    market = {"price": 100, "observed_at": datetime.now(timezone.utc).isoformat()}
+    risk = {"risk_pct": 0.5, "risk_policy_version": "test-v1"}
+    request_hash = db.execute(
+        "select public.execution_intent_request_sha256(%s,%s,%s,%s)",
+        (Jsonb(signal), Jsonb(account), Jsonb(market), Jsonb(risk)),
+    ).fetchone()[0]
+    db.commit()
+    barrier = Barrier(2)
+
+    def create():
+        with psycopg.connect(DATABASE_URL) as connection:
+            barrier.wait(timeout=10)
+            return connection.execute(
+                "select intent_id, created from public.create_execution_intent(%s,%s,%s,%s,%s,%s,%s,%s)",
+                (user_id, key, request_hash, Jsonb(signal), Jsonb(account), Jsonb(market),
+                 Jsonb(risk), _future(120)),
+            ).fetchone()
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        results = list(pool.map(lambda _: create(), range(2)))
+
+    assert results[0][0] == results[1][0]
+    assert sorted(result[1] for result in results) == [False, True]
+    assert db.execute(
+        "select count(*) from public.execution_intents where user_id=%s and idempotency_key=%s",
+        (user_id, key),
+    ).fetchone()[0] == 1
+    assert db.execute(
+        "select count(*) from public.execution_events where intent_id=%s and event_type='INTENT_CREATED'",
+        (results[0][0],),
+    ).fetchone()[0] == 1
+
+
+def test_concurrent_approval_race_allows_exactly_one_decision(db) -> None:
+    from concurrent.futures import ThreadPoolExecutor
+    from threading import Barrier
+
+    user_id = _new_user(db)
+    intent_id, _, _ = _create_intent(db, user_id)
+    db.commit()  # Make user and intent visible to independent PostgreSQL sessions.
+    barrier = Barrier(2)
+
+    def approve(decision: str):
+        with psycopg.connect(DATABASE_URL) as connection:
+            barrier.wait(timeout=10)
+            try:
+                approval_id = _approve(connection, user_id, intent_id, decision)
+                connection.commit()
+                return ("ok", approval_id)
+            except psycopg.Error as exc:
+                connection.rollback()
+                return ("rejected", exc.sqlstate)
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        results = list(pool.map(approve, ("APPROVE", "REJECT")))
+
+    assert sorted(result[0] for result in results) == ["ok", "rejected"]
+    assert db.execute(
+        "select count(*) from public.execution_approvals where intent_id=%s", (intent_id,)
+    ).fetchone()[0] == 1
+    assert db.execute(
+        "select status from public.execution_intents where id=%s", (intent_id,)
+    ).fetchone()[0] in {"APPROVED", "REJECTED"}
+    assert db.execute(
+        "select count(*) from public.execution_events where intent_id=%s "
+        "and event_type in ('APPROVAL_ACCEPTED','APPROVAL_REJECTED')", (intent_id,)
+    ).fetchone()[0] == 1
+
