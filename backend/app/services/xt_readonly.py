@@ -10,6 +10,8 @@ from typing import Any
 
 import httpx
 
+from app.config import settings
+
 
 XT_SPOT_ORIGIN = "https://sapi.xt.com"
 XT_BALANCES_PATH = "/spot/v4/balances"
@@ -172,3 +174,15 @@ class XtReadOnlyClient:
             observed_at=datetime.now(timezone.utc),
             balances=balances,
         )
+
+
+def configured_xt_read_only_client(
+    *, transport: httpx.AsyncBaseTransport | None = None
+) -> XtReadOnlyClient:
+    """Build the fixed-origin client from server-side environment settings."""
+    return XtReadOnlyClient(
+        api_key=settings.xt_api_key,
+        api_secret=settings.xt_api_secret,
+        timeout_seconds=settings.xt_timeout_seconds,
+        transport=transport,
+    )
