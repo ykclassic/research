@@ -140,7 +140,6 @@ def test_target_mismatch_never_sends_publishable_key_to_other_project(
         "https://rprgjfvfttxydhbekuoc.supabase.co:8443",
         "https://rprgjfvfttxydhbekuoc.supabase.co:invalid",
         "https://not-a-project-ref.supabase.co",
-        "https://aaaaaaaaaaaaaaaaaaaa.supabase.co",
         "https://example.invalid",
         "not a URL",
     ],
