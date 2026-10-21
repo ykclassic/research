@@ -2,14 +2,14 @@ from __future__ import annotations
 
 import os
 import re
+from datetime import datetime, timezone
 from urllib.parse import urlparse
-from typing import Literal
 
+import httpx
 from fastapi import APIRouter, Depends
 
 from app.api.auth import require_github_actions
 from app.config import settings
-from app.services.supabase_data import DataServiceError, service_request
 
 router = APIRouter(
     prefix="/internal/diagnostics",
@@ -18,18 +18,16 @@ router = APIRouter(
 )
 
 PROJECT_REF_PATTERN = re.compile(r"^[a-z0-9]{20}$")
-EXPECTED_PRODUCTION_PROJECT_REF = "rprgjfvfttxydhbekuoc"
-PROBE_KIND = "read_only_postgrest_billing_plans_limit_1"
+DEPLOYMENT_SHA_PATTERN = re.compile(r"^[0-9a-fA-F]{40}$")
+PROBE_METHOD = "GET /auth/v1/settings (publishable key; read-only)"
 
 
 def _project_ref_from_url(url: str) -> str | None:
-    """Accept only a canonical HTTPS Supabase project origin.
-
-    Do not infer a trusted project from a URL that changes transport, adds
-    credentials/ports, or redirects the REST path through an unexpected URL.
-    """
+    """Return a project ref only for a canonical HTTPS Supabase origin."""
+    if not url or url != url.strip():
+        return None
     try:
-        parsed = urlparse(url.strip())
+        parsed = urlparse(url)
         hostname = (parsed.hostname or "").lower()
         if (
             parsed.scheme.lower() != "https"
@@ -52,40 +50,60 @@ def _project_ref_from_url(url: str) -> str | None:
     return candidate if PROJECT_REF_PATTERN.fullmatch(candidate) else None
 
 
-@router.get("/database")
-def database_diagnostic() -> dict[str, str | bool | None]:
-    """Protected, read-only diagnostic for the backend's effective DB target.
+def _deployment_sha() -> str | None:
+    value = os.getenv("RENDER_GIT_COMMIT", "")
+    return value.lower() if DEPLOYMENT_SHA_PATTERN.fullmatch(value) else None
 
-    Never return credentials, URLs, headers, database addresses, row contents,
-    or raw exception text. Access is restricted to trusted GitHub Actions OIDC.
-    """
-    configured = bool(settings.supabase_url.strip() and settings.supabase_service_role_key.strip())
-    project_ref = _project_ref_from_url(settings.supabase_url) if settings.supabase_url else None
-    probe: Literal["ok", "failed", "not_configured"] = "not_configured"
 
-    if configured and project_ref == EXPECTED_PRODUCTION_PROJECT_REF:
-        try:
-            # The service-role credential remains server-side. Limit the read to
-            # a harmless catalogue row and discard the response contents.
-            service_request(
-                "GET",
-                "billing_plans",
-                params={"select": "id", "limit": "1"},
-            )
-            probe = "ok"
-        except (DataServiceError, ValueError, TypeError):
-            probe = "failed"
-        except Exception:
-            # Fail closed while keeping provider/connection details private.
-            probe = "failed"
-    elif configured:
-        # Do not send even the service-role credential to an unexpected project.
-        probe = "failed"
-
+def _result(project_ref: str | None, status: str, reason_code: str) -> dict[str, str | None]:
     return {
-        "configured": configured,
         "project_ref": project_ref,
-        "database_probe": probe,
-        "probe_kind": PROBE_KIND,
-        "deployment_commit": os.getenv("RENDER_GIT_COMMIT"),
+        "deployment_sha": _deployment_sha(),
+        "timestamp_utc": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+        "probe_method": PROBE_METHOD,
+        "status": status,
+        "reason_code": reason_code,
     }
+
+
+@router.get("/database")
+def database_diagnostic() -> dict[str, str | None]:
+    """Protected, read-only target check; never return credentials, URLs, bodies, or exceptions.
+
+    The endpoint is restricted to a narrowly scoped, verified GitHub Actions OIDC
+    identity. It uses the application's configured publishable key, not the
+    service-role key, and only performs GET against Supabase Auth settings.
+    """
+    expected_ref = settings.supabase_expected_production_project_ref
+    if not expected_ref or not expected_ref.strip():
+        return _result(None, "failed", "expected_target_missing")
+    if not PROJECT_REF_PATTERN.fullmatch(expected_ref):
+        return _result(None, "failed", "expected_target_invalid")
+
+    project_ref = _project_ref_from_url(settings.supabase_url)
+    if project_ref is None:
+        return _result(None, "failed", "supabase_url_invalid")
+    if project_ref != expected_ref:
+        return _result(project_ref, "failed", "target_mismatch")
+    if not settings.supabase_publishable_key or not settings.supabase_publishable_key.strip():
+        return _result(project_ref, "failed", "publishable_key_missing")
+
+    try:
+        # Supabase Auth's settings endpoint is a read-only GET and uses the
+        # same URL + publishable-key HTTP pattern as app/services/supabase_auth.py.
+        # Redirects are not followed; response content is deliberately discarded.
+        response = httpx.get(
+            f"{settings.supabase_url.rstrip('/')}/auth/v1/settings",
+            headers={"apikey": settings.supabase_publishable_key},
+            timeout=settings.http_timeout_seconds,
+        )
+    except httpx.RequestError:
+        return _result(project_ref, "failed", "probe_unavailable")
+    except Exception:
+        return _result(project_ref, "failed", "probe_unavailable")
+
+    if response.status_code in {401, 403}:
+        return _result(project_ref, "failed", "probe_authorization_failed")
+    if not 200 <= response.status_code < 300:
+        return _result(project_ref, "failed", "probe_http_error")
+    return _result(project_ref, "passed", "probe_succeeded")
