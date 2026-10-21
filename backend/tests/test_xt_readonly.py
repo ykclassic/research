@@ -141,6 +141,7 @@ async def test_timeout_fails_closed_without_leaking_exception() -> None:
     [
         {},
         {"rc": 1, "result": {"assets": []}},
+        {"rc": False, "result": {"assets": []}},
         {"rc": 0, "result": {}},
         {"rc": 0, "result": {"assets": "not-a-list"}},
         {"rc": 0, "result": {"assets": [{"currency": "BTC"}]}},
@@ -172,3 +173,12 @@ async def test_missing_credentials_are_rejected() -> None:
 
 def test_balance_parser_preserves_empty_account_and_decimal_precision() -> None:
     assert _parse_balances({"rc": 0, "result": {"assets": []}}) == ()
+
+
+def test_invalid_timeout_and_receive_window_are_rejected() -> None:
+    for timeout in (0, -1, float("inf"), float("nan"), True):
+        with pytest.raises(ValueError):
+            XtReadOnlyClient(api_key=API_KEY, api_secret=API_SECRET, timeout_seconds=timeout)
+    for window in (999, 5001, True, 1.5):
+        with pytest.raises(ValueError):
+            XtReadOnlyClient(api_key=API_KEY, api_secret=API_SECRET, receive_window_ms=window)
