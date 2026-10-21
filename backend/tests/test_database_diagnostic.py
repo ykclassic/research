@@ -150,7 +150,7 @@ def test_missing_or_invalid_deployment_identity_fails_without_probe(
     assert payload["reason_code"] == reason
     assert payload["deployment_sha"] is None
     assert payload["project_ref"] == EXPECTED_REF
-    assert sha_value is None or sha_value not in response.text
+    assert not sha_value or sha_value not in response.text
 
 
 def test_valid_deployment_identity_still_fails_closed_when_no_authorized_postgrest_probe_exists(
