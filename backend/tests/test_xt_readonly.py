@@ -24,6 +24,19 @@ def _response(status_code: int, payload: object) -> httpx.Response:
     return httpx.Response(status_code, json=payload)
 
 
+def test_signature_preimage_and_hmac_known_vector() -> None:
+    client = XtReadOnlyClient(api_key=API_KEY, api_secret=API_SECRET)
+    timestamp = 1700000000000
+    assert client._signing_preimage(timestamp) == (
+        "validate-algorithms=HmacSHA256&validate-appkey=test-app-key&"
+        "validate-recvwindow=5000&validate-timestamp=1700000000000"
+        "#GET#/spot/v4/balances"
+    )
+    assert client._headers(timestamp)["validate-signature"] == (
+        "5c4afcbbc9daafbdfe1d360f7d317e2a67ef65c0a0e31fd08c46f2e1556f423a"
+    )
+
+
 @pytest.mark.asyncio
 async def test_read_only_client_signs_fixed_get_and_parses_balances() -> None:
     observed: list[httpx.Request] = []
