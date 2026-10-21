@@ -5,9 +5,11 @@ on:
     branches:
       - main
       - phase-1-execution-security-contract
+      - test/pr252-diagnostic-oidc-hardening
     paths:
       - "backend/app/api/auth.py"
       - "backend/app/api/diagnostics.py"
+      - "backend/app/config.py"
       - "backend/tests/test_auth.py"
       - "backend/tests/test_database_diagnostic.py"
       - "backend/tests/test_github_oidc_verification.py"
