@@ -2,14 +2,14 @@ from __future__ import annotations
 
 import os
 import re
+from datetime import datetime, timezone
 from urllib.parse import urlparse
-from typing import Literal
 
+import httpx
 from fastapi import APIRouter, Depends
 
 from app.api.auth import require_github_actions
 from app.config import settings
-from app.services.supabase_data import DataServiceError, service_request
 
 router = APIRouter(
     prefix="/internal/diagnostics",
@@ -18,15 +18,35 @@ router = APIRouter(
 )
 
 PROJECT_REF_PATTERN = re.compile(r"^[a-z0-9]{20}$")
-EXPECTED_PRODUCTION_PROJECT_REF = "rprgjfvfttxydhbekuoc"
-PROBE_KIND = "read_only_postgrest_billing_plans_limit_1"
+DEPLOYMENT_SHA_PATTERN = re.compile(r"^[0-9a-fA-F]{40}$")
+# No currently established PostgREST resource can be queried with only the
+# publishable key: the known research_snapshots table revokes anon access and
+# grants SELECT to authenticated users only. GitHub OIDC is not a Supabase user
+# JWT, so never pretend a publishable-key-only request verifies the data path.
+PROBE_METHOD = "unavailable: existing PostgREST resources require an authenticated user JWT"
 
 
 def _project_ref_from_url(url: str) -> str | None:
-    try:
-        hostname = (urlparse(url).hostname or "").lower()
-    except ValueError:
+    """Return a project ref only for a canonical HTTPS Supabase origin."""
+    if not url or url != url.strip():
         return None
+    try:
+        parsed = urlparse(url)
+        hostname = (parsed.hostname or "").lower()
+        if (
+            parsed.scheme.lower() != "https"
+            or not hostname
+            or parsed.username is not None
+            or parsed.password is not None
+            or parsed.port is not None
+            or parsed.path not in ("", "/")
+            or parsed.query
+            or parsed.fragment
+        ):
+            return None
+    except (ValueError, AttributeError):
+        return None
+
     suffix = ".supabase.co"
     if not hostname.endswith(suffix):
         return None
@@ -34,40 +54,55 @@ def _project_ref_from_url(url: str) -> str | None:
     return candidate if PROJECT_REF_PATTERN.fullmatch(candidate) else None
 
 
-@router.get("/database")
-def database_diagnostic() -> dict[str, str | bool | None]:
-    """Protected, read-only diagnostic for the backend's effective DB target.
+def _deployment_sha() -> str | None:
+    value = os.getenv("RENDER_GIT_COMMIT", "")
+    return value.lower() if DEPLOYMENT_SHA_PATTERN.fullmatch(value) else None
 
-    Never return credentials, URLs, headers, database addresses, row contents,
-    or raw exception text. Access is restricted to trusted GitHub Actions OIDC.
-    """
-    configured = bool(settings.supabase_url.strip() and settings.supabase_service_role_key.strip())
-    project_ref = _project_ref_from_url(settings.supabase_url) if settings.supabase_url else None
-    probe: Literal["ok", "failed", "not_configured"] = "not_configured"
 
-    if configured and project_ref == EXPECTED_PRODUCTION_PROJECT_REF:
-        try:
-            # The service-role credential remains server-side. Limit the read to
-            # a harmless catalogue row and discard the response contents.
-            service_request(
-                "GET",
-                "billing_plans",
-                params={"select": "id", "limit": "1"},
-            )
-            probe = "ok"
-        except (DataServiceError, ValueError, TypeError):
-            probe = "failed"
-        except Exception:
-            # Fail closed while keeping provider/connection details private.
-            probe = "failed"
-    elif configured:
-        # Do not send even the service-role credential to an unexpected project.
-        probe = "failed"
-
+def _result(project_ref: str | None, deployment_sha: str | None, status: str, reason_code: str) -> dict[str, str | None]:
     return {
-        "configured": configured,
         "project_ref": project_ref,
-        "database_probe": probe,
-        "probe_kind": PROBE_KIND,
-        "deployment_commit": os.getenv("RENDER_GIT_COMMIT"),
+        "deployment_sha": deployment_sha,
+        "timestamp_utc": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+        "probe_method": PROBE_METHOD,
+        "status": status,
+        "reason_code": reason_code,
     }
+
+
+@router.get("/database")
+def database_diagnostic() -> dict[str, str | None]:
+    """Protected, fail-closed identity diagnostic; does not claim DB access is verified.
+
+    The route requires a verified, narrowly scoped GitHub Actions OIDC identity.
+    The configured publishable key is deliberately not used to probe an
+    authenticated-only PostgREST table. A real read-only Data API probe remains
+    unavailable until an approved authenticated data-access method is designed.
+    No request is made to Supabase from this endpoint in its current state.
+    """
+    expected_ref = settings.supabase_expected_production_project_ref
+    if not expected_ref or not expected_ref.strip():
+        return _result(None, _deployment_sha(), "failed", "expected_target_missing")
+    if not PROJECT_REF_PATTERN.fullmatch(expected_ref):
+        return _result(None, _deployment_sha(), "failed", "expected_target_invalid")
+
+    project_ref = _project_ref_from_url(settings.supabase_url)
+    if project_ref is None:
+        return _result(None, _deployment_sha(), "failed", "supabase_url_invalid")
+    if project_ref != expected_ref:
+        return _result(project_ref, _deployment_sha(), "failed", "target_mismatch")
+
+    deployment_value = os.getenv("RENDER_GIT_COMMIT", "")
+    deployment_sha = _deployment_sha()
+    if not deployment_value:
+        return _result(project_ref, None, "failed", "deployment_identity_missing")
+    if deployment_sha is None:
+        return _result(project_ref, None, "failed", "deployment_identity_invalid")
+
+    if not settings.supabase_publishable_key or not settings.supabase_publishable_key.strip():
+        return _result(project_ref, deployment_sha, "failed", "publishable_key_missing")
+
+    # A publishable key maps to the anon role without a Supabase user JWT.
+    # Repository migrations explicitly revoke anon access to research_snapshots
+    # and grant SELECT to authenticated users. Do not issue an unverified probe.
+    return _result(project_ref, deployment_sha, "failed", "probe_unavailable")
