@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import hmac
 import json
+import math
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from decimal import Decimal, InvalidOperation
@@ -55,7 +56,12 @@ def _decimal_amount(value: Any, field: str) -> Decimal:
 
 
 def _parse_balances(payload: Any) -> tuple[XtBalance, ...]:
-    if not isinstance(payload, dict) or payload.get("rc") != 0:
+    if (
+        not isinstance(payload, dict)
+        or isinstance(payload.get("rc"), bool)
+        or not isinstance(payload.get("rc"), int)
+        or payload.get("rc") != 0
+    ):
         raise XtProviderError("provider_rejected_request")
     result = payload.get("result")
     assets = result.get("assets") if isinstance(result, dict) else None
@@ -100,7 +106,15 @@ class XtReadOnlyClient:
             raise XtProviderError("credentials_missing")
         if not isinstance(api_secret, str) or not api_secret.strip():
             raise XtProviderError("credentials_missing")
-        if timeout_seconds <= 0 or not 1000 <= receive_window_ms <= XT_RECEIVE_WINDOW_MS:
+        if (
+            not isinstance(timeout_seconds, (int, float))
+            or isinstance(timeout_seconds, bool)
+            or not math.isfinite(timeout_seconds)
+            or timeout_seconds <= 0
+            or isinstance(receive_window_ms, bool)
+            or not isinstance(receive_window_ms, int)
+            or not 1000 <= receive_window_ms <= XT_RECEIVE_WINDOW_MS
+        ):
             raise ValueError("Invalid XT client timeout or receive window.")
         self._api_key = api_key.strip()
         self._api_secret = api_secret.strip()
