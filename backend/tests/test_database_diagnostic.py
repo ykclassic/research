@@ -160,7 +160,7 @@ def test_malformed_or_unexpected_url_fails_closed_without_probe(
     assert response.status_code == 200
     assert response.json()["status"] == "failed"
     assert response.json()["reason_code"] == "supabase_url_invalid"
-    assert url not in response.text
+    assert not url or url not in response.text
 
 
 @pytest.mark.parametrize("key", ["", "   "])
