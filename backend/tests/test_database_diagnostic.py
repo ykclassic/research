@@ -1,5 +1,9 @@
 from __future__ import annotations
 
+from datetime import datetime
+from types import SimpleNamespace
+
+import httpx
 from fastapi.testclient import TestClient
 import pytest
 
@@ -7,10 +11,11 @@ from app.api import diagnostics as diagnostics_api
 from app.api.auth import require_github_actions
 from app.config import settings
 from app.main import app
-from app.services.supabase_data import DataUnavailableError
 
 EXPECTED_URL = "https://rprgjfvfttxydhbekuoc.supabase.co"
-SECRET = "server-only-test-key"
+EXPECTED_REF = "rprgjfvfttxydhbekuoc"
+PUBLISHABLE_KEY = "publishable-test-key"
+SERVICE_ROLE_SECRET = "service-role-secret-must-never-be-used"
 
 
 @pytest.fixture
@@ -22,105 +27,111 @@ def client():
     app.dependency_overrides.clear()
 
 
-def configure(monkeypatch: pytest.MonkeyPatch, url: str, key: str = SECRET) -> None:
+def configure(
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    url: str = EXPECTED_URL,
+    key: str = PUBLISHABLE_KEY,
+    expected_ref: str = EXPECTED_REF,
+) -> None:
     monkeypatch.setattr(settings, "supabase_url", url)
-    monkeypatch.setattr(settings, "supabase_service_role_key", key)
+    monkeypatch.setattr(settings, "supabase_publishable_key", key)
+    monkeypatch.setattr(settings, "supabase_service_role_key", SERVICE_ROLE_SECRET)
+    monkeypatch.setattr(settings, "supabase_expected_production_project_ref", expected_ref)
 
 
-def test_database_diagnostic_reports_only_sanitized_target_and_probe(
+def successful_response():
+    return SimpleNamespace(status_code=200, text='{"sensitive":"body must not be returned"}')
+
+
+def test_database_diagnostic_uses_publishable_key_and_only_read_only_auth_settings_get(
     client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    configure(monkeypatch, EXPECTED_URL)
-    monkeypatch.setenv("RENDER_GIT_COMMIT", "test-commit-sha")
+    configure(monkeypatch)
+    sha = "4d5eefeb6cd231a7b733db508035fa869814ad7b"
+    monkeypatch.setenv("RENDER_GIT_COMMIT", sha)
     calls = []
 
-    def probe(method, path, **kwargs):
-        calls.append((method, path, kwargs))
-        return [{"id": "this-row-must-not-be-returned"}]
+    def probe(url, **kwargs):
+        calls.append((url, kwargs))
+        return successful_response()
 
-    monkeypatch.setattr(diagnostics_api, "service_request", probe)
+    monkeypatch.setattr(diagnostics_api.httpx, "get", probe)
     response = client.get("/internal/diagnostics/database")
 
     assert response.status_code == 200
-    assert response.json() == {
-        "configured": True,
-        "project_ref": "rprgjfvfttxydhbekuoc",
-        "database_probe": "ok",
-        "probe_kind": "read_only_postgrest_billing_plans_limit_1",
-        "deployment_commit": "test-commit-sha",
-    }
-    assert calls == [("GET", "billing_plans", {"params": {"select": "id", "limit": "1"}})]
-    assert SECRET not in response.text
+    payload = response.json()
+    assert payload["project_ref"] == EXPECTED_REF
+    assert payload["deployment_sha"] == sha
+    assert payload["probe_method"] == "GET /auth/v1/settings (publishable key; read-only)"
+    assert payload["status"] == "passed"
+    assert payload["reason_code"] == "probe_succeeded"
+    assert payload["timestamp_utc"].endswith("Z")
+    datetime.fromisoformat(payload["timestamp_utc"].replace("Z", "+00:00"))
+    assert calls == [(
+        f"{EXPECTED_URL}/auth/v1/settings",
+        {"headers": {"apikey": PUBLISHABLE_KEY}, "timeout": settings.http_timeout_seconds},
+    )]
+    assert SERVICE_ROLE_SECRET not in response.text
+    assert PUBLISHABLE_KEY not in response.text
     assert "supabase.co" not in response.text
-    assert "this-row-must-not-be-returned" not in response.text
-
-
-def test_database_diagnostic_sanitizes_known_probe_failure(
-    client: TestClient, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    configure(monkeypatch, EXPECTED_URL)
-
-    def fail(*args, **kwargs):
-        raise DataUnavailableError("secret URL and credentials must not be returned")
-
-    monkeypatch.setattr(diagnostics_api, "service_request", fail)
-    response = client.get("/internal/diagnostics/database")
-
-    assert response.status_code == 200
-    assert response.json()["database_probe"] == "failed"
-    assert response.json()["project_ref"] == "rprgjfvfttxydhbekuoc"
-    assert "secret URL" not in response.text
-    assert SECRET not in response.text
-
-
-def test_database_diagnostic_sanitizes_unexpected_probe_exception(
-    client: TestClient, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    configure(monkeypatch, EXPECTED_URL)
-    monkeypatch.setattr(
-        diagnostics_api,
-        "service_request",
-        lambda *args, **kwargs: (_ for _ in ()).throw(RuntimeError("sensitive provider details")),
-    )
-
-    response = client.get("/internal/diagnostics/database")
-
-    assert response.status_code == 200
-    assert response.json()["database_probe"] == "failed"
-    assert "sensitive provider details" not in response.text
-    assert SECRET not in response.text
+    assert "sensitive" not in response.text
+    assert "/rest/v1/rpc/" not in response.text
 
 
 @pytest.mark.parametrize(
-    ("url", "key"),
+    ("expected_ref", "reason"),
     [
-        ("", SECRET),
-        (EXPECTED_URL, ""),
-        (EXPECTED_URL, "   "),
-        ("   ", SECRET),
+        ("", "expected_target_missing"),
+        ("   ", "expected_target_missing"),
+        ("not-a-project-ref", "expected_target_invalid"),
+        ("AAAAAAAAAAAAAAAAAAAA", "expected_target_invalid"),
     ],
 )
-def test_database_diagnostic_missing_or_blank_configuration_never_probes(
-    client: TestClient, monkeypatch: pytest.MonkeyPatch, url: str, key: str
+def test_missing_or_invalid_expected_target_fails_closed_without_network_probe(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch, expected_ref: str, reason: str
 ) -> None:
-    configure(monkeypatch, url, key)
+    configure(monkeypatch, expected_ref=expected_ref)
     monkeypatch.setattr(
-        diagnostics_api,
-        "service_request",
-        lambda *args, **kwargs: pytest.fail("probe must not run without complete configuration"),
+        diagnostics_api.httpx,
+        "get",
+        lambda *args, **kwargs: pytest.fail("must not probe without a valid explicit expected target"),
     )
 
     response = client.get("/internal/diagnostics/database")
 
     assert response.status_code == 200
-    assert response.json()["configured"] is False
-    assert response.json()["database_probe"] == "not_configured"
-    assert SECRET not in response.text
+    assert response.json()["status"] == "failed"
+    assert response.json()["reason_code"] == reason
+    assert response.json()["project_ref"] is None
+
+
+def test_target_mismatch_never_sends_publishable_key_to_other_project(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    other_url = "https://aaaaaaaaaaaaaaaaaaaa.supabase.co"
+    configure(monkeypatch, url=other_url)
+    monkeypatch.setattr(
+        diagnostics_api.httpx,
+        "get",
+        lambda *args, **kwargs: pytest.fail("target mismatch must stop before any network call"),
+    )
+
+    response = client.get("/internal/diagnostics/database")
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "failed"
+    assert response.json()["reason_code"] == "target_mismatch"
+    assert response.json()["project_ref"] == "aaaaaaaaaaaaaaaaaaaa"
+    assert PUBLISHABLE_KEY not in response.text
+    assert other_url not in response.text
 
 
 @pytest.mark.parametrize(
     "url",
     [
+        "",
+        " https://rprgjfvfttxydhbekuoc.supabase.co",
         "http://rprgjfvfttxydhbekuoc.supabase.co",
         "https://rprgjfvfttxydhbekuoc.supabase.co.evil.invalid",
         "https://rprgjfvfttxydhbekuoc.supabase.co/path",
@@ -134,29 +145,161 @@ def test_database_diagnostic_missing_or_blank_configuration_never_probes(
         "not a URL",
     ],
 )
-def test_database_diagnostic_rejects_malformed_or_unexpected_target_without_probe(
+def test_malformed_or_unexpected_url_fails_closed_without_probe(
     client: TestClient, monkeypatch: pytest.MonkeyPatch, url: str
 ) -> None:
-    configure(monkeypatch, url)
+    configure(monkeypatch, url=url)
     monkeypatch.setattr(
-        diagnostics_api,
-        "service_request",
-        lambda *args, **kwargs: pytest.fail("untrusted or malformed target must never be probed"),
+        diagnostics_api.httpx,
+        "get",
+        lambda *args, **kwargs: pytest.fail("malformed URL must never be probed"),
     )
 
     response = client.get("/internal/diagnostics/database")
 
     assert response.status_code == 200
-    assert response.json()["configured"] is True
-    assert response.json()["project_ref"] is None or response.json()["project_ref"] != "rprgjfvfttxydhbekuoc"
-    assert response.json()["database_probe"] == "failed"
-    assert SECRET not in response.text
+    assert response.json()["status"] == "failed"
+    assert response.json()["reason_code"] == "supabase_url_invalid"
     assert url not in response.text
 
 
-def test_database_diagnostic_requires_trusted_github_actions_identity(client: TestClient) -> None:
+@pytest.mark.parametrize("key", ["", "   "])
+def test_missing_publishable_key_fails_closed_without_probe(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch, key: str
+) -> None:
+    configure(monkeypatch, key=key)
+    monkeypatch.setattr(
+        diagnostics_api.httpx,
+        "get",
+        lambda *args, **kwargs: pytest.fail("must not probe without a publishable key"),
+    )
+
+    response = client.get("/internal/diagnostics/database")
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "failed"
+    assert response.json()["reason_code"] == "publishable_key_missing"
+
+
+@pytest.mark.parametrize("status_code", [401, 403])
+def test_probe_authorization_failure_is_sanitized(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch, status_code: int
+) -> None:
+    configure(monkeypatch)
+    monkeypatch.setattr(
+        diagnostics_api.httpx,
+        "get",
+        lambda *args, **kwargs: SimpleNamespace(
+            status_code=status_code, text="private provider response with secret"
+        ),
+    )
+
+    response = client.get("/internal/diagnostics/database")
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "failed"
+    assert response.json()["reason_code"] == "probe_authorization_failed"
+    assert "private provider response" not in response.text
+    assert "secret" not in response.text
+    assert PUBLISHABLE_KEY not in response.text
+
+
+@pytest.mark.parametrize("status_code", [300, 404, 429, 500, 503])
+def test_non_success_probe_status_fails_without_exposing_response(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch, status_code: int
+) -> None:
+    configure(monkeypatch)
+    monkeypatch.setattr(
+        diagnostics_api.httpx,
+        "get",
+        lambda *args, **kwargs: SimpleNamespace(status_code=status_code, text="provider secret detail"),
+    )
+
+    response = client.get("/internal/diagnostics/database")
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "failed"
+    assert response.json()["reason_code"] == "probe_http_error"
+    assert "provider secret detail" not in response.text
+
+
+def test_network_error_is_sanitized(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    configure(monkeypatch)
+
+    def fail(*args, **kwargs):
+        raise httpx.ConnectError("secret host and credentials")
+
+    monkeypatch.setattr(diagnostics_api.httpx, "get", fail)
+    response = client.get("/internal/diagnostics/database")
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "failed"
+    assert response.json()["reason_code"] == "probe_unavailable"
+    assert "secret host" not in response.text
+    assert PUBLISHABLE_KEY not in response.text
+    assert SERVICE_ROLE_SECRET not in response.text
+
+
+def test_unexpected_exception_is_sanitized(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    configure(monkeypatch)
+    monkeypatch.setattr(
+        diagnostics_api.httpx,
+        "get",
+        lambda *args, **kwargs: (_ for _ in ()).throw(RuntimeError("private exception text")),
+    )
+
+    response = client.get("/internal/diagnostics/database")
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "failed"
+    assert response.json()["reason_code"] == "probe_unavailable"
+    assert "private exception text" not in response.text
+
+
+def test_invalid_deployment_sha_is_not_echoed(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    configure(monkeypatch)
+    monkeypatch.setenv("RENDER_GIT_COMMIT", "secret-environment-value")
+    monkeypatch.setattr(diagnostics_api.httpx, "get", lambda *args, **kwargs: successful_response())
+
+    response = client.get("/internal/diagnostics/database")
+
+    assert response.status_code == 200
+    assert response.json()["deployment_sha"] is None
+    assert "secret-environment-value" not in response.text
+
+
+def test_diagnostic_requires_trusted_github_actions_identity(client: TestClient) -> None:
     app.dependency_overrides.pop(require_github_actions, None)
 
     response = client.get("/internal/diagnostics/database")
 
     assert response.status_code == 401
+
+
+def test_probe_never_uses_write_methods_or_execution_rpc_paths(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    configure(monkeypatch)
+    calls = []
+
+    def probe(url, **kwargs):
+        calls.append((url, kwargs))
+        return successful_response()
+
+    monkeypatch.setattr(diagnostics_api.httpx, "get", probe)
+    response = client.get("/internal/diagnostics/database")
+
+    assert response.status_code == 200
+    assert len(calls) == 1
+    url, kwargs = calls[0]
+    assert url.endswith("/auth/v1/settings")
+    assert kwargs["headers"] == {"apikey": PUBLISHABLE_KEY}
+    assert "json" not in kwargs
+    assert "params" not in kwargs
+    assert "/rpc/" not in url
