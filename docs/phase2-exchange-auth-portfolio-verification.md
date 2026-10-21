@@ -27,7 +27,7 @@ Prove that the backend can authenticate to the intended XT.com account and retri
   - https://doc.xt.com/docs/margin-spot/Access%20Description/signature-generation
   - https://doc.xt.com/docs/trading-third-party/Balance/GetListOfCurrencyAssets
 
-Before coding the signer, verify the exact canonical preimage from XT's official example/SDK and lock it down with known test vectors. Do not infer the signature format from the header list alone.
+The initial client and deterministic local HMAC vector are now present in `backend/app/services/xt_readonly.py` and `backend/tests/test_xt_readonly.py`. The vector proves deterministic implementation behavior, not exchange interoperability. XT's current documentation shows `validate-*` headers while its legacy request demo uses `xt-validate-*`; verify the current signature preimage/header contract against an official current SDK or XT testnet before enabling a live request. Do not treat a locally self-consistent HMAC test as proof of authenticated access.
 
 ## Security and data contract
 
