@@ -9,6 +9,9 @@ from app.config import settings
 from app.main import app
 from app.services.supabase_data import DataUnavailableError
 
+EXPECTED_URL = "https://rprgjfvfttxydhbekuoc.supabase.co"
+SECRET = "server-only-test-key"
+
 
 @pytest.fixture
 def client():
@@ -19,17 +22,21 @@ def client():
     app.dependency_overrides.clear()
 
 
+def configure(monkeypatch: pytest.MonkeyPatch, url: str, key: str = SECRET) -> None:
+    monkeypatch.setattr(settings, "supabase_url", url)
+    monkeypatch.setattr(settings, "supabase_service_role_key", key)
+
+
 def test_database_diagnostic_reports_only_sanitized_target_and_probe(
     client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setattr(settings, "supabase_url", "https://rprgjfvfttxydhbekuoc.supabase.co")
-    monkeypatch.setattr(settings, "supabase_service_role_key", "server-only-test-key")
+    configure(monkeypatch, EXPECTED_URL)
     monkeypatch.setenv("RENDER_GIT_COMMIT", "test-commit-sha")
     calls = []
 
     def probe(method, path, **kwargs):
         calls.append((method, path, kwargs))
-        return object()
+        return [{"id": "this-row-must-not-be-returned"}]
 
     monkeypatch.setattr(diagnostics_api, "service_request", probe)
     response = client.get("/internal/diagnostics/database")
@@ -43,15 +50,15 @@ def test_database_diagnostic_reports_only_sanitized_target_and_probe(
         "deployment_commit": "test-commit-sha",
     }
     assert calls == [("GET", "billing_plans", {"params": {"select": "id", "limit": "1"}})]
-    assert "server-only-test-key" not in response.text
+    assert SECRET not in response.text
     assert "supabase.co" not in response.text
+    assert "this-row-must-not-be-returned" not in response.text
 
 
-def test_database_diagnostic_sanitizes_probe_failure(
+def test_database_diagnostic_sanitizes_known_probe_failure(
     client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setattr(settings, "supabase_url", "https://rprgjfvfttxydhbekuoc.supabase.co")
-    monkeypatch.setattr(settings, "supabase_service_role_key", "server-only-test-key")
+    configure(monkeypatch, EXPECTED_URL)
 
     def fail(*args, **kwargs):
         raise DataUnavailableError("secret URL and credentials must not be returned")
@@ -63,46 +70,88 @@ def test_database_diagnostic_sanitizes_probe_failure(
     assert response.json()["database_probe"] == "failed"
     assert response.json()["project_ref"] == "rprgjfvfttxydhbekuoc"
     assert "secret URL" not in response.text
-    assert "server-only-test-key" not in response.text
+    assert SECRET not in response.text
 
 
-def test_database_diagnostic_does_not_claim_unrecognized_target(
+def test_database_diagnostic_sanitizes_unexpected_probe_exception(
     client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setattr(settings, "supabase_url", "https://example.invalid")
-    monkeypatch.setattr(settings, "supabase_service_role_key", "server-only-test-key")
+    configure(monkeypatch, EXPECTED_URL)
     monkeypatch.setattr(
         diagnostics_api,
         "service_request",
-        lambda *args, **kwargs: pytest.fail("probe must not run for an unrecognized target"),
+        lambda *args, **kwargs: (_ for _ in ()).throw(RuntimeError("sensitive provider details")),
+    )
+
+    response = client.get("/internal/diagnostics/database")
+
+    assert response.status_code == 200
+    assert response.json()["database_probe"] == "failed"
+    assert "sensitive provider details" not in response.text
+    assert SECRET not in response.text
+
+
+@pytest.mark.parametrize(
+    ("url", "key"),
+    [
+        ("", SECRET),
+        (EXPECTED_URL, ""),
+        (EXPECTED_URL, "   "),
+        ("   ", SECRET),
+    ],
+)
+def test_database_diagnostic_missing_or_blank_configuration_never_probes(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch, url: str, key: str
+) -> None:
+    configure(monkeypatch, url, key)
+    monkeypatch.setattr(
+        diagnostics_api,
+        "service_request",
+        lambda *args, **kwargs: pytest.fail("probe must not run without complete configuration"),
+    )
+
+    response = client.get("/internal/diagnostics/database")
+
+    assert response.status_code == 200
+    assert response.json()["configured"] is False
+    assert response.json()["database_probe"] == "not_configured"
+    assert SECRET not in response.text
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "http://rprgjfvfttxydhbekuoc.supabase.co",
+        "https://rprgjfvfttxydhbekuoc.supabase.co.evil.invalid",
+        "https://rprgjfvfttxydhbekuoc.supabase.co/path",
+        "https://rprgjfvfttxydhbekuoc.supabase.co?redirect=evil",
+        "https://user@rprgjfvfttxydhbekuoc.supabase.co",
+        "https://rprgjfvfttxydhbekuoc.supabase.co:8443",
+        "https://rprgjfvfttxydhbekuoc.supabase.co:invalid",
+        "https://not-a-project-ref.supabase.co",
+        "https://aaaaaaaaaaaaaaaaaaaa.supabase.co",
+        "https://example.invalid",
+        "not a URL",
+    ],
+)
+def test_database_diagnostic_rejects_malformed_or_unexpected_target_without_probe(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch, url: str
+) -> None:
+    configure(monkeypatch, url)
+    monkeypatch.setattr(
+        diagnostics_api,
+        "service_request",
+        lambda *args, **kwargs: pytest.fail("untrusted or malformed target must never be probed"),
     )
 
     response = client.get("/internal/diagnostics/database")
 
     assert response.status_code == 200
     assert response.json()["configured"] is True
-    assert response.json()["project_ref"] is None
+    assert response.json()["project_ref"] is None or response.json()["project_ref"] != "rprgjfvfttxydhbekuoc"
     assert response.json()["database_probe"] == "failed"
-
-
-
-def test_database_diagnostic_never_sends_service_key_to_wrong_supabase_project(
-    client: TestClient, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    monkeypatch.setattr(settings, "supabase_url", "https://aaaaaaaaaaaaaaaaaaaa.supabase.co")
-    monkeypatch.setattr(settings, "supabase_service_role_key", "server-only-test-key")
-    monkeypatch.setattr(
-        diagnostics_api,
-        "service_request",
-        lambda *args, **kwargs: pytest.fail("must not probe a project other than the expected production target"),
-    )
-
-    response = client.get("/internal/diagnostics/database")
-
-    assert response.status_code == 200
-    assert response.json()["project_ref"] == "aaaaaaaaaaaaaaaaaaaa"
-    assert response.json()["database_probe"] == "failed"
-
+    assert SECRET not in response.text
+    assert url not in response.text
 
 
 def test_database_diagnostic_requires_trusted_github_actions_identity(client: TestClient) -> None:
