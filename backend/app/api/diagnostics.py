@@ -23,10 +23,28 @@ PROBE_KIND = "read_only_postgrest_billing_plans_limit_1"
 
 
 def _project_ref_from_url(url: str) -> str | None:
+    """Accept only a canonical HTTPS Supabase project origin.
+
+    Do not infer a trusted project from a URL that changes transport, adds
+    credentials/ports, or redirects the REST path through an unexpected URL.
+    """
     try:
-        hostname = (urlparse(url).hostname or "").lower()
-    except ValueError:
+        parsed = urlparse(url.strip())
+        hostname = (parsed.hostname or "").lower()
+        if (
+            parsed.scheme.lower() != "https"
+            or not hostname
+            or parsed.username is not None
+            or parsed.password is not None
+            or parsed.port is not None
+            or parsed.path not in ("", "/")
+            or parsed.query
+            or parsed.fragment
+        ):
+            return None
+    except (ValueError, AttributeError):
         return None
+
     suffix = ".supabase.co"
     if not hostname.endswith(suffix):
         return None
