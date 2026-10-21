@@ -116,7 +116,7 @@ def test_malformed_url_fails_closed_without_probe(
     assert response.status_code == 200
     assert response.json()["status"] == "failed"
     assert response.json()["reason_code"] == reason
-    assert url not in response.text
+    assert not url or url not in response.text
 
 
 @pytest.mark.parametrize(
