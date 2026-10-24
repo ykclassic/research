@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import sys
+import time
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
@@ -14,6 +15,10 @@ LIMIT = int(os.getenv("MARKET_ANALYSIS_LIMIT", "250"))
 MAX_EXTRA_AGE_SECONDS = float(os.getenv("MTF_MAX_EXTRA_AGE_SECONDS", "180"))
 # These values must match the backend Timeframe enum exactly.
 EXPECTED_TIMEFRAMES = {"1d", "4h", "1h", "15m"}
+REQUEST_TIMEOUT_SECONDS = 75.0
+REQUEST_CONNECT_TIMEOUT_SECONDS = 10.0
+MAX_REQUEST_ATTEMPTS = 2
+RETRY_BACKOFF_SECONDS = 2.0
 # Crypto MTF analysis now uses the credential-free Kraken public provider as
 # its primary source, with the legacy providers retained as fallback paths.
 APPROVED_PROVIDERS = {"kraken_public", "twelve_data", "finnhub", "alpha_vantage"}
@@ -45,6 +50,43 @@ def require(condition: bool, message: str) -> None:
         raise AssertionError(message)
 
 
+def request_mtf(
+    client: httpx.Client,
+    url: str,
+    *,
+    params: dict[str, int],
+    headers: dict[str, str],
+) -> httpx.Response:
+    """Fetch MTF data with one bounded retry for transient transport/server failures.
+
+    The API loads four timeframes concurrently and may need extra time while a
+    cold provider cache is populated. Retry only the idempotent GET; the normal
+    candle freshness, provenance, and count assertions still determine success.
+    """
+    for attempt in range(1, MAX_REQUEST_ATTEMPTS + 1):
+        try:
+            response = client.get(url, params=params, headers=headers)
+            if response.status_code not in {502, 503, 504} or attempt == MAX_REQUEST_ATTEMPTS:
+                return response
+            print(
+                f"RETRY MTF: HTTP {response.status_code}; "
+                f"attempt {attempt}/{MAX_REQUEST_ATTEMPTS}; "
+                f"waiting {RETRY_BACKOFF_SECONDS:.0f}s",
+                file=sys.stderr,
+            )
+        except (httpx.TimeoutException, httpx.NetworkError) as exc:
+            if attempt == MAX_REQUEST_ATTEMPTS:
+                raise
+            print(
+                f"RETRY MTF: {type(exc).__name__}; "
+                f"attempt {attempt}/{MAX_REQUEST_ATTEMPTS}; "
+                f"waiting {RETRY_BACKOFF_SECONDS:.0f}s",
+                file=sys.stderr,
+            )
+        time.sleep(RETRY_BACKOFF_SECONDS)
+    raise RuntimeError("Unreachable MTF retry loop.")
+
+
 def main() -> int:
     token = os.getenv("GITHUB_OIDC_TOKEN", "").strip()
     if not token:
@@ -58,8 +100,11 @@ def main() -> int:
     }
     url = f"{API_BASE}/api/mtf/{SYMBOL}"
     try:
-        with httpx.Client(timeout=httpx.Timeout(45.0, connect=10.0), follow_redirects=True) as client:
-            response = client.get(url, params={"limit": LIMIT}, headers=headers)
+        with httpx.Client(
+            timeout=httpx.Timeout(REQUEST_TIMEOUT_SECONDS, connect=REQUEST_CONNECT_TIMEOUT_SECONDS),
+            follow_redirects=True,
+        ) as client:
+            response = request_mtf(client, url, params={"limit": LIMIT}, headers=headers)
         response.raise_for_status()
         payload: dict[str, Any] = response.json()
         rows = payload.get("timeframes")
