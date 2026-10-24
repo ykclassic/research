@@ -24,9 +24,25 @@ PROBE_KIND = "read_only_postgrest_billing_plans_limit_1"
 
 def _project_ref_from_url(url: str) -> str | None:
     try:
-        hostname = (urlparse(url).hostname or "").lower()
+        parsed = urlparse(url)
+        hostname = (parsed.hostname or "").lower()
+        port = parsed.port
     except ValueError:
         return None
+
+    # A service-role key must never be sent to a non-TLS, credential-bearing,
+    # redirected-path, or otherwise ambiguous endpoint.
+    if (
+        parsed.scheme.lower() != "https"
+        or parsed.username is not None
+        or parsed.password is not None
+        or port not in (None, 443)
+        or parsed.path not in ("", "/")
+        or parsed.query
+        or parsed.fragment
+    ):
+        return None
+
     suffix = ".supabase.co"
     if not hostname.endswith(suffix):
         return None
