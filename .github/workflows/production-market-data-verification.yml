@@ -126,7 +126,7 @@ jobs:
 
       - name: Verify effective production database target (read-only)
         env:
-          EXPECTED_DEPLOY_COMMIT: ${{ github.event_name == 'push' && github.sha || '' }}
+          EXPECTED_DEPLOY_COMMIT: ${{ github.sha }}
         shell: bash
         run: |
           set -euo pipefail
