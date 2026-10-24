@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import math
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Any, Mapping, Protocol
@@ -46,6 +47,15 @@ class RevalidationProviders:
     account: AccountSnapshotProvider | None
     market: MarketSnapshotProvider | None
     risk: RiskSnapshotProvider | None
+
+
+def _is_finite_number(value: Any) -> bool:
+    """Accept numeric policy inputs only when they are finite and not booleans."""
+    return (
+        isinstance(value, (int, float))
+        and not isinstance(value, bool)
+        and math.isfinite(value)
+    )
 
 
 def _parse_timestamp(snapshot: Mapping[str, Any], label: str) -> datetime:
@@ -103,9 +113,9 @@ def revalidate_execution_snapshots(
     equity = account.get("equity")
     daily_loss_pct = account.get("daily_loss_pct")
     correlated_positions = account.get("correlated_open_positions")
-    if not isinstance(equity, (int, float)) or isinstance(equity, bool) or equity <= 0:
+    if not _is_finite_number(equity) or equity <= 0:
         raise ExecutionRevalidationError("Authoritative account equity is unavailable.")
-    if not isinstance(daily_loss_pct, (int, float)) or isinstance(daily_loss_pct, bool):
+    if not _is_finite_number(daily_loss_pct):
         raise ExecutionRevalidationError("Current daily drawdown is unavailable.")
     if daily_loss_pct < 0 or daily_loss_pct >= limits.max_daily_loss_pct:
         raise ExecutionRevalidationError("Daily loss limit blocks execution.")
@@ -123,7 +133,14 @@ def revalidate_execution_snapshots(
     request_hash = intent.get("request_hash")
     policy_version = intent.get("risk_policy_version")
     account_ref = intent.get("account_ref")
-    if not all((isinstance(symbol, str) and symbol, side in {"LONG", "SHORT"}, isinstance(request_hash, str) and request_hash, isinstance(policy_version, str) and policy_version, isinstance(account_ref, str) and account_ref, isinstance(quantity, (int, float)) and not isinstance(quantity, bool) and quantity > 0)):
+    if not all((
+        isinstance(symbol, str) and symbol,
+        side in {"LONG", "SHORT"},
+        isinstance(request_hash, str) and request_hash,
+        isinstance(policy_version, str) and policy_version,
+        isinstance(account_ref, str) and account_ref,
+        _is_finite_number(quantity) and quantity > 0,
+    )):
         raise ExecutionRevalidationError("Approved intent is incomplete.")
     if account.get("account_ref") != account_ref:
         raise ExecutionRevalidationError("Fresh account does not match the approved account.")
@@ -131,9 +148,9 @@ def revalidate_execution_snapshots(
         raise ExecutionRevalidationError("Market is not currently tradable for the approved symbol.")
 
     price = market.get("price")
-    if not isinstance(price, (int, float)) or isinstance(price, bool) or price <= 0:
+    if not _is_finite_number(price) or price <= 0:
         raise ExecutionRevalidationError("Fresh market price is unavailable.")
-    if not all(isinstance(value, (int, float)) and not isinstance(value, bool) and value > 0 for value in (entry, stop, target)):
+    if not all(_is_finite_number(value) and value > 0 for value in (entry, stop, target)):
         raise ExecutionRevalidationError("Approved entry, stop, or target is invalid.")
     drift_pct = abs(float(price) / float(entry) - 1.0) * 100
     if drift_pct > limits.max_entry_drift_pct:
@@ -157,11 +174,11 @@ def revalidate_execution_snapshots(
         raise ExecutionRevalidationError("Risk engine did not qualify the proposal.")
     if risk.get("request_hash") != request_hash or risk.get("risk_policy_version") != policy_version:
         raise ExecutionRevalidationError("Risk decision does not match the approved proposal or policy version.")
-    if not isinstance(risk_pct, (int, float)) or isinstance(risk_pct, bool) or risk_pct <= 0 or risk_pct > limits.max_risk_pct:
+    if not _is_finite_number(risk_pct) or risk_pct <= 0 or risk_pct > limits.max_risk_pct:
         raise ExecutionRevalidationError("Current per-trade risk exceeds policy.")
 
     recomputed_quantity = risk.get("recomputed_quantity")
-    if not isinstance(recomputed_quantity, (int, float)) or isinstance(recomputed_quantity, bool) or recomputed_quantity <= 0:
+    if not _is_finite_number(recomputed_quantity) or recomputed_quantity <= 0:
         raise ExecutionRevalidationError("Risk engine did not provide a fresh position size.")
     if abs(float(recomputed_quantity) - float(quantity)) > max(1e-9, abs(float(quantity)) * 1e-8):
         raise ExecutionRevalidationError("Fresh risk sizing differs from the human-approved quantity.")
