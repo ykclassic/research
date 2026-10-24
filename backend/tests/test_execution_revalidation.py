@@ -116,6 +116,44 @@ def test_missing_or_naive_timestamp_fails_closed() -> None:
         )
 
 
+@pytest.mark.parametrize(
+    ("snapshot_name", "field", "bad_value", "message"),
+    [
+        ("account", "equity", float("nan"), "equity is unavailable"),
+        ("account", "equity", float("inf"), "equity is unavailable"),
+        ("account", "daily_loss_pct", float("nan"), "drawdown is unavailable"),
+        ("account", "daily_loss_pct", float("inf"), "drawdown is unavailable"),
+        ("market", "price", float("nan"), "market price is unavailable"),
+        ("market", "price", float("inf"), "market price is unavailable"),
+        ("intent", "quantity", float("nan"), "Approved intent is incomplete"),
+        ("intent", "quantity", float("inf"), "Approved intent is incomplete"),
+        ("intent", "entry_price", float("nan"), "entry, stop, or target is invalid"),
+        ("intent", "stop_loss", float("inf"), "entry, stop, or target is invalid"),
+        ("intent", "take_profit", float("nan"), "entry, stop, or target is invalid"),
+        ("risk", "risk_pct", float("nan"), "per-trade risk"),
+        ("risk", "risk_pct", float("inf"), "per-trade risk"),
+        ("risk", "recomputed_quantity", float("nan"), "position size"),
+        ("risk", "recomputed_quantity", float("inf"), "position size"),
+    ],
+)
+def test_non_finite_numeric_inputs_fail_closed(
+    snapshot_name, field, bad_value, message
+) -> None:
+    intent, account, market, risk = _snapshots()
+    snapshots = {
+        "intent": intent,
+        "account": account,
+        "market": market,
+        "risk": risk,
+    }
+    snapshots[snapshot_name][field] = bad_value
+
+    with pytest.raises(ExecutionRevalidationError, match=message):
+        revalidate_execution_snapshots(
+            intent=intent, account=account, market=market, risk=risk, now=NOW
+        )
+
+
 class _Account:
     def __init__(self, snapshot):
         self.snapshot = snapshot
