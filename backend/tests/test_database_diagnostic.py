@@ -105,6 +105,34 @@ def test_database_diagnostic_never_sends_service_key_to_wrong_supabase_project(
 
 
 
+@pytest.mark.parametrize(
+    "url",
+    [
+        "http://rprgjfvfttxydhbekuoc.supabase.co",
+        "https://user@rprgjfvfttxydhbekuoc.supabase.co",
+        "https://rprgjfvfttxydhbekuoc.supabase.co/unexpected-path",
+        "https://rprgjfvfttxydhbekuoc.supabase.co?redirect=example.invalid",
+    ],
+)
+def test_database_diagnostic_rejects_ambiguous_or_insecure_urls(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch, url: str
+) -> None:
+    monkeypatch.setattr(settings, "supabase_url", url)
+    monkeypatch.setattr(settings, "supabase_service_role_key", "server-only-test-key")
+    monkeypatch.setattr(
+        diagnostics_api,
+        "service_request",
+        lambda *args, **kwargs: pytest.fail("service-role key must not be sent to an invalid URL"),
+    )
+
+    response = client.get("/internal/diagnostics/database")
+
+    assert response.status_code == 200
+    assert response.json()["project_ref"] is None
+    assert response.json()["database_probe"] == "failed"
+    assert "server-only-test-key" not in response.text
+
+
 def test_database_diagnostic_requires_trusted_github_actions_identity(client: TestClient) -> None:
     app.dependency_overrides.pop(require_github_actions, None)
 
