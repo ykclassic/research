@@ -8,7 +8,6 @@ from fastapi import APIRouter, Depends
 
 from app.api.auth import require_github_actions
 from app.config import settings
-from app.services.supabase_data import DataServiceError, service_request
 
 router = APIRouter(
     prefix="/internal/diagnostics",
@@ -17,7 +16,6 @@ router = APIRouter(
 )
 
 PROJECT_REF_PATTERN = re.compile(r"^[a-z0-9]{20}$")
-EXPECTED_PRODUCTION_PROJECT_REF = "rprgjfvfttxydhbekuoc"
 PROBE_KIND = "probe_unavailable_no_authorized_postgrest_path"
 
 
