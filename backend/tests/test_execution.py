@@ -64,7 +64,7 @@ async def test_live_execution_is_rejected_without_live_broker_adapter() -> None:
     result = await execute_order(order, make_auth())
 
     assert result.status is OrderStatus.REJECTED
-    assert "does not support live execution" in result.message
+    assert "disabled" in result.message.lower()
 
 
 @pytest.mark.asyncio
@@ -89,3 +89,45 @@ def test_order_request_preserves_risk_controls_and_direction() -> None:
     assert order.stop_loss == pytest.approx(position.stop_loss)
     assert order.take_profit == pytest.approx(position.take_profit)
     assert order.risk_policy_version == position.risk_policy.policy_version
+
+
+@pytest.mark.asyncio
+async def test_live_execution_hard_stop_cannot_be_bypassed_by_live_capable_adapter() -> None:
+    position = make_position()
+    order = build_order_request(position, ExecutionMode.LIVE)
+    calls = []
+
+    class LiveCapableAdapter:
+        name = "test-live-adapter"
+        supports_live = True
+
+        async def submit_order(self, order):
+            calls.append(order)
+            return "BROKER-ORDER-1", order.entry_price
+
+    result = await execute_order(order, make_auth(), LiveCapableAdapter())
+
+    assert result.status is OrderStatus.REJECTED
+    assert "disabled" in result.message.lower()
+    assert calls == []
+
+
+@pytest.mark.asyncio
+async def test_custom_adapter_cannot_bypass_disabled_execution_policy_in_paper_mode() -> None:
+    position = make_position()
+    order = build_order_request(position, ExecutionMode.PAPER)
+    calls = []
+
+    class UntrustedAdapter:
+        name = "untrusted-adapter"
+        supports_live = False
+
+        async def submit_order(self, order):
+            calls.append(order)
+            return "REAL-ORDER-UNEXPECTED", order.entry_price
+
+    result = await execute_order(order, make_auth(), UntrustedAdapter())
+
+    assert result.status is OrderStatus.REJECTED
+    assert "custom broker adapters are disabled" in result.message.lower()
+    assert calls == []

@@ -124,6 +124,47 @@ jobs:
               print(f"  {key}={claims[key]}")
           PY
 
+      - name: Verify effective production database target (read-only)
+        env:
+          EXPECTED_DEPLOY_COMMIT: ${{ github.sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          health="$(curl --fail-with-body --silent --show-error "${MARKET_API_BASE}/health")"
+          diagnostic="$(curl --fail-with-body --silent --show-error \
+            --header "Authorization: Bearer ${GITHUB_OIDC_TOKEN}" \
+            "${MARKET_API_BASE}/internal/diagnostics/database")"
+          python - "${health}" "${diagnostic}" "${EXPECTED_DEPLOY_COMMIT}" <<'PY'
+          import json
+          import sys
+
+          health = json.loads(sys.argv[1])
+          diagnostic = json.loads(sys.argv[2])
+          expected_commit = sys.argv[3].strip()
+          expected_ref = "rprgjfvfttxydhbekuoc"
+
+          if not diagnostic.get("configured"):
+              raise SystemExit("FAIL: production database target is not configured.")
+          if diagnostic.get("project_ref") != expected_ref:
+              raise SystemExit("FAIL: running service targets an unexpected Supabase project.")
+          if diagnostic.get("database_probe") != "ok":
+              raise SystemExit("FAIL: read-only database probe failed.")
+          if diagnostic.get("probe_kind") != "read_only_postgrest_billing_plans_limit_1":
+              raise SystemExit("FAIL: unexpected database probe contract.")
+          diagnostic_commit = diagnostic.get("deployment_commit")
+          health_commit = health.get("deployment_commit")
+          if not diagnostic_commit or diagnostic_commit != health_commit:
+              raise SystemExit("FAIL: health and database diagnostic deployment identities differ.")
+          if expected_commit and diagnostic_commit != expected_commit:
+              raise SystemExit("FAIL: running service is not on the pushed commit.")
+
+          print("PASS: effective production database target verified.")
+          print(f"  project_ref={diagnostic['project_ref']}")
+          print(f"  database_probe={diagnostic['database_probe']}")
+          print(f"  probe_kind={diagnostic['probe_kind']}")
+          print(f"  deployment_commit={diagnostic_commit}")
+          PY
+
       # MTF is the primary candle consumer. Run it first so a successful
       # four-timeframe load populates the canonical in-memory cache; the
       # subsequent technical-analysis verification can reuse the same

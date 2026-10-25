@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from typing import Annotated, Any
+from typing import Annotated, Any, Literal
 
 from fastapi import APIRouter, Cookie, Depends, Header, HTTPException, Query, Response
 from fastapi.responses import StreamingResponse
@@ -44,6 +44,12 @@ class ShareCreate(BaseModel):
     resource_type: str
     resource_id: str
     permission: str = "VIEW"
+
+class ExportScheduleCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=120)
+    resource_type: Literal["RUNS", "SNAPSHOTS", "OUTCOMES"]
+    format: Literal["JSON", "CSV"]
+    interval_minutes: int = Field(ge=15, le=43200)
 
 def _feature(token: str, user_id: str, name: str) -> None:
     try:
