@@ -78,7 +78,11 @@ async def submit_execution(
 
     try:
         entitlement = require_feature(access_token, user.id, EXECUTION_FEATURE)
-        if entitlement.get("plan_id") != "premium":
+        if (
+            entitlement.get("plan_id") != "premium"
+            or not isinstance(entitlement.get("features"), dict)
+            or entitlement["features"].get(EXECUTION_FEATURE) is not True
+        ):
             raise HTTPException(
                 status_code=403,
                 detail="Live execution is available only on the Premium plan.",
