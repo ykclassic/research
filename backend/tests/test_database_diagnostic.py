@@ -3,7 +3,6 @@ from __future__ import annotations
 from fastapi.testclient import TestClient
 import pytest
 
-from app.api import diagnostics as diagnostics_api
 from app.api.auth import require_github_actions
 from app.config import settings
 from app.main import app
