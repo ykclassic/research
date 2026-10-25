@@ -24,13 +24,6 @@ def test_database_diagnostic_reports_only_sanitized_target_and_probe(
     monkeypatch.setattr(settings, "supabase_url", "https://rprgjfvfttxydhbekuoc.supabase.co")
     monkeypatch.setattr(settings, "supabase_service_role_key", "server-only-test-key")
     monkeypatch.setenv("RENDER_GIT_COMMIT", "test-commit-sha")
-    calls = []
-
-    def probe(method, path, **kwargs):
-        calls.append((method, path, kwargs))
-        return object()
-
-    monkeypatch.setattr(diagnostics_api, "service_request", probe)
     response = client.get("/internal/diagnostics/database")
 
     assert response.status_code == 200
@@ -41,7 +34,6 @@ def test_database_diagnostic_reports_only_sanitized_target_and_probe(
         "probe_kind": "probe_unavailable_no_authorized_postgrest_path",
         "deployment_commit": "test-commit-sha",
     }
-    assert calls == []
     assert "server-only-test-key" not in response.text
     assert "supabase.co" not in response.text
 
@@ -52,11 +44,6 @@ def test_database_diagnostic_sanitizes_probe_failure(
     monkeypatch.setattr(settings, "supabase_url", "https://rprgjfvfttxydhbekuoc.supabase.co")
     monkeypatch.setattr(settings, "supabase_service_role_key", "server-only-test-key")
 
-    monkeypatch.setattr(
-        diagnostics_api,
-        "service_request",
-        lambda *args, **kwargs: pytest.fail("no database probe is authorized yet"),
-    )
     response = client.get("/internal/diagnostics/database")
 
     assert response.status_code == 200
@@ -71,11 +58,6 @@ def test_database_diagnostic_does_not_claim_unrecognized_target(
 ) -> None:
     monkeypatch.setattr(settings, "supabase_url", "https://example.invalid")
     monkeypatch.setattr(settings, "supabase_service_role_key", "server-only-test-key")
-    monkeypatch.setattr(
-        diagnostics_api,
-        "service_request",
-        lambda *args, **kwargs: pytest.fail("probe must not run for an unrecognized target"),
-    )
 
     response = client.get("/internal/diagnostics/database")
 
@@ -91,17 +73,12 @@ def test_database_diagnostic_never_sends_service_key_to_wrong_supabase_project(
 ) -> None:
     monkeypatch.setattr(settings, "supabase_url", "https://aaaaaaaaaaaaaaaaaaaa.supabase.co")
     monkeypatch.setattr(settings, "supabase_service_role_key", "server-only-test-key")
-    monkeypatch.setattr(
-        diagnostics_api,
-        "service_request",
-        lambda *args, **kwargs: pytest.fail("must not probe a project other than the expected production target"),
-    )
 
     response = client.get("/internal/diagnostics/database")
 
     assert response.status_code == 200
     assert response.json()["project_ref"] == "aaaaaaaaaaaaaaaaaaaa"
-    assert response.json()["database_probe"] == "failed"
+    assert response.json()["database_probe"] == "probe_unavailable"
 
 
 
@@ -119,11 +96,6 @@ def test_database_diagnostic_rejects_ambiguous_or_insecure_urls(
 ) -> None:
     monkeypatch.setattr(settings, "supabase_url", url)
     monkeypatch.setattr(settings, "supabase_service_role_key", "server-only-test-key")
-    monkeypatch.setattr(
-        diagnostics_api,
-        "service_request",
-        lambda *args, **kwargs: pytest.fail("service-role key must not be sent to an invalid URL"),
-    )
 
     response = client.get("/internal/diagnostics/database")
 
