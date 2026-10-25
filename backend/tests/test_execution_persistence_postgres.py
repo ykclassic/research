@@ -980,12 +980,21 @@ def test_authenticated_api_to_postgres_enforces_owner_and_consumes_challenge(
         return RpcResponse(value)
 
     monkeypatch.setattr(execution_persistence, "service_request", postgres_rpc)
+    monkeypatch.setattr(
+        execution_api,
+        "require_feature",
+        lambda *args, **kwargs: {
+            "plan_id": "premium",
+            "features": {"live_trade_execution": True},
+        },
+    )
     app.dependency_overrides[execution_api._require_csrf] = lambda: None
     app.dependency_overrides[execution_api.get_current_user] = lambda: UserResponse(
         id=owner_id, email="owner@example.com", account_status="active"
     )
     try:
         with TestClient(app) as client:
+            client.cookies.set("mr_access_token", "integration-test-token")
             preview_response = client.get(f"/api/execution/intents/{intent_id}/approval-preview")
             assert preview_response.status_code == 200
             preview = preview_response.json()
