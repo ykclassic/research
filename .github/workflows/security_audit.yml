@@ -101,7 +101,7 @@ jobs:
         shell: bash
         run: |
           set +e
-          gitleaks detect --source . --no-git --redact --report-format json --report-path security-audit/gitleaks.json
+          gitleaks detect --source . --redact --report-format json --report-path security-audit/gitleaks.json
           rc=$?
           echo "$rc" > security-audit/gitleaks.exit
           exit 0
@@ -113,7 +113,7 @@ jobs:
         run: |
           set +e
           docker run --rm -v "$PWD:/repo" aquasec/trivy:0.58.2 fs \
-            --scanners vuln,misconfig,secret \
+            --scanners vuln,misconfig \
             --severity HIGH,CRITICAL \
             --format json --output /repo/security-audit/trivy.json /repo
           rc=$?
