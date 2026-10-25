@@ -31,6 +31,29 @@ router = APIRouter(prefix="/api/execution", tags=["execution"])
 EXECUTION_FEATURE = "live_trade_execution"
 
 
+def _require_execution_entitlement(user: UserResponse, access_token: str | None) -> None:
+    """Require the current Premium feature grant for every approval mutation."""
+    if not access_token:
+        raise HTTPException(status_code=401, detail="Authentication required.")
+    try:
+        entitlement = require_feature(access_token, user.id, EXECUTION_FEATURE)
+    except FeatureNotEntitledError as exc:
+        raise HTTPException(
+            status_code=403,
+            detail="Live execution is not available for this account.",
+        ) from exc
+    except DataServiceError as exc:
+        raise HTTPException(
+            status_code=503,
+            detail="Execution authorization could not be verified.",
+        ) from exc
+    if entitlement.get("plan_id") != "premium":
+        raise HTTPException(
+            status_code=403,
+            detail="Live execution is available only on the Premium plan.",
+        )
+
+
 @router.post("/order", response_model=ExecutionResult)
 async def submit_execution(
     payload: ExecutionRequest,
@@ -102,8 +125,10 @@ async def create_approval_challenge(
     payload: ExecutionApprovalChallengeRequest,
     user: Annotated[UserResponse, Depends(get_current_user)],
     _: Annotated[None, Depends(_require_csrf)],
+    access_token: Annotated[str | None, Cookie(alias=SESSION_COOKIE)] = None,
 ) -> dict[str, str]:
     """Issue a short-lived token bound to this user, intent, hash, and action."""
+    _require_execution_entitlement(user, access_token)
     user_id = UUID(user.id)
     try:
         preview = get_execution_intent_approval_preview(
@@ -161,12 +186,14 @@ async def decide_execution_approval(
     payload: ExecutionApprovalDecisionRequest,
     user: Annotated[UserResponse, Depends(get_current_user)],
     _: Annotated[None, Depends(_require_csrf)],
+    access_token: Annotated[str | None, Cookie(alias=SESSION_COOKIE)] = None,
 ) -> dict[str, str]:
     """Persist a CSRF-protected decision bound to the currently stored intent.
 
     The actor is always derived from the verified session. The caller cannot
     submit an actor UUID or an approval snapshot. Execution remains disabled.
     """
+    _require_execution_entitlement(user, access_token)
     user_id = UUID(user.id)
     try:
         claims = jwt.decode(
