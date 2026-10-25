@@ -3,7 +3,6 @@ from __future__ import annotations
 import os
 import re
 from urllib.parse import urlparse
-from typing import Literal
 
 from fastapi import APIRouter, Depends
 
@@ -19,7 +18,7 @@ router = APIRouter(
 
 PROJECT_REF_PATTERN = re.compile(r"^[a-z0-9]{20}$")
 EXPECTED_PRODUCTION_PROJECT_REF = "rprgjfvfttxydhbekuoc"
-PROBE_KIND = "read_only_postgrest_billing_plans_limit_1"
+PROBE_KIND = "probe_unavailable_no_authorized_postgrest_path"
 
 
 def _project_ref_from_url(url: str) -> str | None:
@@ -59,31 +58,13 @@ def database_diagnostic() -> dict[str, str | bool | None]:
     """
     configured = bool(settings.supabase_url.strip() and settings.supabase_service_role_key.strip())
     project_ref = _project_ref_from_url(settings.supabase_url) if settings.supabase_url else None
-    probe: Literal["ok", "failed", "not_configured"] = "not_configured"
-
-    if configured and project_ref == EXPECTED_PRODUCTION_PROJECT_REF:
-        try:
-            # The service-role credential remains server-side. Limit the read to
-            # a harmless catalogue row and discard the response contents.
-            service_request(
-                "GET",
-                "billing_plans",
-                params={"select": "id", "limit": "1"},
-            )
-            probe = "ok"
-        except (DataServiceError, ValueError, TypeError):
-            probe = "failed"
-        except Exception:
-            # Fail closed while keeping provider/connection details private.
-            probe = "failed"
-    elif configured:
-        # Do not send even the service-role credential to an unexpected project.
-        probe = "failed"
-
+    # Deliberately do not probe PostgREST with a service-role key until a
+    # separately reviewed, authenticated read-only path is approved. GitHub
+    # OIDC is not a Supabase user JWT and a publishable key is not sufficient.
     return {
         "configured": configured,
         "project_ref": project_ref,
-        "database_probe": probe,
+        "database_probe": "probe_unavailable",
         "probe_kind": PROBE_KIND,
         "deployment_commit": os.getenv("RENDER_GIT_COMMIT"),
     }
