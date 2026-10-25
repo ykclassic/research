@@ -47,7 +47,11 @@ def _require_execution_entitlement(user: UserResponse, access_token: str | None)
             status_code=503,
             detail="Execution authorization could not be verified.",
         ) from exc
-    if entitlement.get("plan_id") != "premium":
+    if (
+        entitlement.get("plan_id") != "premium"
+        or not isinstance(entitlement.get("features"), dict)
+        or entitlement["features"].get(EXECUTION_FEATURE) is not True
+    ):
         raise HTTPException(
             status_code=403,
             detail="Live execution is available only on the Premium plan.",
