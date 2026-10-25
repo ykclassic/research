@@ -38,11 +38,11 @@ def test_database_diagnostic_reports_only_sanitized_target_and_probe(
     assert response.json() == {
         "configured": True,
         "project_ref": "rprgjfvfttxydhbekuoc",
-        "database_probe": "ok",
-        "probe_kind": "read_only_postgrest_billing_plans_limit_1",
+        "database_probe": "probe_unavailable",
+        "probe_kind": "probe_unavailable_no_authorized_postgrest_path",
         "deployment_commit": "test-commit-sha",
     }
-    assert calls == [("GET", "billing_plans", {"params": {"select": "id", "limit": "1"}})]
+    assert calls == []
     assert "server-only-test-key" not in response.text
     assert "supabase.co" not in response.text
 
@@ -53,14 +53,15 @@ def test_database_diagnostic_sanitizes_probe_failure(
     monkeypatch.setattr(settings, "supabase_url", "https://rprgjfvfttxydhbekuoc.supabase.co")
     monkeypatch.setattr(settings, "supabase_service_role_key", "server-only-test-key")
 
-    def fail(*args, **kwargs):
-        raise DataUnavailableError("secret URL and credentials must not be returned")
-
-    monkeypatch.setattr(diagnostics_api, "service_request", fail)
+    monkeypatch.setattr(
+        diagnostics_api,
+        "service_request",
+        lambda *args, **kwargs: pytest.fail("no database probe is authorized yet"),
+    )
     response = client.get("/internal/diagnostics/database")
 
     assert response.status_code == 200
-    assert response.json()["database_probe"] == "failed"
+    assert response.json()["database_probe"] == "probe_unavailable"
     assert response.json()["project_ref"] == "rprgjfvfttxydhbekuoc"
     assert "secret URL" not in response.text
     assert "server-only-test-key" not in response.text
