@@ -432,6 +432,7 @@ def test_approval_challenge_is_bound_to_action_and_authenticated_user(
     from uuid import UUID
 
     _authenticate_with_csrf()
+    client.cookies.set("mr_access_token", "opaque-test-token")
     preview = _approval_preview()
     monkeypatch.setattr(
         execution_api, "get_execution_intent_approval_preview",
