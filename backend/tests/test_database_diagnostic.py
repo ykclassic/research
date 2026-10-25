@@ -8,6 +8,14 @@ from app.config import settings
 from app.main import app
 
 
+class _FakeResponse:
+    def __init__(self, payload):
+        self.payload = payload
+
+    def json(self):
+        return self.payload
+
+
 @pytest.fixture
 def client():
     app.dependency_overrides.clear()
@@ -23,14 +31,21 @@ def test_database_diagnostic_reports_only_sanitized_target_and_probe(
     monkeypatch.setattr(settings, "supabase_url", "https://rprgjfvfttxydhbekuoc.supabase.co")
     monkeypatch.setattr(settings, "supabase_service_role_key", "server-only-test-key")
     monkeypatch.setenv("RENDER_GIT_COMMIT", "test-commit-sha")
+    from app.api import diagnostics
+
+    monkeypatch.setattr(
+        diagnostics,
+        "service_request",
+        lambda method, path, **kwargs: _FakeResponse([{"id": "free"}]),
+    )
     response = client.get("/internal/diagnostics/database")
 
     assert response.status_code == 200
     assert response.json() == {
         "configured": True,
         "project_ref": "rprgjfvfttxydhbekuoc",
-        "database_probe": "probe_unavailable",
-        "probe_kind": "probe_unavailable_no_authorized_postgrest_path",
+        "database_probe": "ok",
+        "probe_kind": "read_only_postgrest_billing_plans_limit_1",
         "deployment_commit": "test-commit-sha",
     }
     assert "server-only-test-key" not in response.text
@@ -43,10 +58,16 @@ def test_database_diagnostic_sanitizes_probe_failure(
     monkeypatch.setattr(settings, "supabase_url", "https://rprgjfvfttxydhbekuoc.supabase.co")
     monkeypatch.setattr(settings, "supabase_service_role_key", "server-only-test-key")
 
+    from app.api import diagnostics
+
+    def fail_probe(*args, **kwargs):
+        raise RuntimeError("secret URL and server key must not leak")
+
+    monkeypatch.setattr(diagnostics, "service_request", fail_probe)
     response = client.get("/internal/diagnostics/database")
 
     assert response.status_code == 200
-    assert response.json()["database_probe"] == "probe_unavailable"
+    assert response.json()["database_probe"] == "failed"
     assert response.json()["project_ref"] == "rprgjfvfttxydhbekuoc"
     assert "secret URL" not in response.text
     assert "server-only-test-key" not in response.text
@@ -63,7 +84,7 @@ def test_database_diagnostic_does_not_claim_unrecognized_target(
     assert response.status_code == 200
     assert response.json()["configured"] is True
     assert response.json()["project_ref"] is None
-    assert response.json()["database_probe"] == "probe_unavailable"
+    assert response.json()["database_probe"] == "not_configured"
 
 
 
@@ -77,7 +98,7 @@ def test_database_diagnostic_never_sends_service_key_to_wrong_supabase_project(
 
     assert response.status_code == 200
     assert response.json()["project_ref"] == "aaaaaaaaaaaaaaaaaaaa"
-    assert response.json()["database_probe"] == "probe_unavailable"
+    assert response.json()["database_probe"] == "not_configured"
 
 
 
@@ -100,7 +121,7 @@ def test_database_diagnostic_rejects_ambiguous_or_insecure_urls(
 
     assert response.status_code == 200
     assert response.json()["project_ref"] is None
-    assert response.json()["database_probe"] == "probe_unavailable"
+    assert response.json()["database_probe"] == "not_configured"
     assert "server-only-test-key" not in response.text
 
 

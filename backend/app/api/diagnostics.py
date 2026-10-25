@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends
 
 from app.api.auth import require_github_actions
 from app.config import settings
+from app.services.supabase_data import DataServiceError, service_request
 
 router = APIRouter(
     prefix="/internal/diagnostics",
@@ -16,7 +17,8 @@ router = APIRouter(
 )
 
 PROJECT_REF_PATTERN = re.compile(r"^[a-z0-9]{20}$")
-PROBE_KIND = "probe_unavailable_no_authorized_postgrest_path"
+PROBE_KIND = "read_only_postgrest_billing_plans_limit_1"
+APPROVED_PRODUCTION_PROJECT_REF = "rprgjfvfttxydhbekuoc"
 
 
 def _project_ref_from_url(url: str) -> str | None:
@@ -56,13 +58,29 @@ def database_diagnostic() -> dict[str, str | bool | None]:
     """
     configured = bool(settings.supabase_url.strip() and settings.supabase_service_role_key.strip())
     project_ref = _project_ref_from_url(settings.supabase_url) if settings.supabase_url else None
-    # Deliberately do not probe PostgREST with a service-role key until a
-    # separately reviewed, authenticated read-only path is approved. GitHub
-    # OIDC is not a Supabase user JWT and a publishable key is not sufficient.
+    # Never send a privileged key to an unapproved or malformed target.
+    # This route is protected by GitHub Actions OIDC and performs only a fixed,
+    # read-only SELECT that returns no user data.
+    probe = "not_configured"
+    if configured and project_ref == APPROVED_PRODUCTION_PROJECT_REF:
+        try:
+            response = service_request(
+                "GET",
+                "billing_plans",
+                params={"select": "id", "limit": "1"},
+            )
+            rows = response.json()
+            probe = "ok" if isinstance(rows, list) else "failed"
+        except (DataServiceError, ValueError, TypeError):
+            probe = "failed"
+        except Exception:
+            # Keep unexpected transport/client failures sanitized.
+            probe = "failed"
+
     return {
         "configured": configured,
         "project_ref": project_ref,
-        "database_probe": "probe_unavailable",
+        "database_probe": probe,
         "probe_kind": PROBE_KIND,
         "deployment_commit": os.getenv("RENDER_GIT_COMMIT"),
     }

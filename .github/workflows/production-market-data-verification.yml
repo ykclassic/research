@@ -2,9 +2,11 @@ name: Production Market Data Verification
 
 on:
   workflow_dispatch:
-  push:
-    branches:
-      - main
+    inputs:
+      expected_deployment_commit:
+        description: "Optional exact Render deployment SHA to assert; leave blank for observational checks"
+        required: false
+        type: string
   schedule:
     - cron: "17 */6 * * *"
 
@@ -33,9 +35,6 @@ jobs:
       MARKET_MAX_PROVIDER_AGE: 180
       MTF_MAX_EXTRA_AGE_SECONDS: 180
       GITHUB_OIDC_AUDIENCE: research-production-verifier
-      RENDER_SERVICE_ID: srv-da6bkhgjo6nc73cg1big
-      RENDER_DEPLOY_WAIT_TIMEOUT: 480
-      RENDER_DEPLOY_POLL_INTERVAL: 10
       TWELVE_DATA_API_KEY: ${{ secrets.TWELVE_DATA_API_KEY }}
       FINNHUB_API_KEY: ${{ secrets.FINNHUB_API_KEY }}
       ALPHA_VANTAGE_API_KEY: ${{ secrets.ALPHA_VANTAGE_API_KEY }}
@@ -51,44 +50,6 @@ jobs:
 
       - name: Install backend dependencies
         run: python -m pip install -r backend/requirements.txt
-
-      - name: Synchronize production provider secrets to Render
-        if: github.event_name == 'push'
-        env:
-          RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
-          TWELVE_DATA_API_KEY: ${{ secrets.TWELVE_DATA_API_KEY }}
-          FINNHUB_API_KEY: ${{ secrets.FINNHUB_API_KEY }}
-          ALPHA_VANTAGE_API_KEY: ${{ secrets.ALPHA_VANTAGE_API_KEY }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          test -n "${RENDER_API_KEY}"
-          test -n "${TWELVE_DATA_API_KEY}"
-          test -n "${FINNHUB_API_KEY}"
-          test -n "${ALPHA_VANTAGE_API_KEY}"
-          update_render_env() {
-            local key="$1"
-            local value="$2"
-            curl --fail-with-body --silent --show-error --request PUT \
-              --header "Authorization: Bearer ${RENDER_API_KEY}" \
-              --header "Content-Type: application/json" \
-              --data "$(python -c 'import json,sys; print(json.dumps({"value": sys.argv[1]}))' "$value")" \
-              "https://api.render.com/v1/services/${RENDER_SERVICE_ID}/env-vars/${key}" >/dev/null
-            echo "Synchronized Render secret: ${key}"
-          }
-          update_render_env TWELVE_DATA_API_KEY "${TWELVE_DATA_API_KEY}"
-          update_render_env FINNHUB_API_KEY "${FINNHUB_API_KEY}"
-          update_render_env ALPHA_VANTAGE_API_KEY "${ALPHA_VANTAGE_API_KEY}"
-
-      - name: Wait for matching Render deployment on push
-        if: github.event_name == 'push'
-        env:
-          RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
-        run: python backend/scripts/wait_for_render_deployment.py --commit "${GITHUB_SHA}" --trigger
-
-      - name: Set expected deployment commit for push verification
-        if: github.event_name == 'push'
-        run: echo "EXPECTED_DEPLOY_COMMIT=${GITHUB_SHA}" >> "${GITHUB_ENV}"
 
       - name: Request short-lived GitHub OIDC token
         shell: bash
@@ -117,7 +78,7 @@ jobs:
           assert claims.get("repository") == "ykclassic/research"
           assert claims.get("ref") == "refs/heads/main"
           assert claims.get("workflow_ref") == expected_workflow
-          assert claims.get("event_name") in {"push", "schedule", "workflow_dispatch"}
+          assert claims.get("event_name") in {"schedule", "workflow_dispatch"}
           assert claims.get("aud") == "research-production-verifier"
           print("OIDC claims validated:")
           for key in ("repository", "ref", "workflow_ref", "event_name", "aud"):
@@ -126,7 +87,7 @@ jobs:
 
       - name: Verify effective production database target (read-only)
         env:
-          EXPECTED_DEPLOY_COMMIT: ${{ github.sha }}
+          EXPECTED_DEPLOY_COMMIT: ${{ inputs.expected_deployment_commit || "" }}
         shell: bash
         run: |
           set -euo pipefail
