@@ -6,6 +6,7 @@ import sys
 from datetime import datetime, timedelta, timezone
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
+from urllib.parse import urlparse
 
 BASE_URL = os.getenv("REGIME_API_BASE", "https://research-76vr.onrender.com").rstrip("/")
 SYMBOL = os.getenv("REGIME_SYMBOL", "BTC/USD")
@@ -69,6 +70,12 @@ def completed_candle_close(timestamp: datetime, timeframe: str) -> datetime:
 
 
 def main() -> int:
+    parsed_base = urlparse(BASE_URL)
+    allowed_hosts = {"research-76vr.onrender.com", "localhost", "127.0.0.1"}
+    allowed_schemes = {"http", "https"} if parsed_base.hostname in {"localhost", "127.0.0.1"} else {"https"}
+    if parsed_base.scheme not in allowed_schemes or parsed_base.hostname not in allowed_hosts or parsed_base.username or parsed_base.password:
+        fail("REGIME_API_BASE must use HTTPS and an explicitly allowed host")
+
     print("PRODUCTION MARKET-REGIME VERIFICATION")
     print("=" * 72)
 
