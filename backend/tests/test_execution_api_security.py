@@ -217,7 +217,7 @@ def test_approval_mutations_require_current_premium_feature(
         ),
         (
             "/api/execution/intents/0d64c25d-a3d2-46c6-9ed2-ff1a7c3d8431/approval",
-            {"decision": "APPROVE", "request_hash": "a" * 64, "challenge": "invalid"},
+            {"decision": "APPROVE", "request_hash": "a" * 64, "challenge": "x" * 64},
         ),
     ],
 )
