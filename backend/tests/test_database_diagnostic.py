@@ -100,7 +100,7 @@ def test_database_diagnostic_rejects_ambiguous_or_insecure_urls(
 
     assert response.status_code == 200
     assert response.json()["project_ref"] is None
-    assert response.json()["database_probe"] == "failed"
+    assert response.json()["database_probe"] == "probe_unavailable"
     assert "server-only-test-key" not in response.text
 
 
