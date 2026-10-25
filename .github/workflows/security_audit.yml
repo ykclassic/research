@@ -82,11 +82,11 @@ jobs:
         run: |
           set +e
           if [[ -f backend/requirements.txt ]]; then
-            pip-audit -r backend/requirements.txt --format json --output security-audit/pip-audit.json
+            pip-audit -r backend/requirements.txt -f json -o security-audit/pip-audit-report.json
           elif [[ -f requirements.txt ]]; then
-            pip-audit -r requirements.txt --format json --output security-audit/pip-audit.json
+            pip-audit -r requirements.txt -f json -o security-audit/pip-audit-report.json
           else
-            echo '{"error":"No supported requirements manifest found"}' > security-audit/pip-audit.json
+            echo '{"error":"No supported requirements manifest found"}' > security-audit/pip-audit-report.json
             exit 2
           fi
           rc=$?
