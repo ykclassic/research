@@ -1,0 +1,266 @@
+name: Security Audit
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - "backend/**"
+      - "frontend/**"
+      - "supabase/**"
+      - ".github/workflows/security_audit.yml"
+      - "requirements*.txt"
+      - "pyproject.toml"
+      - "package*.json"
+      - "Dockerfile"
+      - "**/Dockerfile"
+  push:
+    branches:
+      - phase-1-execution-security-contract
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: security-audit-${{ github.event.pull_request.head.sha || github.sha }}
+  cancel-in-progress: false
+
+jobs:
+  security-audit:
+    name: Security Audit (SAST, dependencies, secrets, filesystem)
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Checkout exact commit
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Prepare report directory
+        run: mkdir -p security-audit
+
+      - name: Install scanners
+        id: install
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install --disable-pip-version-check --upgrade pip
+          python -m pip install semgrep pip-audit
+          # Pin the standalone Gitleaks release used for this run.
+          GITLEAKS_VERSION="8.24.2"
+          curl --fail --silent --show-error --location \
+            "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz" \
+            -o /tmp/gitleaks.tar.gz
+          tar -xzf /tmp/gitleaks.tar.gz -C /tmp gitleaks
+          sudo install /tmp/gitleaks /usr/local/bin/gitleaks
+          gitleaks version
+
+      - name: Run Semgrep SAST
+        id: semgrep
+        continue-on-error: true
+        shell: bash
+        run: |
+          set +e
+          semgrep scan --config p/default --json --output security-audit/semgrep.json .
+          rc=$?
+          echo "$rc" > security-audit/semgrep.exit
+          # Semgrep may use a non-zero exit code for findings; policy is evaluated
+          # from its JSON report in the aggregation step.
+          exit 0
+
+      - name: Audit Python dependencies
+        id: pip_audit
+        continue-on-error: true
+        shell: bash
+        run: |
+          set +e
+          if [[ -f backend/pyproject.toml ]]; then
+            pip-audit --project-path backend/pyproject.toml --format json --output security-audit/pip-audit.json
+          elif [[ -f pyproject.toml ]]; then
+            pip-audit --project-path pyproject.toml --format json --output security-audit/pip-audit.json
+          elif [[ -f requirements.txt ]]; then
+            pip-audit -r requirements.txt --format json --output security-audit/pip-audit.json
+          else
+            echo '{"error":"No supported Python dependency manifest found"}' > security-audit/pip-audit.json
+            exit 2
+          fi
+          rc=$?
+          echo "$rc" > security-audit/pip-audit.exit
+          exit 0
+
+      - name: Run Gitleaks secret scan
+        id: gitleaks
+        continue-on-error: true
+        shell: bash
+        run: |
+          set +e
+          gitleaks detect --source . --no-git --redact --report-format json --report-path security-audit/gitleaks.json
+          rc=$?
+          echo "$rc" > security-audit/gitleaks.exit
+          exit 0
+
+      - name: Run Trivy filesystem and container-config scan
+        id: trivy
+        continue-on-error: true
+        shell: bash
+        run: |
+          set +e
+          docker run --rm -v "$PWD:/repo" aquasec/trivy:0.58.2 fs \
+            --scanners vuln,misconfig,secret \
+            --severity HIGH,CRITICAL \
+            --format json --output /repo/security-audit/trivy.json /repo
+          rc=$?
+          echo "$rc" > security-audit/trivy.exit
+          exit 0
+
+      - name: Aggregate results and enforce policy
+        id: policy
+        if: always()
+        shell: bash
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          root = Path("security-audit")
+          failures = []
+          findings = {"sast": [], "dependencies": [], "secrets": [], "filesystem": []}
+
+          def read_json(name, default=None):
+              path = root / name
+              if not path.exists():
+                  return default
+              try:
+                  return json.loads(path.read_text(encoding="utf-8"))
+              except Exception as exc:
+                  failures.append(f"invalid_or_unreadable_report:{name}:{type(exc).__name__}")
+                  return default
+
+          # Scanner installation must have completed; otherwise no green audit.
+          if not Path("/usr/local/bin/gitleaks").exists():
+              failures.append("scanner_installation_incomplete")
+
+          semgrep = read_json("semgrep.json", {})
+          if not isinstance(semgrep, dict) or "results" not in semgrep:
+              failures.append("semgrep_report_missing_or_invalid")
+          else:
+              for item in semgrep.get("results", []):
+                  severity = str(item.get("extra", {}).get("severity", "")).upper()
+                  if severity in {"ERROR", "WARNING", "INFO"}:
+                      findings["sast"].append({
+                          "rule_id": item.get("check_id"),
+                          "severity": severity,
+                          "path": item.get("path"),
+                          "line": item.get("start", {}).get("line"),
+                      })
+              errors = [x for x in findings["sast"] if x["severity"] == "ERROR"]
+              if errors:
+                  failures.append(f"sast_error_findings:{len(errors)}")
+
+          audit = read_json("pip-audit.json", None)
+          if not isinstance(audit, list):
+              failures.append("dependency_report_missing_or_invalid")
+          else:
+              for dep in audit:
+                  vulns = dep.get("vulns", []) if isinstance(dep, dict) else []
+                  for vuln in vulns:
+                      # pip-audit has no consistent CVSS severity in all advisories;
+                      # any known vulnerable dependency fails closed.
+                      findings["dependencies"].append({
+                          "package": dep.get("name"),
+                          "version": dep.get("version"),
+                          "id": vuln.get("id"),
+                          "fix_versions": vuln.get("fix_versions", []),
+                      })
+              if findings["dependencies"]:
+                  failures.append(f"vulnerable_dependencies:{len(findings['dependencies'])}")
+
+          secrets = read_json("gitleaks.json", None)
+          if not isinstance(secrets, list):
+              failures.append("secret_report_missing_or_invalid")
+          elif secrets:
+              findings["secrets"] = [
+                  {"rule_id": x.get("RuleID"), "file": x.get("File"), "line": x.get("StartLine")}
+                  for x in secrets
+              ]
+              failures.append(f"secret_findings:{len(secrets)}")
+
+          trivy = read_json("trivy.json", None)
+          if not isinstance(trivy, dict) or "Results" not in trivy:
+              failures.append("trivy_report_missing_or_invalid")
+          else:
+              for result in trivy.get("Results", []) or []:
+                  for vuln in result.get("Vulnerabilities", []) or []:
+                      if str(vuln.get("Severity", "")).upper() in {"HIGH", "CRITICAL"}:
+                          findings["filesystem"].append({
+                              "target": result.get("Target"),
+                              "id": vuln.get("VulnerabilityID"),
+                              "severity": vuln.get("Severity"),
+                              "package": vuln.get("PkgName"),
+                          })
+                  for misconfig in result.get("Misconfigurations", []) or []:
+                      if str(misconfig.get("Severity", "")).upper() in {"HIGH", "CRITICAL"}:
+                          findings["filesystem"].append({
+                              "target": result.get("Target"),
+                              "id": misconfig.get("ID"),
+                              "severity": misconfig.get("Severity"),
+                              "title": misconfig.get("Title"),
+                          })
+                  for secret in result.get("Secrets", []) or []:
+                      if str(secret.get("Severity", "HIGH")).upper() in {"HIGH", "CRITICAL"}:
+                          findings["filesystem"].append({
+                              "target": result.get("Target"),
+                              "id": secret.get("RuleID"),
+                              "severity": secret.get("Severity", "HIGH"),
+                          })
+              if findings["filesystem"]:
+                  failures.append(f"high_critical_filesystem_findings:{len(findings['filesystem'])}")
+
+          # Every scanner must leave an exit-code record. Non-zero codes are
+          # tolerated only when the report was valid and policy evaluated it.
+          for scanner in ("semgrep", "pip-audit", "gitleaks", "trivy"):
+              if not (root / f"{scanner.replace('-', '_')}.exit").exists():
+                  # pip-audit is named pip_audit in the shell step
+                  failures.append(f"scanner_did_not_complete:{scanner}")
+
+          report = {
+              "schema_version": 1,
+              "commit_sha": os.environ.get("GITHUB_SHA"),
+              "checked_out_sha": os.popen("git rev-parse HEAD").read().strip(),
+              "event_name": os.environ.get("GITHUB_EVENT_NAME"),
+              "repository": os.environ.get("GITHUB_REPOSITORY"),
+              "policy": {
+                  "high_critical_vulnerabilities_allowed": 0,
+                  "any_known_python_dependency_vulnerability_fails": True,
+                  "semgrep_error_findings_allowed": 0,
+                  "secret_findings_allowed": 0,
+                  "missing_or_invalid_report_fails": True,
+              },
+              "findings": findings,
+              "failures": failures,
+              "status": "PASSED" if not failures else "FAILED",
+          }
+          (root / "security-audit-report.json").write_text(
+              json.dumps(report, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+          )
+          print(json.dumps({"status": report["status"], "failures": failures}, indent=2))
+          if failures:
+              raise SystemExit(1)
+          PY
+
+      - name: Upload audit evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: security-audit-${{ github.event.pull_request.head.sha || github.sha }}
+          path: security-audit/
+          if-no-files-found: error
+          retention-days: 90
