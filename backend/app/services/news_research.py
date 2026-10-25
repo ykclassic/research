@@ -244,7 +244,7 @@ class NewsResearchService:
             title = str(row.get("event") or row.get("name") or "Economic event")
             event_type = EventType.MACRO if any(term in title.lower() for term in _MACRO) else EventType.ECONOMIC
             result.append(FundamentalEvent(
-                id=f"economic:{row.get('eventId') or hashlib.sha1(f'{title}|{timestamp.isoformat()}'.encode()).hexdigest()[:16]}",
+                id=f"economic:{row.get('eventId') or hashlib.sha256(f'{title}|{timestamp.isoformat()}'.encode()).hexdigest()[:16]}",
                 event_type=event_type,
                 title=title,
                 description=f"Economic calendar event; impact={row.get('impact') or 'unknown'}.",
