@@ -31,6 +31,9 @@ def migrated_postgres() -> None:
         connection.execute("CREATE ROLE anon NOLOGIN")
         connection.execute("CREATE ROLE authenticated NOLOGIN")
         connection.execute("CREATE ROLE service_role NOLOGIN")
+        # Model an existing Supabase schema with unsafe CREATE grants; the migration must remove them.
+        connection.execute("CREATE SCHEMA extensions")
+        connection.execute("GRANT CREATE ON SCHEMA extensions TO PUBLIC, anon, authenticated, service_role")
         connection.execute(MIGRATION_PATH.read_text(encoding="utf-8"))
 
 
@@ -1123,3 +1126,22 @@ def test_expired_approval_challenge_cannot_be_consumed(db) -> None:
     assert db.execute(
         "select count(*) from public.execution_approvals where intent_id=%s", (intent_id,)
     ).fetchone()[0] == 0
+
+
+def test_migration_removes_preexisting_extensions_create_grants(db) -> None:
+    rows = db.execute(
+        """select role_name,
+          has_schema_privilege(role_name, 'extensions', 'USAGE') as can_use,
+          has_schema_privilege(role_name, 'extensions', 'CREATE') as can_create
+        from unnest(array['anon','authenticated','service_role']) as role_name
+        order by role_name"""
+    ).fetchall()
+    assert len(rows) == 3
+    assert all(row[2] is False for row in rows), rows
+
+    # PUBLIC grants are inherited by all three named roles; the seeded PUBLIC
+    # CREATE grant must also be absent after migration.
+    assert all(
+        db.execute("select has_schema_privilege(%s, 'extensions', 'CREATE')", (role,)).fetchone()[0] is False
+        for role in ("anon", "authenticated", "service_role")
+    )
