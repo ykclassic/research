@@ -177,6 +177,63 @@ def _approval_preview() -> dict:
     }
 
 
+@pytest.mark.parametrize(
+    "path,payload",
+    [
+        (
+            "/api/execution/intents/0d64c25d-a3d2-46c6-9ed2-ff1a7c3d8431/approval-challenge",
+            {"decision": "APPROVE", "request_hash": "a" * 64},
+        ),
+        (
+            "/api/execution/intents/0d64c25d-a3d2-46c6-9ed2-ff1a7c3d8431/approval",
+            {"decision": "APPROVE", "request_hash": "a" * 64, "challenge": "invalid"},
+        ),
+    ],
+)
+@pytest.mark.parametrize(
+    "entitlement",
+    [
+        {"plan_id": "free", "features": {"live_trade_execution": False}},
+        {"plan_id": "pro", "features": {"live_trade_execution": True}},
+        {"plan_id": "premium", "features": {}},
+        {"plan_id": "premium", "features": {"live_trade_execution": False}},
+    ],
+)
+def test_approval_mutations_require_current_premium_feature(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch, path: str, payload: dict, entitlement: dict
+) -> None:
+    _authenticate_with_csrf()
+    monkeypatch.setattr(execution_api, "require_feature", lambda *args, **kwargs: entitlement)
+    response = client.post(path, json=payload)
+    assert response.status_code == 403
+    assert "not available" in response.json()["detail"].lower() or "premium" in response.json()["detail"].lower()
+
+@pytest.mark.parametrize(
+    "path,payload",
+    [
+        (
+            "/api/execution/intents/0d64c25d-a3d2-46c6-9ed2-ff1a7c3d8431/approval-challenge",
+            {"decision": "APPROVE", "request_hash": "a" * 64},
+        ),
+        (
+            "/api/execution/intents/0d64c25d-a3d2-46c6-9ed2-ff1a7c3d8431/approval",
+            {"decision": "APPROVE", "request_hash": "a" * 64, "challenge": "invalid"},
+        ),
+    ],
+)
+def test_approval_mutations_fail_closed_when_entitlement_service_is_unavailable(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch, path: str, payload: dict
+) -> None:
+    _authenticate_with_csrf()
+    def unavailable(*args, **kwargs):
+        raise DataUnavailableError("private provider failure")
+    monkeypatch.setattr(execution_api, "require_feature", unavailable)
+    response = client.post(path, json=payload)
+    assert response.status_code == 503
+    assert "could not be verified" in response.json()["detail"].lower()
+    assert "private provider failure" not in response.text
+
+
 def test_approval_request_rejects_caller_authored_actor_or_snapshot() -> None:
     from app.models.execution import ExecutionApprovalDecisionRequest
 
