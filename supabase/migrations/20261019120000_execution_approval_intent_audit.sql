@@ -2,6 +2,8 @@
 -- This migration is repository-only; execution remains disabled.
 create schema if not exists extensions;
 create extension if not exists pgcrypto with schema extensions;
+-- Remove any pre-existing ability for untrusted roles to shadow objects used by SECURITY DEFINER helpers.
+revoke create on schema extensions from public, anon, authenticated, service_role;
 do $role$
 begin
   create role execution_persistence_owner nologin nosuperuser nocreatedb nocreaterole noinherit;
