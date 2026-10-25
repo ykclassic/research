@@ -7,7 +7,6 @@ from app.api import diagnostics as diagnostics_api
 from app.api.auth import require_github_actions
 from app.config import settings
 from app.main import app
-from app.services.supabase_data import DataUnavailableError
 
 
 @pytest.fixture
@@ -83,7 +82,7 @@ def test_database_diagnostic_does_not_claim_unrecognized_target(
     assert response.status_code == 200
     assert response.json()["configured"] is True
     assert response.json()["project_ref"] is None
-    assert response.json()["database_probe"] == "failed"
+    assert response.json()["database_probe"] == "probe_unavailable"
 
 
 
