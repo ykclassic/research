@@ -37,7 +37,6 @@ def client(monkeypatch: pytest.MonkeyPatch):
         },
     )
     with TestClient(app) as test_client:
-        test_client.cookies.set("mr_access_token", "opaque-test-token")
         yield test_client
     app.dependency_overrides.clear()
 
@@ -186,7 +185,7 @@ def _approval_preview() -> dict:
         ),
         (
             "/api/execution/intents/0d64c25d-a3d2-46c6-9ed2-ff1a7c3d8431/approval",
-            {"decision": "APPROVE", "request_hash": "a" * 64, "challenge": "invalid"},
+            {"decision": "APPROVE", "request_hash": "a" * 64, "challenge": "x" * 64},
         ),
     ],
 )
@@ -203,6 +202,7 @@ def test_approval_mutations_require_current_premium_feature(
     client: TestClient, monkeypatch: pytest.MonkeyPatch, path: str, payload: dict, entitlement: dict
 ) -> None:
     _authenticate_with_csrf()
+    client.cookies.set("mr_access_token", "opaque-test-token")
     monkeypatch.setattr(execution_api, "require_feature", lambda *args, **kwargs: entitlement)
     response = client.post(path, json=payload)
     assert response.status_code == 403
@@ -225,6 +225,7 @@ def test_approval_mutations_fail_closed_when_entitlement_service_is_unavailable(
     client: TestClient, monkeypatch: pytest.MonkeyPatch, path: str, payload: dict
 ) -> None:
     _authenticate_with_csrf()
+    client.cookies.set("mr_access_token", "opaque-test-token")
     def unavailable(*args, **kwargs):
         raise DataUnavailableError("private provider failure")
     monkeypatch.setattr(execution_api, "require_feature", unavailable)
@@ -271,6 +272,7 @@ def test_approval_preview_scopes_lookup_to_verified_session_user(
     from app.services.supabase_data import DataRequestError
 
     _authenticate_with_csrf()
+    client.cookies.set("mr_access_token", "opaque-test-token")
     observed = []
 
     def owner_scoped_preview(*, user_id, intent_id):
@@ -310,6 +312,7 @@ def test_foreign_intent_cannot_be_challenged_by_another_authenticated_user(
     )
     app.dependency_overrides[execution_api.get_current_user] = lambda: other_user
     app.dependency_overrides[execution_api._require_csrf] = lambda: None
+    client.cookies.set("mr_access_token", "opaque-test-token")
     observed = []
     recorded = []
 
@@ -337,6 +340,7 @@ def test_changed_proposal_hash_cannot_be_approved(
     from uuid import UUID
 
     _authenticate_with_csrf()
+    client.cookies.set("mr_access_token", "opaque-test-token")
     preview = _approval_preview()
     monkeypatch.setattr(
         execution_api, "get_execution_intent_approval_preview",
@@ -369,6 +373,7 @@ def test_approval_actor_and_snapshot_are_derived_from_session_and_database(
     from types import SimpleNamespace
 
     _authenticate_with_csrf()
+    client.cookies.set("mr_access_token", "opaque-test-token")
     preview = _approval_preview()
     monkeypatch.setattr(
         execution_api, "get_execution_intent_approval_preview",
