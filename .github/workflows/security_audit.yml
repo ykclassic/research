@@ -163,13 +163,15 @@ jobs:
               if errors:
                   failures.append(f"sast_error_findings:{len(errors)}")
 
-          audit = read_json("pip-audit.json", None)
+          audit = read_json("pip-audit-report.json", None)
           # pip-audit JSON currently wraps dependency entries in a "dependencies" key.
-          if isinstance(audit, dict):
-              dependencies = audit.get("dependencies")
-          else:
+          if isinstance(audit, dict) and isinstance(audit.get("dependencies"), list):
+              dependencies = audit["dependencies"]
+          elif isinstance(audit, list):
               dependencies = audit
-          if not isinstance(dependencies, list):
+          else:
+              dependencies = None
+          if dependencies is None:
               failures.append("dependency_report_missing_or_invalid")
           else:
               for dep in dependencies:
