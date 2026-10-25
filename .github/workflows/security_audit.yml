@@ -81,14 +81,12 @@ jobs:
         shell: bash
         run: |
           set +e
-          if [[ -f backend/pyproject.toml ]]; then
-            pip-audit --project-path backend/pyproject.toml --format json --output security-audit/pip-audit.json
-          elif [[ -f pyproject.toml ]]; then
-            pip-audit --project-path pyproject.toml --format json --output security-audit/pip-audit.json
+          if [[ -f backend/requirements.txt ]]; then
+            pip-audit -r backend/requirements.txt --format json --output security-audit/pip-audit.json
           elif [[ -f requirements.txt ]]; then
             pip-audit -r requirements.txt --format json --output security-audit/pip-audit.json
           else
-            echo '{"error":"No supported Python dependency manifest found"}' > security-audit/pip-audit.json
+            echo '{"error":"No supported requirements manifest found"}' > security-audit/pip-audit.json
             exit 2
           fi
           rc=$?
@@ -231,9 +229,8 @@ jobs:
 
           # Every scanner must leave an exit-code record. Non-zero codes are
           # tolerated only when the report was valid and policy evaluated it.
-          for scanner in ("semgrep", "pip-audit", "gitleaks", "trivy"):
-              if not (root / f"{scanner.replace('-', '_')}.exit").exists():
-                  # pip-audit is named pip_audit in the shell step
+          for scanner in ("semgrep", "pip_audit", "gitleaks", "trivy"):
+              if not (root / f"{scanner}.exit").exists():
                   failures.append(f"scanner_did_not_complete:{scanner}")
 
           report = {
@@ -256,7 +253,11 @@ jobs:
           (root / "security-audit-report.json").write_text(
               json.dumps(report, indent=2, sort_keys=True) + "\n", encoding="utf-8"
           )
-          print(json.dumps({"status": report["status"], "failures": failures}, indent=2))
+          print(json.dumps({
+              "status": report["status"],
+              "failures": failures,
+              "findings": findings,
+          }, indent=2))
           if failures:
               raise SystemExit(1)
           PY
