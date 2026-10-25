@@ -66,20 +66,20 @@
   display:grid;
   gap:4px;
   min-width:0}
-.phase9-list span, .phase9-secret span, .phase9-export-grid span, .phase9-mini span {
+.phase9-list span, .phase9-sensitive span, .phase9-export-grid span, .phase9-mini span {
   font-size:11px;
   color:#7e93ab;
   overflow-wrap:anywhere}
-.phase9-secret {
+.phase9-sensitive {
   display:flex;
   align-items:center;
   gap:12px;
   flex-wrap:wrap}
-.phase9-secret>div {
+.phase9-sensitive>div {
   display:grid;
   gap:4px;
   flex:1}
-.phase9-secret code, .phase9-contract code {
+.phase9-sensitive code, .phase9-contract code {
   display:block;
   overflow:auto;
   background:#08111c;
@@ -89,7 +89,7 @@
   color:#7fe0ff;
   font-family:ui-monospace, monospace;
   font-size:11px}
-.phase9-secret>button {
+.phase9-sensitive>button {
   display:inline-flex;
   align-items:center;
   gap:6px;
@@ -145,7 +145,7 @@
 @media(max-width:760px) {
   .phase9-subgrid, .phase9-export-grid {
   grid-template-columns:1fr}
-.phase9-secret {
+.phase9-sensitive {
   align-items:flex-start}
 .phase9-list article {
   align-items:flex-start}
