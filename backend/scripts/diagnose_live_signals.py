@@ -16,6 +16,7 @@ import math
 import sys
 import urllib.error
 import urllib.request
+from urllib.parse import urlparse
 from collections import Counter
 from datetime import datetime, timezone
 from pathlib import Path
@@ -26,7 +27,15 @@ from app.symbols import CRYPTO_PAIRS
 
 
 def fetch_signal(base_url: str, symbol: str, limit: int, oidc_token: str | None = None) -> dict:
-    url = f"{base_url.rstrip('/')}/api/signals/{symbol.replace('/', '%2F')}?limit={limit}"
+    parsed = urlparse(base_url)
+    allowed_hosts = {"research-76vr.onrender.com", "localhost", "127.0.0.1"}
+    if parsed.scheme not in ({"https"} if parsed.hostname not in {"localhost", "127.0.0.1"} else {"http", "https"}) or parsed.hostname not in allowed_hosts or parsed.username or parsed.password:
+        raise ValueError("base URL must use HTTPS and an explicitly allowed host")
+    if not symbol or any(ch not in "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_/:" for ch in symbol):
+        raise ValueError("symbol contains unsupported characters")
+    if limit < 1 or limit > 1000:
+        raise ValueError("limit must be between 1 and 1000")
+    url = f"{parsed.scheme}://{parsed.netloc}/api/signals/{symbol.replace('/', '%2F')}?limit={limit}"
     headers = {"Accept": "application/json"}
     if oidc_token:
         headers["Authorization"] = f"Bearer {oidc_token}"
