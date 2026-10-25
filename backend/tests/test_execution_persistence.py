@@ -35,7 +35,7 @@ def test_intent_creation_uses_canonical_database_hash(monkeypatch) -> None:
     monkeypatch.setattr(execution_persistence, "service_request", fake_service_request)
     receipt = execution_persistence.create_execution_intent(
         user_id=user_id,
-        idempotency_key="intent-key-0123456789",
+        idempotency_key="test-intent-key",
         signal_snapshot={"symbol": "BTC/USDT"},
         account_snapshot={"account_ref": "account-1"},
         market_snapshot={"price": 100},
@@ -62,7 +62,7 @@ def test_intent_creation_rejects_caller_forged_hash(monkeypatch) -> None:
     with pytest.raises(DataRequestError, match="does not match canonical"):
         execution_persistence.create_execution_intent(
             user_id=uuid4(),
-            idempotency_key="intent-key-0123456789",
+            idempotency_key="test-intent-key",
             request_hash="b" * 64,
             signal_snapshot={"symbol": "BTC/USDT"},
             account_snapshot={"account_ref": "account-1"},
@@ -139,8 +139,8 @@ def test_challenge_registration_persists_only_a_digest_of_the_nonce(monkeypatch)
         assert path == "rpc/register_execution_approval_challenge"
         assert kwargs["json"]["p_user_id"] == str(user_id)
         assert kwargs["json"]["p_intent_id"] == str(intent_id)
-        assert kwargs["json"]["p_challenge_jti_hash"] == hashlib.sha256(b"nonce-value").hexdigest()
-        assert kwargs["json"]["p_challenge_jti_hash"] != "nonce-value"
+        assert kwargs["json"]["p_challenge_jti_hash"] == hashlib.sha256(b"test-nonce").hexdigest()
+        assert kwargs["json"]["p_challenge_jti_hash"] != "test-nonce"
         return _Response(True)
 
     monkeypatch.setattr(execution_persistence, "service_request", fake_service_request)
@@ -149,7 +149,7 @@ def test_challenge_registration_persists_only_a_digest_of_the_nonce(monkeypatch)
         intent_id=intent_id,
         request_hash="a" * 64,
         decision="APPROVE",
-        challenge_jti="nonce-value",
+        challenge_jti="test-nonce",
         expires_at=datetime.now(timezone.utc) + timedelta(minutes=2),
     )
     assert len(calls) == 1
