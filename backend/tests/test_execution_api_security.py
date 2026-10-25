@@ -26,9 +26,18 @@ def _payload() -> dict:
 
 
 @pytest.fixture
-def client():
+def client(monkeypatch: pytest.MonkeyPatch):
     app.dependency_overrides.clear()
+    monkeypatch.setattr(
+        execution_api,
+        "require_feature",
+        lambda *args, **kwargs: {
+            "plan_id": "premium",
+            "features": {"live_trade_execution": True},
+        },
+    )
     with TestClient(app) as test_client:
+        test_client.cookies.set("mr_access_token", "opaque-test-token")
         yield test_client
     app.dependency_overrides.clear()
 
