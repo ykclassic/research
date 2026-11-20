@@ -127,22 +127,52 @@ class QuoteService:
                 return []
             if not self._using_production_orchestrator:
                 return await self.orchestrator.get_quotes(crypto_symbols, force_refresh=force_refresh)
-            try:
-                return await self.crypto_provider.get_quotes(crypto_symbols)
-            except Exception as exc:
+
+            native_kraken_symbols = [
+                symbol for symbol in crypto_symbols if normalize_symbol(symbol).kraken is not None
+            ]
+            secondary_only_symbols = [
+                symbol for symbol in crypto_symbols if normalize_symbol(symbol).kraken is None
+            ]
+
+            async def fetch_fallback(target_symbols: list[str]) -> list[Quote]:
+                if not target_symbols:
+                    return []
                 try:
                     return await asyncio.wait_for(
-                        self.orchestrator.get_quotes(crypto_symbols, force_refresh=force_refresh),
+                        self.orchestrator.get_quotes(target_symbols, force_refresh=force_refresh),
                         timeout=self.DASHBOARD_PROVIDER_TIMEOUT_SECONDS,
                     )
                 except asyncio.TimeoutError:
                     return [
                         self._unavailable_quote(
                             symbol,
-                            f"Crypto quote providers exceeded the {self.DASHBOARD_PROVIDER_TIMEOUT_SECONDS:.0f}s response budget: {exc}",
+                            f"Crypto quote fallback exceeded the {self.DASHBOARD_PROVIDER_TIMEOUT_SECONDS:.0f}s response budget.",
                         )
-                        for symbol in crypto_symbols
+                        for symbol in target_symbols
                     ]
+                except Exception as exc:
+                    return [
+                        self._unavailable_quote(
+                            symbol,
+                            f"Crypto quote fallback failed ({type(exc).__name__}).",
+                        )
+                        for symbol in target_symbols
+                    ]
+
+            native_quotes: list[Quote] = []
+            if native_kraken_symbols:
+                try:
+                    native_quotes = await self.crypto_provider.get_quotes(native_kraken_symbols)
+                except Exception:
+                    # A Kraken batch transport/provider failure still routes
+                    # the full crypto request through the secondary chain.
+                    return await fetch_fallback(crypto_symbols)
+
+            # Symbols without a native Kraken ticker are routed separately.
+            # Their mapping failures must never discard valid native batch data.
+            secondary_quotes = await fetch_fallback(secondary_only_symbols)
+            return [*native_quotes, *secondary_quotes]
 
         async def fetch_non_crypto() -> list[Quote]:
             if not non_crypto_symbols:
