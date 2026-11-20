@@ -16,7 +16,7 @@ def test_kraken_public_is_credential_free_and_supports_expanded_crypto_universe(
         "XRP/USDT": "XRPUSDT",
         "LINK/USDT": "LINKUSDT",
         "SOL/USDT": "SOLUSDT",
-        "DOGE/USDT": "DOGEUSDT",
+        "DOGE/USDT": "XDGUSDT",
         "ADA/USDT": "ADAUSDT",
         "LTC/USDT": "LTCUSDT",
         "BTC/USD": "XBTUSD",
@@ -33,6 +33,11 @@ def test_kraken_public_is_credential_free_and_supports_expanded_crypto_universe(
         Timeframe.HOUR_4: 240,
         Timeframe.DAY_1: 1440,
     }
+
+
+def test_kraken_public_uses_rest_dogecoin_ticker_alias() -> None:
+    provider = KrakenPublicProvider()
+    assert provider._provider_pair("DOGE/USDT") == "XDGUSDT"
 
 
 def test_kraken_public_rejects_non_crypto_symbols() -> None:
