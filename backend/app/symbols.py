@@ -61,7 +61,7 @@ SYMBOLS: dict[str, SymbolMapping] = {
     "XRP/USDT": SymbolMapping("XRP/USDT", "XRP/USDT", "crypto", "XRP / Tether", "XRPUSDT"),
     "LINK/USDT": SymbolMapping("LINK/USDT", "LINK/USDT", "crypto", "Chainlink / Tether", "LINKUSDT"),
     "SOL/USDT": SymbolMapping("SOL/USDT", "SOL/USDT", "crypto", "Solana / Tether", "SOLUSDT"),
-    "DOGE/USDT": SymbolMapping("DOGE/USDT", "DOGE/USDT", "crypto", "Dogecoin / Tether", "DOGEUSDT"),
+    "DOGE/USDT": SymbolMapping("DOGE/USDT", "DOGE/USDT", "crypto", "Dogecoin / Tether", "XDGUSDT"),
     "ADA/USDT": SymbolMapping("ADA/USDT", "ADA/USDT", "crypto", "Cardano / Tether", "ADAUSDT"),
     "SUI/USDT": SymbolMapping("SUI/USDT", "SUI/USDT", "crypto", "Sui / Tether", None, ("SUIUSD", "USDTZUSD")),
     "LTC/USDT": SymbolMapping("LTC/USDT", "LTC/USDT", "crypto", "Litecoin / Tether", "LTCUSDT"),
