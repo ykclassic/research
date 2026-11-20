@@ -1,10 +1,12 @@
 import asyncio
+from datetime import datetime, timezone
 from unittest.mock import AsyncMock, patch
 
 from app.models import Quote, QuoteStatus
 from app.models.market import CompletenessStatus, FreshnessStatus, Timeframe
 from app.services.quote_service import QuoteService
 from app.services.resilient_market_data import ResilientMarketDataOrchestrator
+from app.symbols import CRYPTO_PAIRS
 
 
 def _quote(symbol: str, status: QuoteStatus) -> Quote:
@@ -25,6 +27,81 @@ def _quote(symbol: str, status: QuoteStatus) -> Quote:
         fallback_used=False,
         provider_attempts=(),
     )
+
+
+def _live_quote(symbol: str, source: str) -> Quote:
+    observed_at = datetime.now(timezone.utc)
+    return Quote(
+        symbol=symbol,
+        provider_symbol=symbol,
+        price=100.0,
+        timestamp=observed_at,
+        provider_timestamp=observed_at,
+        observed_at=observed_at,
+        source=source,
+        status=QuoteStatus.LIVE,
+        freshness_status=FreshnessStatus.FRESH,
+        freshness_age_seconds=0.0,
+        completeness_status=CompletenessStatus.COMPLETE,
+        provider_attempts=(source,),
+    )
+
+
+class _KrakenBatch:
+    def __init__(self) -> None:
+        self.calls: list[list[str]] = []
+
+    async def get_quotes(self, symbols: list[str]) -> list[Quote]:
+        self.calls.append(list(symbols))
+        if "SUI/USDT" in symbols:
+            raise ValueError("Kraken has no native SUI/USDT ticker mapping.")
+        return [_live_quote(symbol, "kraken_public") for symbol in symbols]
+
+
+class _FallbackBatch:
+    def __init__(self) -> None:
+        self.calls: list[list[str]] = []
+
+    async def get_quotes(self, symbols: list[str], force_refresh: bool = False) -> list[Quote]:
+        self.calls.append(list(symbols))
+        return [_live_quote(symbol, "finnhub") for symbol in symbols]
+
+
+def test_quote_service_isolates_unsupported_kraken_symbol_from_supported_batch() -> None:
+    service = QuoteService()
+    kraken = _KrakenBatch()
+    fallback = _FallbackBatch()
+    service.crypto_provider = kraken
+    service.orchestrator = fallback
+
+    result = asyncio.run(service.get_quotes(list(CRYPTO_PAIRS)))
+
+    expected_kraken_symbols = [symbol for symbol in CRYPTO_PAIRS if symbol != "SUI/USDT"]
+    assert kraken.calls == [expected_kraken_symbols]
+    assert fallback.calls == [["SUI/USDT"]]
+    assert [quote.symbol for quote in result] == list(CRYPTO_PAIRS)
+    assert {
+        quote.symbol: quote.source for quote in result
+    } == {
+        **{symbol: "kraken_public" for symbol in expected_kraken_symbols},
+        "SUI/USDT": "finnhub",
+    }
+
+
+def test_quote_service_skips_kraken_when_request_contains_only_unsupported_symbols() -> None:
+    service = QuoteService()
+    kraken = _KrakenBatch()
+    fallback = _FallbackBatch()
+    service.crypto_provider = kraken
+    service.orchestrator = fallback
+
+    result = asyncio.run(service.get_quotes(["SUI/USDT"]))
+
+    assert kraken.calls == []
+    assert fallback.calls == [["SUI/USDT"]]
+    assert len(result) == 1
+    assert result[0].symbol == "SUI/USDT"
+    assert result[0].source == "finnhub"
 
 
 def test_quote_service_uses_forex_fallback_for_unavailable_quote():
