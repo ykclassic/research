@@ -20,7 +20,7 @@ class StubCandleProvider(MarketDataProvider):
         return True
 
     async def get_quote(self, internal_symbol: str) -> Quote:
-        return Quote(symbol=internal_symbol, status=QuoteStatus.UNAVAILABLE)
+        return Quote(symbol=internal_symbol, provider_symbol=internal_symbol, status=QuoteStatus.UNAVAILABLE)
 
     async def get_candles(self, internal_symbol, timeframe, outputsize=250, start_date=None, end_date=None):
         return self.dataset
@@ -117,6 +117,7 @@ def test_partial_dataset_keeps_only_completed_candles_for_research_calculations(
 def test_stale_quote_admission_remains_strict():
     stale_quote = Quote(
         symbol="GBP/USD",
+        provider_symbol="GBP_USD",
         status=QuoteStatus.STALE,
         price=1.25,
         source="stub",
