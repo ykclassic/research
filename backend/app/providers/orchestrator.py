@@ -16,7 +16,7 @@ from app.providers.errors import ProviderErrorCode, classify_provider_error, err
 from app.providers.finnhub import FinnhubProvider
 from app.providers.twelve_data import TwelveDataProvider
 from app.services.cache import CanonicalMarketCache
-from app.services.market_sessions import is_market_open
+from app.services.market_sessions import closed_session_candle_is_usable, is_market_open
 from app.services.quota_scheduler import QuoteQuotaScheduler
 from app.symbols import normalize_symbol
 
@@ -189,7 +189,12 @@ class MarketDataOrchestrator:
 
     @staticmethod
     def _fresh_dataset(dataset: OHLCVDataset) -> bool:
-        return dataset.freshness_status in {FreshnessStatus.FRESH, FreshnessStatus.DELAYED} and bool(dataset.completed_candles)
+        if not dataset.completed_candles:
+            return False
+        age = dataset.freshness_age_seconds
+        if age is None or age > dataset.timeframe.seconds + settings.stale_quote_seconds:
+            return False
+        return dataset.freshness_status in {FreshnessStatus.FRESH, FreshnessStatus.DELAYED}
 
     @staticmethod
     def _normalized_error_code(quote: Quote) -> ProviderErrorCode:
@@ -392,7 +397,16 @@ class MarketDataOrchestrator:
                     ),
                 )
                 latency_ms = int((time.perf_counter() - started) * 1000)
-                stale_market_closed = allow_stale and not is_market_open(mapping.internal) and bool(dataset.completed_candles)
+                latest_completed = dataset.latest_completed_candle
+                stale_market_closed = (
+                    allow_stale
+                    and latest_completed is not None
+                    and closed_session_candle_is_usable(
+                        mapping.internal,
+                        latest_completed.timestamp,
+                        timeframe.seconds,
+                    )
+                )
                 if not self._fresh_dataset(dataset) and not stale_market_closed:
                     self._record_failure(provider, "Provider candle set is stale or incomplete", latency_ms, ProviderErrorCode.PROVIDER_UNAVAILABLE, "candles")
                     provider_diagnostics.append(f"{provider.name}=stale_or_incomplete")
