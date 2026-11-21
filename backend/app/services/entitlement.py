@@ -11,7 +11,7 @@ FEATURE_KEYS = {
     "core_research", "watchlists", "basic_portfolio", "signal_intelligence",
     "ai_research", "advanced_portfolio_analytics", "backtesting",
     "strategy_builder", "scanner", "webhooks", "scheduled_workflows",
-    "api", "mcp", "exports", "team_workspaces", "signal_intelligence_analytics", "advanced_research", "enhanced_signal", "copilot_deep_research", "copilot_multi_step",
+    "api", "mcp", "exports", "team_workspaces", "signal_intelligence_analytics", "advanced_research", "enhanced_signal", "copilot_deep_research", "copilot_multi_step", "phase10_intelligence",
     # This is not granted by code; the live DB must explicitly grant it to Premium.
     "live_trade_execution",
 }
@@ -148,3 +148,45 @@ def start_pro_trial(access_token: str, user_id: str, days: int = 14) -> dict[str
     if not rows:
         raise DataRequestError("Trial could not be started.")
     return rows[0]
+
+
+def get_billing_plan_catalog(access_token: str) -> list[dict[str, Any]]:
+    """Return active plans with an explicit, fail-closed feature matrix."""
+    plans = _request(
+        "GET",
+        "billing_plans",
+        access_token,
+        params={
+            "select": "id,name,description,monthly_price_minor,currency,display_order,active",
+            "active": "eq.true",
+            "order": "display_order.asc",
+        },
+    ).json()
+    feature_rows = _request(
+        "GET",
+        "billing_features",
+        access_token,
+        params={"select": "id,name,description,category", "order": "id.asc"},
+    ).json()
+    plan_feature_rows = _request(
+        "GET",
+        "billing_plan_features",
+        access_token,
+        params={"select": "plan_id,feature_id,enabled"},
+    ).json()
+
+    feature_ids = [str(row["id"]) for row in feature_rows]
+    matrix = {
+        (str(row["plan_id"]), str(row["feature_id"])): bool(row["enabled"])
+        for row in plan_feature_rows
+    }
+    return [
+        {
+            **plan,
+            "features": {
+                feature_id: matrix.get((str(plan["id"]), feature_id), False)
+                for feature_id in feature_ids
+            },
+        }
+        for plan in plans
+    ]
