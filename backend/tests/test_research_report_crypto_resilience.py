@@ -31,7 +31,9 @@ async def test_crypto_report_falls_back_to_orchestrator_when_kraken_fails():
     result = await service._dataset("ETH/USD", Timeframe.HOUR_1, 300)
 
     assert result is expected
-    service.quote_service.orchestrator.get_candles.assert_awaited_once_with("ETH/USD", Timeframe.HOUR_1, 300)
+    service.quote_service.orchestrator.get_candles.assert_awaited_once_with(
+        "ETH/USD", Timeframe.HOUR_1, 300, allow_stale=True
+    )
 
 
 def test_research_report_uses_resilient_news_service():
