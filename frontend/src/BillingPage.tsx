@@ -5,7 +5,6 @@ import { getBillingHistory, getBillingPlans, getEntitlements, getSubscription, g
 
 type Props={user:User;onLogout:()=>void};
 const labels:Record<string,string>={core_research:"Core market research",watchlists:"Watchlists",basic_portfolio:"Basic portfolio",signal_intelligence:"Signal intelligence",ai_research:"AI research",advanced_portfolio_analytics:"Advanced portfolio analytics",backtesting:"Backtesting",strategy_builder:"Strategy builder",scanner:"Intelligent scanner",webhooks:"Webhooks",scheduled_workflows:"Scheduled workflows",api:"API access",mcp:"MCP access",exports:"Advanced exports",team_workspaces:"Team workspaces",signal_intelligence_analytics:"Signal intelligence analytics",advanced_research:"Advanced research workspaces",enhanced_signal:"Enhanced Signal",copilot_deep_research:"Copilot deep research",copilot_multi_step:"Copilot multi-step research",phase10_intelligence:"Optimization & advanced intelligence",live_trade_execution:"Human-approved live trade execution"};
-const freeFeatures=new Set(["core_research","watchlists","basic_portfolio","signal_intelligence","ai_research"]);
 const money=(minor:number,currency:string)=>minor===0?"Free":currency+" "+(minor/100).toFixed(2)+"/month";
 
 export default function BillingPage({user,onLogout}:Props){
