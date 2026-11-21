@@ -7,7 +7,7 @@ from pydantic import BaseModel, Field
 
 from app.api.auth import UserResponse, _require_csrf, get_current_user
 from app.config import settings
-from app.services.entitlement import EntitlementError, get_entitlement_snapshot, get_usage, start_pro_trial
+from app.services.entitlement import EntitlementError, get_billing_plan_catalog, get_entitlement_snapshot, get_usage, start_pro_trial
 from app.services.billing_provider import BillingProviderError, get_billing_provider
 from app.services.billing_service import cancel_subscription, change_subscription, process_webhook, reconcile_checkout_session, resume_subscription, start_checkout
 from app.services.supabase_data import DataConflictError, DataRequestError, DataUnavailableError, _request
@@ -50,10 +50,7 @@ async def plans(
     access_token: Annotated[str | None, Cookie(alias="mr_access_token")] = None,
 ) -> dict[str, Any]:
     try:
-        rows = _request(
-            "GET", "billing_plans", _token(access_token),
-            params={"select":"id,name,description,monthly_price_minor,currency,display_order,active", "active":"eq.true", "order":"display_order.asc"},
-        ).json()
+        rows = get_billing_plan_catalog(_token(access_token))
         return {"plans": rows, "billing_test_mode": bool(settings.billing_test_mode and settings.app_env.lower() != "production")}
     except Exception as exc:
         raise _map_error(exc) from exc
