@@ -27,7 +27,7 @@ class StubCandleProvider(MarketDataProvider):
 
 
 def make_dataset(*, completed_count: int = 3, total_count: int = 3) -> OHLCVDataset:
-    start = datetime(2026, 11, 13, tzinfo=timezone.utc)
+    start = datetime.now(timezone.utc) - timedelta(days=3)
     candles = tuple(
         Candle(
             timestamp=start + timedelta(days=index),
@@ -64,7 +64,7 @@ def make_dataset(*, completed_count: int = 3, total_count: int = 3) -> OHLCVData
 async def test_stale_completed_candles_are_admitted_only_for_closed_market(monkeypatch):
     import app.providers.orchestrator as orchestrator_module
 
-    monkeypatch.setattr(orchestrator_module, "is_market_open", lambda symbol: False)
+    monkeypatch.setattr(orchestrator_module, "closed_session_candle_is_usable", lambda *args, **kwargs: True)
     dataset = make_dataset()
     orchestrator = MarketDataOrchestrator(providers=[StubCandleProvider(dataset)])
 
@@ -81,7 +81,7 @@ async def test_stale_completed_candles_are_admitted_only_for_closed_market(monke
 async def test_stale_completed_candles_remain_rejected_while_market_is_open(monkeypatch):
     import app.providers.orchestrator as orchestrator_module
 
-    monkeypatch.setattr(orchestrator_module, "is_market_open", lambda symbol: True)
+    monkeypatch.setattr(orchestrator_module, "closed_session_candle_is_usable", lambda *args, **kwargs: False)
     orchestrator = MarketDataOrchestrator(providers=[StubCandleProvider(make_dataset())])
 
     with pytest.raises(RuntimeError, match="All configured market-data providers were unavailable"):
