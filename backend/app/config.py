@@ -49,6 +49,9 @@ class Settings(BaseSettings):
     stripe_success_url: str = "https://research-dusky-six.vercel.app/?billing=success&session_id={CHECKOUT_SESSION_ID}"
     stripe_cancel_url: str = "https://research-dusky-six.vercel.app/?billing=cancelled"
     supabase_service_role_key: str = ""
+    xt_api_key: str = ""
+    xt_api_secret: str = ""
+    xt_timeout_seconds: float = 5.0
     scanner_scheduler_secret: str = ""
     smtp_host: str = ""
     smtp_port: int = 587
