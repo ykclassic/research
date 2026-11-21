@@ -152,3 +152,62 @@ def test_report_quote_policy_is_not_relaxed_by_closed_session_candle_policy():
 
     with pytest.raises(RuntimeError, match="Market quote"):
         ResearchReportService._validate_quote_policy(quote, configuration())
+
+
+def stock_candle_dataset(*, latest_open: datetime, now: datetime) -> OHLCVDataset:
+    candle = Candle(
+        timestamp=latest_open,
+        open=200.0,
+        high=202.0,
+        low=199.0,
+        close=201.0,
+        volume=500000,
+        symbol="AAPL",
+        timeframe=Timeframe.HOUR_1,
+        source="test-provider",
+        is_complete=True,
+    )
+    age = (now - (latest_open + timedelta(hours=1))).total_seconds()
+    return OHLCVDataset(
+        symbol="AAPL",
+        timeframe=Timeframe.HOUR_1,
+        source="test-provider",
+        requested_at=now,
+        provider_timestamp=latest_open,
+        candles=(candle,),
+        freshness_status=FreshnessStatus.STALE,
+        freshness_age_seconds=max(0.0, age),
+    )
+
+
+@pytest.mark.asyncio
+async def test_report_accepts_completed_equity_candle_during_weekend_closure(monkeypatch):
+    # Monday 09:00 New York, before the 09:30 cash-session open.
+    now = datetime(2026, 11, 23, 14, 0, tzinfo=timezone.utc)
+    latest_open = datetime(2026, 11, 20, 20, 0, tzinfo=timezone.utc)
+    dataset = stock_candle_dataset(latest_open=latest_open, now=now)
+    FrozenDateTime.current = now
+    monkeypatch.setattr("app.services.research_report.datetime", FrozenDateTime)
+
+    service = ResearchReportService()
+    service.quote_service.orchestrator.get_candles = AsyncMock(return_value=dataset)
+
+    result = await service._dataset("AAPL", Timeframe.HOUR_1, 300, configuration())
+
+    assert result is dataset
+
+
+@pytest.mark.asyncio
+async def test_report_rejects_equity_candle_after_monday_session_opens(monkeypatch):
+    # Monday 09:30 New York; the same Friday candle is no longer eligible.
+    now = datetime(2026, 11, 23, 14, 30, tzinfo=timezone.utc)
+    latest_open = datetime(2026, 11, 20, 20, 0, tzinfo=timezone.utc)
+    dataset = stock_candle_dataset(latest_open=latest_open, now=now)
+    FrozenDateTime.current = now
+    monkeypatch.setattr("app.services.research_report.datetime", FrozenDateTime)
+
+    service = ResearchReportService()
+    service.quote_service.orchestrator.get_candles = AsyncMock(return_value=dataset)
+
+    with pytest.raises(RuntimeError, match="no valid closed-session exception"):
+        await service._dataset("AAPL", Timeframe.HOUR_1, 300, configuration())
