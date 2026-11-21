@@ -189,7 +189,12 @@ class MarketDataOrchestrator:
 
     @staticmethod
     def _fresh_dataset(dataset: OHLCVDataset) -> bool:
-        return dataset.freshness_status in {FreshnessStatus.FRESH, FreshnessStatus.DELAYED} and bool(dataset.completed_candles)
+        if not dataset.completed_candles:
+            return False
+        age = dataset.freshness_age_seconds
+        if age is None or age > dataset.timeframe.seconds + settings.stale_quote_seconds:
+            return False
+        return dataset.freshness_status in {FreshnessStatus.FRESH, FreshnessStatus.DELAYED}
 
     @staticmethod
     def _normalized_error_code(quote: Quote) -> ProviderErrorCode:
