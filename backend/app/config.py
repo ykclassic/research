@@ -25,6 +25,7 @@ class Settings(BaseSettings):
     finnhub_api_key: str = ""
     alpha_vantage_api_key: str = ""
     supabase_url: str = ""
+    supabase_expected_production_project_ref: str = ""
     supabase_publishable_key: str = ""
     auth_session_seconds: int = 604800
     auth_password_reset_redirect_url: str = "http://localhost:5173/?reset=1"
