@@ -11,6 +11,7 @@ from app.providers.kraken_public import KrakenPublicProvider
 from app.services.feature_engine import calculate_feature_set
 from app.services.market_structure import analyze_market_structure
 from app.services.news_research_resilient import ResilientNewsResearchService
+from app.services.market_sessions import closed_session_candle_is_usable
 from app.services.regime_detection import detect_regime
 from app.services.quote_service import QuoteService
 from app.services.research_preferences import ResearchRequestConfiguration as ResolvedResearchConfiguration
@@ -37,13 +38,52 @@ class ResearchReportService:
             raise RuntimeError(f"Validated cache fallback is disabled for {quote.symbol}; live market data is required.")
 
     @staticmethod
-    def _validate_dataset_policy(dataset: OHLCVDataset, config: ResolvedResearchConfiguration) -> None:
-        if config.require_completed_candles and not dataset.completed_candles:
+    def _validate_dataset_policy(
+        dataset: OHLCVDataset,
+        config: ResolvedResearchConfiguration,
+        *,
+        now: datetime | None = None,
+    ) -> None:
+        completed = dataset.latest_completed_candle
+        if config.require_completed_candles and completed is None:
             raise RuntimeError(f"No completed candles are available for {dataset.symbol} {dataset.timeframe.value}.")
-        age = dataset.freshness_age_seconds
-        stale = age is not None and (dataset.freshness_status.value == "STALE" or age > config.maximum_data_age_seconds)
-        if config.reject_stale_data and stale:
-            raise RuntimeError(f"Market candles for {dataset.symbol} {dataset.timeframe.value} are stale ({age:.1f}s); maximum acceptable age is {config.maximum_data_age_seconds}s.")
+
+        observed_at = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
+        if completed is not None:
+            candle_close = completed.timestamp + timedelta(seconds=dataset.timeframe.seconds)
+            age = (observed_at - candle_close).total_seconds()
+            if age < 0:
+                raise RuntimeError(
+                    f"Latest completed candle for {dataset.symbol} {dataset.timeframe.value} "
+                    "closes in the future; refusing future-dated research data."
+                )
+        else:
+            age = dataset.freshness_age_seconds
+
+        # Candle age is measured from the candle close. The normal acceptance
+        # window therefore includes one timeframe plus the configured provider
+        # delivery tolerance; it is not the quote-level age threshold.
+        normal_candle_age_limit = dataset.timeframe.seconds + config.maximum_data_age_seconds
+        provider_marked_stale = dataset.freshness_status.value == "STALE"
+        age_exceeds_normal_limit = age is not None and age > normal_candle_age_limit
+        stale = provider_marked_stale or age_exceeds_normal_limit
+
+        closed_session_usable = (
+            completed is not None
+            and closed_session_candle_is_usable(
+                dataset.symbol,
+                completed.timestamp,
+                dataset.timeframe.seconds,
+                at=observed_at,
+            )
+        )
+        if config.reject_stale_data and stale and not closed_session_usable:
+            age_text = "unknown" if age is None else f"{age:.1f}s"
+            raise RuntimeError(
+                f"Market candles for {dataset.symbol} {dataset.timeframe.value} are stale "
+                f"(age={age_text}); normal maximum age is {normal_candle_age_limit}s "
+                "and no valid closed-session exception applies."
+            )
         if not config.allow_cached_data_fallback and dataset.cache_hit and dataset.fallback_used:
             raise RuntimeError(f"Validated cache fallback is disabled for {dataset.symbol} {dataset.timeframe.value}; live market data is required.")
 
