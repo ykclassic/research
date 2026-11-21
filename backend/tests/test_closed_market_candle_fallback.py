@@ -124,3 +124,22 @@ def test_stale_quote_admission_remains_strict():
     )
 
     assert MarketDataOrchestrator._fresh_quote(stale_quote) is False
+
+
+
+def test_delayed_dataset_beyond_timeframe_tolerance_is_not_fresh():
+    dataset = make_dataset().model_copy(update={
+        "freshness_status": FreshnessStatus.DELAYED,
+        "freshness_age_seconds": Timeframe.DAY_1.seconds + 3600,
+    })
+
+    assert MarketDataOrchestrator._fresh_dataset(dataset) is False
+
+
+def test_delayed_dataset_within_timeframe_tolerance_remains_usable():
+    dataset = make_dataset().model_copy(update={
+        "freshness_status": FreshnessStatus.DELAYED,
+        "freshness_age_seconds": 3600,
+    })
+
+    assert MarketDataOrchestrator._fresh_dataset(dataset) is True
