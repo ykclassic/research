@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, time, timezone
+from datetime import datetime, time, timedelta, timezone
 from zoneinfo import ZoneInfo
 
 from app.symbols import normalize_symbol
@@ -45,3 +45,46 @@ def is_market_open(symbol: str, *, at: datetime | None = None) -> bool:
         return True
 
     return True
+
+
+
+CLOSED_SESSION_CANDLE_AGE_LIMIT_SECONDS = {
+    # FX closes Friday 17:00 ET and conventionally reopens Sunday 17:00 ET.
+    # The 60-hour cap allows the normal 48-hour closure plus a bounded provider
+    # delivery delay. The market-open guard rejects the candle once FX reopens.
+    "forex": 60 * 60 * 60,
+    # US equity/ETF sessions close Friday 16:00 ET and reopen Monday 09:30 ET.
+    # 72 hours bounds the weekend interval plus a modest provider delay.
+    "stock": 72 * 60 * 60,
+    "etf": 72 * 60 * 60,
+}
+
+
+def closed_session_candle_is_usable(
+    symbol: str,
+    latest_completed_timestamp: datetime,
+    timeframe_seconds: int,
+    *,
+    at: datetime | None = None,
+) -> bool:
+    """Whether a completed candle is usable during a bounded market closure.
+
+    This is a historical-research exception only. It does not change quote
+    freshness, provider health, or execution eligibility. Unknown asset
+    classes and continuously traded crypto never receive this exception.
+    """
+    mapping = normalize_symbol(symbol)
+    maximum_age = CLOSED_SESSION_CANDLE_AGE_LIMIT_SECONDS.get(mapping.asset_class)
+    if maximum_age is None:
+        return False
+
+    observed_at = (at or datetime.now(timezone.utc)).astimezone(timezone.utc)
+    if is_market_open(mapping.internal, at=observed_at):
+        return False
+
+    if latest_completed_timestamp.tzinfo is None or latest_completed_timestamp.utcoffset() is None:
+        return False
+
+    candle_close = latest_completed_timestamp.astimezone(timezone.utc) + timedelta(seconds=timeframe_seconds)
+    age_seconds = (observed_at - candle_close).total_seconds()
+    return 0 <= age_seconds <= maximum_age
