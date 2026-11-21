@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import re
+from datetime import datetime, timezone
 from urllib.parse import urlparse
 
 from fastapi import APIRouter, Depends
@@ -17,8 +18,8 @@ router = APIRouter(
 )
 
 PROJECT_REF_PATTERN = re.compile(r"^[a-z0-9]{20}$")
-PROBE_KIND = "read_only_postgrest_billing_plans_limit_1"
-APPROVED_PRODUCTION_PROJECT_REF = "rprgjfvfttxydhbekuoc"
+COMMIT_SHA_PATTERN = re.compile(r"^[0-9a-fA-F]{40}$")
+PROBE_METHOD = "postgrest_service_role_read_only_select_billing_plans_limit_1"
 
 
 def _project_ref_from_url(url: str) -> str | None:
@@ -29,8 +30,6 @@ def _project_ref_from_url(url: str) -> str | None:
     except ValueError:
         return None
 
-    # A service-role key must never be sent to a non-TLS, credential-bearing,
-    # redirected-path, or otherwise ambiguous endpoint.
     if (
         parsed.scheme.lower() != "https"
         or parsed.username is not None
@@ -49,38 +48,66 @@ def _project_ref_from_url(url: str) -> str | None:
     return candidate if PROJECT_REF_PATTERN.fullmatch(candidate) else None
 
 
-@router.get("/database")
-def database_diagnostic() -> dict[str, str | bool | None]:
-    """Protected, read-only diagnostic for the backend's effective DB target.
+def _failure(project_ref: str | None, deployment_sha: str | None, reason: str) -> dict[str, str | None]:
+    return {
+        "project_ref": project_ref,
+        "deployment_sha": deployment_sha,
+        "timestamp_utc": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+        "probe_method": PROBE_METHOD,
+        "status": "failed",
+        "reason_code": reason,
+    }
 
-    Never return credentials, URLs, headers, database addresses, row contents,
-    or raw exception text. Access is restricted to trusted GitHub Actions OIDC.
+
+@router.get("/database")
+def database_diagnostic() -> dict[str, str | None]:
+    """Protected, read-only check of the configured production Supabase target.
+
+    GitHub Actions OIDC authenticates the caller. The database probe separately
+    uses the backend's configured service-role credential for one fixed,
+    read-only PostgREST SELECT. No credential, URL, header, row content, or
+    exception detail is returned.
     """
-    configured = bool(settings.supabase_url.strip() and settings.supabase_service_role_key.strip())
-    project_ref = _project_ref_from_url(settings.supabase_url) if settings.supabase_url else None
-    # Never send a privileged key to an unapproved or malformed target.
-    # This route is protected by GitHub Actions OIDC and performs only a fixed,
-    # read-only SELECT that returns no user data.
-    probe = "not_configured"
-    if configured and project_ref == APPROVED_PRODUCTION_PROJECT_REF:
-        try:
-            response = service_request(
-                "GET",
-                "billing_plans",
-                params={"select": "id", "limit": "1"},
-            )
-            rows = response.json()
-            probe = "ok" if isinstance(rows, list) else "failed"
-        except (DataServiceError, ValueError, TypeError):
-            probe = "failed"
-        except Exception:
-            # Keep unexpected transport/client failures sanitized.
-            probe = "failed"
+    configured_url = settings.supabase_url.strip()
+    project_ref = _project_ref_from_url(configured_url) if configured_url else None
+    expected_ref = settings.supabase_expected_production_project_ref.strip()
+    raw_sha = os.getenv("RENDER_GIT_COMMIT", "").strip()
+    deployment_sha = raw_sha.lower() if COMMIT_SHA_PATTERN.fullmatch(raw_sha) else None
+
+    if not expected_ref:
+        return _failure(project_ref, deployment_sha, "expected_target_missing")
+    if not PROJECT_REF_PATTERN.fullmatch(expected_ref):
+        return _failure(project_ref, deployment_sha, "expected_target_invalid")
+    if project_ref is None:
+        return _failure(None, deployment_sha, "supabase_url_invalid")
+    if project_ref != expected_ref:
+        return _failure(project_ref, deployment_sha, "target_mismatch")
+    if not raw_sha:
+        return _failure(project_ref, None, "deployment_identity_missing")
+    if deployment_sha is None:
+        return _failure(project_ref, None, "deployment_identity_invalid")
+    if not settings.supabase_service_role_key.strip():
+        return _failure(project_ref, deployment_sha, "service_role_key_missing")
+
+    try:
+        response = service_request(
+            "GET",
+            "billing_plans",
+            params={"select": "id", "limit": "1"},
+        )
+        rows = response.json()
+        if not isinstance(rows, list):
+            return _failure(project_ref, deployment_sha, "probe_response_invalid")
+    except (DataServiceError, ValueError, TypeError):
+        return _failure(project_ref, deployment_sha, "probe_failed")
+    except Exception:
+        return _failure(project_ref, deployment_sha, "probe_failed")
 
     return {
-        "configured": configured,
         "project_ref": project_ref,
-        "database_probe": probe,
-        "probe_kind": PROBE_KIND,
-        "deployment_commit": os.getenv("RENDER_GIT_COMMIT"),
+        "deployment_sha": deployment_sha,
+        "timestamp_utc": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+        "probe_method": PROBE_METHOD,
+        "status": "passed",
+        "reason_code": None,
     }
