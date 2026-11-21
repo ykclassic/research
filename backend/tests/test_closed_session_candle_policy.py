@@ -11,7 +11,7 @@ def test_fx_closed_session_admits_completed_candle_within_60_hour_cap():
     # Latest candle closed Wednesday 17:00 ET; observed Saturday 05:00 ET.
     assert closed_session_candle_is_usable(
         "EUR/USD",
-        utc(2026, 11, 18, 22),
+        utc(2026, 11, 18, 20),
         3600,
         at=utc(2026, 11, 21, 10),
     )
