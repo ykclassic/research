@@ -73,9 +73,9 @@ def candle_dataset(
 
 @pytest.mark.asyncio
 async def test_report_accepts_completed_fx_candle_during_weekend_closure(monkeypatch):
-    # Saturday 11:00 New York; last completed FX candle closed Friday 16:00 ET.
+    # Saturday 11:00 New York; last completed FX candle closed Friday 17:00 ET.
     now = datetime(2026, 11, 21, 16, 0, tzinfo=timezone.utc)
-    latest_open = datetime(2026, 11, 20, 20, 0, tzinfo=timezone.utc)
+    latest_open = datetime(2026, 11, 20, 21, 0, tzinfo=timezone.utc)
     dataset = candle_dataset(latest_open=latest_open, now=now)
     FrozenDateTime.current = now
     monkeypatch.setattr("app.services.research_report.datetime", FrozenDateTime)
