@@ -41,6 +41,7 @@ values
   ('free', 'copilot_deep_research', false),
   ('free', 'copilot_multi_step', false),
   ('free', 'phase10_intelligence', false),
+  ('free', 'phase10_intelligence', false),
   ('free', 'live_trade_execution', false),
   ('pro', 'core_research', true),
   ('pro', 'watchlists', true),
@@ -63,6 +64,7 @@ values
   ('pro', 'copilot_deep_research', true),
   ('pro', 'copilot_multi_step', false),
   ('pro', 'phase10_intelligence', true),
+  ('pro', 'phase10_intelligence', true),
   ('pro', 'live_trade_execution', false),
   ('premium', 'core_research', true),
   ('premium', 'watchlists', true),
@@ -84,6 +86,7 @@ values
   ('premium', 'enhanced_signal', true),
   ('premium', 'copilot_deep_research', true),
   ('premium', 'copilot_multi_step', true),
+  ('premium', 'phase10_intelligence', true),
   ('premium', 'phase10_intelligence', true),
   ('premium', 'live_trade_execution', true)
 on conflict (plan_id, feature_id)
