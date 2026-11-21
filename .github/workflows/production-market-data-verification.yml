@@ -1,6 +1,9 @@
 name: Production Market Data Verification
 
 on:
+  push:
+    branches:
+      - main
   workflow_dispatch:
     inputs:
       expected_deployment_commit:
@@ -78,7 +81,7 @@ jobs:
           assert claims.get("repository") == "ykclassic/research"
           assert claims.get("ref") == "refs/heads/main"
           assert claims.get("workflow_ref") == expected_workflow
-          assert claims.get("event_name") in {"schedule", "workflow_dispatch"}
+          assert claims.get("event_name") in {"push", "schedule", "workflow_dispatch"}
           assert claims.get("aud") == "research-production-verifier"
           print("OIDC claims validated:")
           for key in ("repository", "ref", "workflow_ref", "event_name", "aud"):
@@ -104,15 +107,16 @@ jobs:
           expected_commit = sys.argv[3].strip()
           expected_ref = "rprgjfvfttxydhbekuoc"
 
-          if not diagnostic.get("configured"):
-              raise SystemExit("FAIL: production database target is not configured.")
+          if diagnostic.get("status") != "passed":
+              reason = diagnostic.get("reason_code") or "unspecified_failure"
+              raise SystemExit(f"FAIL: production database diagnostic returned {reason}.")
+          if diagnostic.get("reason_code") is not None:
+              raise SystemExit("FAIL: diagnostic returned a failure reason despite passed status.")
           if diagnostic.get("project_ref") != expected_ref:
               raise SystemExit("FAIL: running service targets an unexpected Supabase project.")
-          if diagnostic.get("database_probe") != "ok":
-              raise SystemExit("FAIL: read-only database probe failed.")
-          if diagnostic.get("probe_kind") != "read_only_postgrest_billing_plans_limit_1":
+          if diagnostic.get("probe_method") != "postgrest_service_role_read_only_select_billing_plans_limit_1":
               raise SystemExit("FAIL: unexpected database probe contract.")
-          diagnostic_commit = diagnostic.get("deployment_commit")
+          diagnostic_commit = diagnostic.get("deployment_sha")
           health_commit = health.get("deployment_commit")
           if not diagnostic_commit or diagnostic_commit != health_commit:
               raise SystemExit("FAIL: health and database diagnostic deployment identities differ.")
@@ -121,9 +125,9 @@ jobs:
 
           print("PASS: effective production database target verified.")
           print(f"  project_ref={diagnostic['project_ref']}")
-          print(f"  database_probe={diagnostic['database_probe']}")
-          print(f"  probe_kind={diagnostic['probe_kind']}")
-          print(f"  deployment_commit={diagnostic_commit}")
+          print(f"  status={diagnostic['status']}")
+          print(f"  probe_method={diagnostic['probe_method']}")
+          print(f"  deployment_sha={diagnostic_commit}")
           PY
 
       # MTF is the primary candle consumer. Run it first so a successful
