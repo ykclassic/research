@@ -185,3 +185,76 @@ def test_research_copilot_usage_metric_is_registered(monkeypatch):
     result = entitlement.consume_usage("token", "user", "copilot_research_runs")
 
     assert result["allowed"] is True
+
+
+def test_billing_plan_catalog_returns_complete_fail_closed_matrix(monkeypatch):
+    plans = [
+        {"id": "free", "name": "Free"},
+        {"id": "pro", "name": "Pro"},
+        {"id": "premium", "name": "Premium / Professional"},
+    ]
+    features = [
+        {"id": "backtesting"},
+        {"id": "webhooks"},
+        {"id": "copilot_deep_research"},
+        {"id": "copilot_multi_step"},
+        {"id": "live_trade_execution"},
+    ]
+    rows = [
+        {"plan_id": "free", "feature_id": "backtesting", "enabled": False},
+        {"plan_id": "pro", "feature_id": "backtesting", "enabled": True},
+        {"plan_id": "pro", "feature_id": "copilot_deep_research", "enabled": True},
+        {"plan_id": "pro", "feature_id": "copilot_multi_step", "enabled": False},
+        {"plan_id": "pro", "feature_id": "webhooks", "enabled": False},
+        {"plan_id": "premium", "feature_id": "backtesting", "enabled": True},
+        {"plan_id": "premium", "feature_id": "copilot_deep_research", "enabled": True},
+        {"plan_id": "premium", "feature_id": "copilot_multi_step", "enabled": True},
+        {"plan_id": "premium", "feature_id": "webhooks", "enabled": True},
+        {"plan_id": "premium", "feature_id": "live_trade_execution", "enabled": True},
+    ]
+    payloads = {
+        "billing_plans": plans,
+        "billing_features": features,
+        "billing_plan_features": rows,
+    }
+
+    def request(method, path, *args, **kwargs):
+        response = Mock()
+        response.json.return_value = payloads[path]
+        return response
+
+    monkeypatch.setattr(entitlement, "_request", request)
+    catalog = entitlement.get_billing_plan_catalog("token")
+    by_plan = {plan["id"]: plan for plan in catalog}
+
+    assert by_plan["pro"]["features"] == {
+        "backtesting": True,
+        "webhooks": False,
+        "copilot_deep_research": True,
+        "copilot_multi_step": False,
+        "live_trade_execution": False,
+    }
+    assert by_plan["premium"]["features"]["copilot_multi_step"] is True
+    assert by_plan["premium"]["features"]["live_trade_execution"] is True
+    assert by_plan["free"]["features"]["backtesting"] is False
+
+
+def test_phase10_entitlement_is_registered():
+    assert "phase10_intelligence" in entitlement.FEATURE_KEYS
+
+
+def test_pro_cannot_resolve_premium_only_entitlements(monkeypatch):
+    for feature in ("webhooks", "api", "mcp", "team_workspaces", "copilot_multi_step", "live_trade_execution"):
+        monkeypatch.setattr(
+            entitlement,
+            "get_entitlement_snapshot",
+            lambda *_: {
+                "plan_id": "pro",
+                "features": {feature: False},
+                "plan": {"id": "pro"},
+                "limits": {},
+                "subscription": None,
+            },
+        )
+        with pytest.raises(entitlement.FeatureNotEntitledError):
+            entitlement.require_feature("token", "user", feature)
