@@ -1,4 +1,4 @@
-export interface BillingPlan { id:string; name:string; description:string; monthly_price_minor:number; currency:string; display_order:number; active:boolean; }
+export interface BillingPlan { id:string; name:string; description:string; monthly_price_minor:number; currency:string; display_order:number; active:boolean; features:Record<string,boolean>; }
 export interface BillingSubscription { id:string; user_id:string; plan_id:string; status:"trialing"|"active"|"past_due"|"unpaid"|"paused"|"canceled"|"expired"; provider:string; provider_customer_id:string|null; provider_subscription_id:string|null; trial_started_at:string|null; trial_ends_at:string|null; current_period_start:string|null; current_period_end:string|null; cancel_at_period_end:boolean; canceled_at:string|null; }
 export interface EntitlementSnapshot { plan:BillingPlan; plan_id:string; features:Record<string,boolean>; limits:Record<string,{limit:number;reset_period:string}>; subscription:BillingSubscription|null; }
 export interface UsageMetric { used:number; limit:number; remaining:number|null; reset_period:string; }
