@@ -36,7 +36,7 @@ PRO_ENABLED = {
 def test_migration_defines_complete_explicit_feature_matrix():
     sql = MIGRATION.read_text(encoding="utf-8")
     rows = re.findall(
-        r"\('(free|pro|premium)',\s*'([a-z_]+)',\s*(true|false)\)",
+        r"\('(free|pro|premium)',\s*'([a-z0-9_]+)',\s*(true|false)\)",
         sql,
         flags=re.IGNORECASE,
     )
