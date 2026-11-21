@@ -63,13 +63,13 @@ class ResearchReportService:
                 return dataset
             except Exception as primary_error:
                 try:
-                    dataset = await asyncio.wait_for(self.quote_service.orchestrator.get_candles(mapping.internal, timeframe, limit), timeout=timeout)
+                    dataset = await asyncio.wait_for(self.quote_service.orchestrator.get_candles(mapping.internal, timeframe, limit, allow_stale=True), timeout=timeout)
                     if validate_policy:
                         self._validate_dataset_policy(dataset, config)
                     return dataset
                 except Exception as fallback_error:
                     raise RuntimeError(f"Crypto candle acquisition failed for {mapping.internal} {timeframe.value}: primary={primary_error}; fallback={fallback_error}") from fallback_error
-        dataset = await asyncio.wait_for(self.quote_service.orchestrator.get_candles(mapping.internal, timeframe, limit), timeout=timeout)
+        dataset = await asyncio.wait_for(self.quote_service.orchestrator.get_candles(mapping.internal, timeframe, limit, allow_stale=True), timeout=timeout)
         if validate_policy:
             self._validate_dataset_policy(dataset, config)
         return dataset
